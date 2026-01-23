@@ -1,0 +1,51 @@
+"""Models module containing all SQLAlchemy models."""
+
+from app.models.base import BaseModel, TimestampMixin, AuditMixin
+from app.models.user import User
+from app.models.patient import Patient
+from app.models.doctor import Doctor, DoctorSpecialization, DoctorAvailability
+from app.models.hospital import Hospital, Department
+from app.models.consultation import Consultation
+from app.models.medical_report import MedicalReport
+from app.models.hotel import Hotel, Room, RoomAvailability
+from app.models.restaurant import Restaurant, MenuItem, MealBooking
+from app.models.booking import Booking
+from app.models.payment import Payment, PaymentTransaction
+from app.models.chat import ChatRoom, ChatMessage, ChatParticipant
+from app.models.ai_log import AILog, AIConversation
+from app.models.cms import CMSPage, CMSBlock
+from app.models.site import (
+    Destination, Treatment, BlogPost, Testimonial, FAQ,
+    TeamMember, LeadSubmission, SiteSettings, Navigation
+)
+
+__all__ = [
+    "BaseModel",
+    "TimestampMixin",
+    "AuditMixin",
+    "User",
+    "Patient",
+    "Doctor",
+    "DoctorSpecialization",
+    "DoctorAvailability",
+    "Hospital",
+    "Department",
+    "Consultation",
+    "MedicalReport",
+    "Hotel",
+    "Room",
+    "RoomAvailability",
+    "Restaurant",
+    "MenuItem",
+    "MealBooking",
+    "Booking",
+    "Payment",
+    "PaymentTransaction",
+    "ChatRoom",
+    "ChatMessage",
+    "ChatParticipant",
+    "AILog",
+    "AIConversation",
+    "CMSPage",
+    "CMSBlock",
+]
