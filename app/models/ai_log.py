@@ -82,7 +82,7 @@ class AIConversation(BaseModel):
     )
 
     # Metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    log_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
     )

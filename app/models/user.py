@@ -11,9 +11,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import BaseModel
 from app.utils.enums import UserRole
 
-if TYPE_CHECKING:
-    from app.models.patient import Patient
-    from app.models.doctor import Doctor
+from app.models.patient import Patient
+from app.models.doctor import Doctor
 
 
 class User(BaseModel):
@@ -104,15 +103,17 @@ class User(BaseModel):
     )
 
     # Relationships
-    patient_profile: Mapped[Optional["Patient"]] = relationship(
-        "Patient",
+    patient_profile: Mapped[Optional[Patient]] = relationship(
+        Patient,
         back_populates="user",
+        foreign_keys=[Patient.user_id],
         uselist=False,
         lazy="selectin",
     )
-    doctor_profile: Mapped[Optional["Doctor"]] = relationship(
-        "Doctor",
+    doctor_profile: Mapped[Optional[Doctor]] = relationship(
+        Doctor,
         back_populates="user",
+        foreign_keys=[Doctor.user_id],
         uselist=False,
         lazy="selectin",
     )

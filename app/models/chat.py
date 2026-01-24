@@ -60,7 +60,7 @@ class ChatRoom(BaseModel):
         default=0,
         nullable=False,
     )
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    chat_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
     )
@@ -223,7 +223,7 @@ class ChatMessage(BaseModel):
     )  # {user_id: timestamp}
 
     # Metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    message_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
     )

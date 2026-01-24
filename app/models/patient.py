@@ -151,6 +151,7 @@ class Patient(BaseModel):
     user: Mapped["User"] = relationship(
         "User",
         back_populates="patient_profile",
+        foreign_keys=[user_id],
     )
     consultations: Mapped[List["Consultation"]] = relationship(
         "Consultation",

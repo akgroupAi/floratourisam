@@ -178,3 +178,35 @@ async def get_current_active_superuser(current_user: CurrentUser) -> User:
 
 
 SuperUser = Annotated[User, Depends(get_current_active_superuser)]
+
+
+async def get_current_patient(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> "Patient":
+    """Get current patient profile. Raises if user is not a patient or has no profile."""
+    from app.models.patient import Patient
+    from sqlalchemy import select
+
+    if current_user.role != UserRole.PATIENT.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only patients can access this endpoint",
+        )
+
+    # Get patient profile
+    result = await db.execute(
+        select(Patient).where(
+            Patient.user_id == current_user.id,
+            Patient.is_deleted == False,
+        )
+    )
+    patient = result.scalar_one_or_none()
+
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Patient profile not found",
+        )
+
+    return patient

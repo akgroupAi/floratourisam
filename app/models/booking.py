@@ -203,7 +203,7 @@ class Booking(BaseModel):
     )
 
     # Metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    booking_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
     )

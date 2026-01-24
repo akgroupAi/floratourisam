@@ -36,7 +36,7 @@ class Notification(BaseModel):
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # Metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    config_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     
     # Channels
     sent_push: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -106,7 +106,7 @@ class EmailLog(BaseModel):
     provider_message_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
     # Metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    audit_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
 
 class Event(BaseModel):
@@ -158,7 +158,7 @@ class Event(BaseModel):
     color: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     
     # Metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    notification_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
 
 class AdminConfig(BaseModel):
@@ -247,7 +247,7 @@ class Document(BaseModel):
     storage_bucket: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     
     # Metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    webhook_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     
     # Checksum
     checksum: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)  # SHA-256
