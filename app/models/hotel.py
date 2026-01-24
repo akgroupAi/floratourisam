@@ -330,7 +330,7 @@ class RoomAvailability(BaseModel):
         ForeignKey("rooms.id", ondelete="CASCADE"),
         nullable=False,
     )
-    date: Mapped[date] = mapped_column(
+    availability_date: Mapped[date] = mapped_column(
         Date,
         nullable=False,
         index=True,
