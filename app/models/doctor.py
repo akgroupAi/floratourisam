@@ -144,6 +144,7 @@ class Doctor(BaseModel):
     user: Mapped["User"] = relationship(
         "User",
         back_populates="doctor_profile",
+        foreign_keys=[user_id],
     )
     hospital: Mapped[Optional["Hospital"]] = relationship(
         "Hospital",

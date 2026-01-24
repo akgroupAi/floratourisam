@@ -231,7 +231,7 @@ class PaymentTransaction(BaseModel):
     )
 
     # Metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    transaction_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
     )
