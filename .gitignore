@@ -153,12 +153,28 @@ venv.bak/
 
 # mkdocs documentation
 /site
-
-# mypy
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+ENV/
+.env
+.env.*
+!.env.example
+*.log
+logs/
+uvicorn.log
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
 # Pyre type checker
 .pyre/
 
@@ -205,3 +221,37 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ================================
+# OS Files
+# ================================
+.DS_Store
+Thumbs.db
+
+# ================================
+# Build / Packaging
+# ================================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ================================
+# Jupyter (if used)
+# ================================
+.ipynb_checkpoints/
+
+# ================================
+# Database / Local data
+# ================================
+*.sqlite3
+*.db
+
+# ================================
+# Docker (optional)
+# ================================
+.dockerignore
