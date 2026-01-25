@@ -50,10 +50,10 @@ class Doctor(BaseModel):
         String(50),
         nullable=True,
     )  # Dr., Prof., etc.
-    license_number: Mapped[str] = mapped_column(
+    license_number: Mapped[Optional[str]] = mapped_column(
         String(100),
         unique=True,
-        nullable=False,
+        nullable=True,
     )
     license_expiry: Mapped[Optional[date]] = mapped_column(
         Date,

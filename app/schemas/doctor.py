@@ -1,10 +1,10 @@
 """Doctor schemas."""
 
 from datetime import date, datetime, time
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.common import BaseSchema
 
@@ -53,7 +53,7 @@ class DoctorBase(BaseModel):
     """Base doctor schema."""
 
     title: Optional[str] = Field(default=None, max_length=50)
-    license_number: str = Field(..., max_length=100)
+    license_number: Optional[str] = Field(default=None, max_length=100)
     license_expiry: Optional[date] = None
     years_of_experience: Optional[int] = Field(default=None, ge=0, le=70)
 
@@ -111,6 +111,35 @@ class DoctorListResponse(BaseSchema):
     video_consultation_enabled: bool = True
     chat_consultation_enabled: bool = True
 
+    @model_validator(mode='before')
+    @classmethod
+    def flatten_doctor_data(cls, obj: Any) -> Any:
+        """Flatten doctor data from relationships."""
+        if hasattr(obj, 'user') and obj.user:
+            # We need to return an object that has attributes matching the schema
+            # Or a dict. Since obj is likely an ORM object, let's create a proxy or modify it
+            # But simpler is to return a dict if possible, but BaseSchema handles attributes.
+            # Let's attach the missing attributes to the object or return a dict.
+            
+            # Since pydantic v2 from_attributes=True supports dicts too, let's try returning a dict
+            return {
+                'id': obj.id,
+                'user_id': obj.user_id,
+                'full_name': obj.user.full_name,
+                'title': obj.title,
+                'hospital_name': obj.hospital.name if obj.hospital else None,
+                'primary_specialization': obj.specializations[0].specialization if obj.specializations else None,
+                'years_of_experience': obj.years_of_experience,
+                'consultation_fee': obj.consultation_fee,
+                'rating': obj.rating,
+                'total_reviews': obj.total_reviews,
+                'is_verified': obj.is_verified,
+                'avatar_url': obj.user.avatar_url,
+                'video_consultation_enabled': obj.video_consultation_enabled,
+                'chat_consultation_enabled': obj.chat_consultation_enabled,
+            }
+        return obj
+
 
 class DoctorResponse(BaseSchema):
     """Doctor detail response schema."""
@@ -119,7 +148,7 @@ class DoctorResponse(BaseSchema):
     user_id: UUID
     hospital_id: Optional[UUID] = None
     title: Optional[str] = None
-    license_number: str
+    license_number: Optional[str] = None
     license_expiry: Optional[date] = None
     years_of_experience: Optional[int] = None
     qualifications: Optional[List[str]] = None
@@ -151,6 +180,47 @@ class DoctorResponse(BaseSchema):
 
     # Hospital info
     hospital_name: Optional[str] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def flatten_doctor_detail(cls, obj: Any) -> Any:
+        """Flatten doctor detail data."""
+        if hasattr(obj, 'user') and obj.user:
+            return {
+                'id': obj.id,
+                'user_id': obj.user_id,
+                'hospital_id': obj.hospital_id,
+                'title': obj.title,
+                'license_number': obj.license_number,
+                'license_expiry': obj.license_expiry,
+                'years_of_experience': obj.years_of_experience,
+                'qualifications': obj.qualifications,
+                'education': obj.education,
+                'certifications': obj.certifications,
+                'bio': obj.bio,
+                'languages_spoken': obj.languages_spoken,
+                'consultation_fee': obj.consultation_fee,
+                'consultation_duration_minutes': obj.consultation_duration_minutes,
+                'video_consultation_enabled': obj.video_consultation_enabled,
+                'chat_consultation_enabled': obj.chat_consultation_enabled,
+                'in_person_enabled': obj.in_person_enabled,
+                'rating': obj.rating,
+                'total_reviews': obj.total_reviews,
+                'total_consultations': obj.total_consultations,
+                'is_verified': obj.is_verified,
+                'verification_date': obj.verification_date,
+                'created_at': obj.created_at,
+                'specializations': obj.specializations,
+                'availability': obj.availability,
+                'full_name': obj.user.full_name,
+                'email': obj.user.email,
+                'phone': obj.user.phone,
+                'avatar_url': obj.user.avatar_url,
+                'hospital_name': obj.hospital.name if obj.hospital else None,
+            }
+        return obj
+
+
 
 
 class DoctorSlotResponse(BaseModel):
