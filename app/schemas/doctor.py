@@ -243,3 +243,137 @@ class DoctorSearchParams(BaseModel):
     video_enabled: Optional[bool] = None
     available_on: Optional[date] = None
     language: Optional[str] = None
+
+
+# Hospital schemas for doctor hospital management
+class DoctorHospitalCreate(BaseModel):
+    """Schema for creating/adding hospital to doctor's profile."""
+
+    name: str = Field(..., max_length=255)
+    slug: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None
+    short_description: Optional[str] = Field(default=None, max_length=500)
+    
+    # Contact information
+    email: Optional[str] = Field(default=None, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=20)
+    website: Optional[str] = Field(default=None, max_length=500)
+    
+    # Location
+    address_line1: str = Field(..., max_length=255)
+    address_line2: Optional[str] = Field(default=None, max_length=255)
+    city: str = Field(..., max_length=100)
+    state: Optional[str] = Field(default=None, max_length=100)
+    country: str = Field(..., max_length=100)
+    postal_code: Optional[str] = Field(default=None, max_length=20)
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    
+    # Media
+    logo_url: Optional[str] = Field(default=None, max_length=500)
+    cover_image_url: Optional[str] = Field(default=None, max_length=500)
+    gallery: Optional[List[str]] = None
+    
+    # Accreditation and facilities
+    accreditations: Optional[List[str]] = None
+    specialties: Optional[List[str]] = None
+    languages_supported: Optional[List[str]] = None
+    facilities: Optional[dict] = None
+    
+    # SEO
+    meta_title: Optional[str] = Field(default=None, max_length=255)
+    meta_description: Optional[str] = Field(default=None, max_length=500)
+
+
+class DoctorHospitalUpdate(BaseModel):
+    """Schema for updating doctor's hospital information."""
+
+    name: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None
+    short_description: Optional[str] = Field(default=None, max_length=500)
+    
+    # Contact information
+    email: Optional[str] = Field(default=None, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=20)
+    website: Optional[str] = Field(default=None, max_length=500)
+    
+    # Location
+    address_line1: Optional[str] = Field(default=None, max_length=255)
+    address_line2: Optional[str] = Field(default=None, max_length=255)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=100)
+    country: Optional[str] = Field(default=None, max_length=100)
+    postal_code: Optional[str] = Field(default=None, max_length=20)
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    
+    # Media
+    logo_url: Optional[str] = Field(default=None, max_length=500)
+    cover_image_url: Optional[str] = Field(default=None, max_length=500)
+    gallery: Optional[List[str]] = None
+    
+    # Accreditation and facilities
+    accreditations: Optional[List[str]] = None
+    specialties: Optional[List[str]] = None
+    languages_supported: Optional[List[str]] = None
+    facilities: Optional[dict] = None
+    
+    # SEO
+    meta_title: Optional[str] = Field(default=None, max_length=255)
+    meta_description: Optional[str] = Field(default=None, max_length=500)
+
+
+class DoctorHospitalResponse(BaseSchema):
+    """Response schema for doctor's hospital information."""
+
+    id: UUID
+    name: str
+    slug: str
+    description: Optional[str] = None
+    short_description: Optional[str] = None
+    
+    # Contact information
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+    
+    # Location
+    address_line1: str
+    address_line2: Optional[str] = None
+    city: str
+    state: Optional[str] = None
+    country: str
+    postal_code: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    
+    # Media
+    logo_url: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    gallery: Optional[List[str]] = None
+    
+    # Accreditation and ratings
+    accreditations: Optional[List[str]] = None
+    rating: Optional[float] = None
+    total_reviews: int = 0
+    
+    # Facilities
+    facilities: Optional[dict] = None
+    specialties: Optional[List[str]] = None
+    languages_supported: Optional[List[str]] = None
+    
+    # Status
+    is_active: bool = True
+    is_verified: bool = False
+    is_featured: bool = False
+    
+    # Statistics
+    total_doctors: int = 0
+    total_patients_served: int = 0
+    
+    # SEO
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
+    
+    created_at: datetime
+

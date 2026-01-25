@@ -242,3 +242,149 @@ class DoctorService:
         logger.info("doctor_deleted", doctor_id=str(doctor.id))
 
         return True
+
+    # Hospital management methods
+    async def get_doctor_hospital(self, doctor: Doctor):
+        """Get the hospital associated with the doctor."""
+        if not doctor.hospital_id:
+            return None
+        
+        from app.models.hospital import Hospital
+        
+        result = await self.db.execute(
+            select(Hospital)
+            .where(Hospital.id == doctor.hospital_id, Hospital.is_deleted == False)
+        )
+        return result.scalar_one_or_none()
+
+    async def add_doctor_hospital(
+        self,
+        doctor: Doctor,
+        data,
+        created_by: Optional[UUID] = None,
+    ):
+        """Create a new hospital and link it to the doctor."""
+        from app.models.hospital import Hospital
+        import re
+        
+        # Generate slug if not provided
+        slug = data.slug if data.slug else re.sub(r'[^a-z0-9]+', '-', data.name.lower()).strip('-')
+        
+        # Check if doctor already has a hospital
+        if doctor.hospital_id:
+            raise ValueError("Doctor already has a hospital. Use update or delete first.")
+        
+        # Create hospital
+        hospital = Hospital(
+            name=data.name,
+            slug=slug,
+            description=data.description,
+            short_description=data.short_description,
+            email=data.email,
+            phone=data.phone,
+            website=data.website,
+            address_line1=data.address_line1,
+            address_line2=data.address_line2,
+            city=data.city,
+            state=data.state,
+            country=data.country,
+            postal_code=data.postal_code,
+            latitude=data.latitude,
+            longitude=data.longitude,
+            logo_url=data.logo_url,
+            cover_image_url=data.cover_image_url,
+            gallery=data.gallery,
+            accreditations=data.accreditations,
+            specialties=data.specialties,
+            languages_supported=data.languages_supported,
+            facilities=data.facilities,
+            meta_title=data.meta_title,
+            meta_description=data.meta_description,
+            created_by=created_by,
+            total_doctors=1,  # Starting with this doctor
+        )
+        
+        self.db.add(hospital)
+        await self.db.flush()
+        
+        # Link hospital to doctor
+        doctor.hospital_id = hospital.id
+        doctor.updated_by = created_by
+        doctor.updated_at = datetime.now(timezone.utc)
+        
+        await self.db.commit()
+        await self.db.refresh(hospital)
+        
+        logger.info("doctor_hospital_created", doctor_id=str(doctor.id), hospital_id=str(hospital.id))
+        
+        return hospital
+
+    async def update_doctor_hospital(
+        self,
+        doctor: Doctor,
+        data,
+        updated_by: Optional[UUID] = None,
+    ):
+        """Update the doctor's hospital information."""
+        from app.models.hospital import Hospital
+        
+        if not doctor.hospital_id:
+            raise ValueError("Doctor does not have a hospital to update.")
+        
+        result = await self.db.execute(
+            select(Hospital)
+            .where(Hospital.id == doctor.hospital_id, Hospital.is_deleted == False)
+        )
+        hospital = result.scalar_one_or_none()
+        
+        if not hospital:
+            raise ValueError("Hospital not found.")
+        
+        update_data = data.model_dump(exclude_unset=True)
+        
+        for field, value in update_data.items():
+            setattr(hospital, field, value)
+        
+        hospital.updated_by = updated_by
+        hospital.updated_at = datetime.now(timezone.utc)
+        
+        await self.db.commit()
+        await self.db.refresh(hospital)
+        
+        logger.info("doctor_hospital_updated", doctor_id=str(doctor.id), hospital_id=str(hospital.id))
+        
+        return hospital
+
+    async def delete_doctor_hospital(
+        self,
+        doctor: Doctor,
+        deleted_by: UUID,
+        delete_hospital: bool = False,
+    ) -> bool:
+        """Remove hospital association from doctor. Optionally soft delete the hospital."""
+        from app.models.hospital import Hospital
+        
+        if not doctor.hospital_id:
+            raise ValueError("Doctor does not have a hospital to remove.")
+        
+        hospital_id = doctor.hospital_id
+        
+        # Remove association
+        doctor.hospital_id = None
+        doctor.updated_by = deleted_by
+        doctor.updated_at = datetime.now(timezone.utc)
+        
+        if delete_hospital:
+            result = await self.db.execute(
+                select(Hospital).where(Hospital.id == hospital_id)
+            )
+            hospital = result.scalar_one_or_none()
+            if hospital:
+                hospital.soft_delete(deleted_by)
+        
+        await self.db.commit()
+        
+        logger.info("doctor_hospital_removed", doctor_id=str(doctor.id), hospital_id=str(hospital_id))
+        
+        return True
+

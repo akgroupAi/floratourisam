@@ -5,7 +5,10 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireDoctor
 from app.schemas.common import PaginatedResponse, PaginationParams
-from app.schemas.doctor import DoctorCreate, DoctorListResponse, DoctorResponse, DoctorUpdate, DoctorAvailabilityCreate
+from app.schemas.doctor import (
+    DoctorCreate, DoctorListResponse, DoctorResponse, DoctorUpdate, 
+    DoctorAvailabilityCreate, DoctorHospitalCreate, DoctorHospitalUpdate, DoctorHospitalResponse
+)
 from app.services.doctor_service import DoctorService
 
 router = APIRouter()
@@ -50,6 +53,70 @@ async def set_my_availability(data: list[DoctorAvailabilityCreate], current_user
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor profile not found")
     return await service.set_availability(doctor, data)
+
+
+# Hospital management endpoints
+@router.get("/me/hospital", response_model=DoctorHospitalResponse)
+async def get_my_hospital(current_user: CurrentUser, db: DatabaseSession):
+    """Get current doctor's hospital information."""
+    service = DoctorService(db)
+    doctor = await service.get_by_user_id(current_user.id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    
+    hospital = await service.get_doctor_hospital(doctor)
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital not found. Please add hospital information first.")
+    return hospital
+
+
+@router.post("/me/hospital", response_model=DoctorHospitalResponse, status_code=201)
+async def add_my_hospital(data: DoctorHospitalCreate, current_user: CurrentUser, db: DatabaseSession):
+    """Add hospital information to current doctor's profile."""
+    service = DoctorService(db)
+    doctor = await service.get_by_user_id(current_user.id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    
+    try:
+        hospital = await service.add_doctor_hospital(doctor, data, current_user.id)
+        return hospital
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/me/hospital", response_model=DoctorHospitalResponse)
+async def update_my_hospital(data: DoctorHospitalUpdate, current_user: CurrentUser, db: DatabaseSession):
+    """Update current doctor's hospital information."""
+    service = DoctorService(db)
+    doctor = await service.get_by_user_id(current_user.id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    
+    try:
+        hospital = await service.update_doctor_hospital(doctor, data, current_user.id)
+        return hospital
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/me/hospital", status_code=204)
+async def delete_my_hospital(
+    current_user: CurrentUser, 
+    db: DatabaseSession,
+    delete_hospital: bool = Query(False, description="If true, also soft-delete the hospital record")
+):
+    """Remove hospital from current doctor's profile."""
+    service = DoctorService(db)
+    doctor = await service.get_by_user_id(current_user.id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    
+    try:
+        await service.delete_doctor_hospital(doctor, current_user.id, delete_hospital)
+        return None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/{doctor_id}", response_model=DoctorResponse)
