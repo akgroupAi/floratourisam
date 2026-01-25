@@ -18,6 +18,9 @@ from app.core.middleware import (
 from app.db.session import close_db, engine
 from app.db.base import Base
 from app.utils.constants import API_V1_PREFIX
+from fastapi.staticfiles import StaticFiles
+import os
+
 
 logger = get_logger(__name__)
 
@@ -69,6 +72,13 @@ app.add_exception_handler(CustomHTTPException, http_exception_handler)
 # Include API router
 app.include_router(api_router, prefix=API_V1_PREFIX)
 
+# Ensure upload directory exists
+os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+
+# Mount static files
+app.mount("/static/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+
+
 
 @app.get("/", tags=["Health"])
 async def root():
@@ -111,3 +121,4 @@ if __name__ == "__main__":
         port=settings.PORT,
         reload=settings.DEBUG,
     )
+    # Trigger reload for swagger update

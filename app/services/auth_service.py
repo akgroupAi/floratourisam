@@ -121,12 +121,39 @@ class AuthService:
         )
 
         self.db.add(user)
+        await self.db.flush()  # Flush to get user.id before creating profile
+
+        # Create role-specific profile
+        if request.role.value == UserRole.DOCTOR.value:
+            from app.models.doctor import Doctor
+            
+            # Create doctor profile with placeholder license number
+            doctor = Doctor(
+                user_id=user.id,
+                license_number=None,  # Will be updated later by the doctor
+                created_by=user.id,
+            )
+            self.db.add(doctor)
+            logger.info("doctor_profile_created", user_id=str(user.id))
+            
+        elif request.role.value == UserRole.PATIENT.value:
+            from app.models.patient import Patient
+            
+            # Create patient profile
+            patient = Patient(
+                user_id=user.id,
+                created_by=user.id,
+            )
+            self.db.add(patient)
+            logger.info("patient_profile_created", user_id=str(user.id))
+
         await self.db.commit()
         await self.db.refresh(user)
 
-        logger.info("user_registered", user_id=str(user.id), email=user.email)
+        logger.info("user_registered", user_id=str(user.id), email=user.email, role=user.role)
 
         return user
+
 
     async def refresh_tokens(self, refresh_token: str) -> Optional[TokenResponse]:
         """Refresh access token using refresh token.

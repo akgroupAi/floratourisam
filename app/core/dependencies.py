@@ -184,29 +184,17 @@ async def get_current_patient(
     current_user: CurrentUser,
     db: DatabaseSession,
 ) -> "Patient":
-    """Get current patient profile. Raises if user is not a patient or has no profile."""
-    from app.models.patient import Patient
-    from sqlalchemy import select
+    """Get current patient profile. Creates one if it doesn't exist."""
+    from app.services.patient_service import PatientService
 
-    if current_user.role != UserRole.PATIENT.value:
+    # Allow Patients and Admins
+    allowed_roles = [UserRole.PATIENT.value, UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]
+    if current_user.role not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only patients can access this endpoint",
+            detail="Insufficient permissions to access patient profile",
         )
 
-    # Get patient profile
-    result = await db.execute(
-        select(Patient).where(
-            Patient.user_id == current_user.id,
-            Patient.is_deleted == False,
-        )
-    )
-    patient = result.scalar_one_or_none()
-
-    if not patient:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Patient profile not found",
-        )
-
-    return patient
+    # Get or create patient profile
+    service = PatientService(db)
+    return await service.get_or_create(current_user.id)

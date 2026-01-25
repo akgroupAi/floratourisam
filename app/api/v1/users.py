@@ -3,7 +3,7 @@
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, UploadFile, File
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.schemas.common import PaginatedResponse, PaginationParams
@@ -28,6 +28,17 @@ async def update_current_user(data: UserUpdate, current_user: CurrentUser, db: D
     """Update current user profile."""
     service = UserService(db)
     return await service.update(current_user, data, current_user.id)
+
+
+@router.post("/me/avatar", response_model=UserResponse)
+async def upload_avatar(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    file: UploadFile = File(...),
+):
+    """Upload user avatar."""
+    service = UserService(db)
+    return await service.upload_avatar(current_user, file)
 
 
 @router.get("", response_model=PaginatedResponse[UserListResponse], dependencies=[RequireAdmin])

@@ -2,7 +2,7 @@
 
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
-from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
+from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequirePatient
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.schemas.patient import PatientCreate, PatientDetailResponse, PatientResponse, PatientUpdate
 from app.services.patient_service import PatientService
@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 @router.get("/me", response_model=PatientDetailResponse)
-async def get_my_profile(current_user: CurrentUser, db: DatabaseSession):
+async def get_my_profile(db: DatabaseSession, current_user = RequirePatient):
     """Get current user's patient profile."""
     service = PatientService(db)
     patient = await service.get_or_create(current_user.id)
@@ -19,7 +19,7 @@ async def get_my_profile(current_user: CurrentUser, db: DatabaseSession):
 
 
 @router.put("/me", response_model=PatientResponse)
-async def update_my_profile(data: PatientUpdate, current_user: CurrentUser, db: DatabaseSession):
+async def update_my_profile(data: PatientUpdate, db: DatabaseSession, current_user = RequirePatient):
     """Update current user's patient profile."""
     service = PatientService(db)
     patient = await service.get_or_create(current_user.id)

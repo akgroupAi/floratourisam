@@ -2,7 +2,7 @@
 
 import logging
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 import structlog
 from structlog.types import Processor
@@ -14,7 +14,7 @@ def setup_logging() -> None:
     """Configure structured logging for the application."""
 
     # Shared processors for both structlog and standard logging
-    shared_processors: list[Processor] = [
+    shared_processors: List[Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
@@ -101,7 +101,7 @@ def log_request_info(
     request_id: str,
     method: str,
     path: str,
-    user_id: str | None = None,
+    user_id: Optional[str] = None,
     **extra: Any,
 ) -> Dict[str, Any]:
     """Create a standardized request log entry.
