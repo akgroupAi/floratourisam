@@ -35,6 +35,8 @@ class DoctorAvailabilityCreate(BaseModel):
     is_available: bool = True
     slot_duration_minutes: int = Field(default=30, ge=15, le=120)
     max_appointments: Optional[int] = Field(default=None, ge=1)
+    break_start_time: Optional[time] = None
+    break_end_time: Optional[time] = None
 
 
 class DoctorAvailabilityResponse(BaseSchema):
@@ -47,6 +49,8 @@ class DoctorAvailabilityResponse(BaseSchema):
     is_available: bool
     slot_duration_minutes: int
     max_appointments: Optional[int] = None
+    break_start_time: Optional[time] = None
+    break_end_time: Optional[time] = None
 
 
 class DoctorBase(BaseModel):

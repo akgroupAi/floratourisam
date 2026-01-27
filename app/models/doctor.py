@@ -237,6 +237,14 @@ class DoctorAvailability(BaseModel):
         Integer,
         nullable=True,
     )
+    break_start_time: Mapped[Optional[time]] = mapped_column(
+        Time,
+        nullable=True,
+    )
+    break_end_time: Mapped[Optional[time]] = mapped_column(
+        Time,
+        nullable=True,
+    )
 
     # Relationships
     doctor: Mapped["Doctor"] = relationship(

@@ -215,6 +215,8 @@ class DoctorService:
                 is_available=data.is_available,
                 slot_duration_minutes=data.slot_duration_minutes,
                 max_appointments=data.max_appointments,
+                break_start_time=data.break_start_time,
+                break_end_time=data.break_end_time,
             )
             self.db.add(avail)
             availability_list.append(avail)
