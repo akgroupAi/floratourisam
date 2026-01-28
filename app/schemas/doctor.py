@@ -253,7 +253,10 @@ class DoctorSearchParams(BaseModel):
 class DoctorHospitalCreate(BaseModel):
     """Schema for creating/adding hospital to doctor's profile."""
 
-    name: str = Field(..., max_length=255)
+    doctor_id: UUID = Field(..., description="The doctor's ID")
+    hospital_id: Optional[UUID] = Field(default=None, description="If provided, links to existing hospital instead of creating new one")
+    
+    name: Optional[str] = Field(default=None, max_length=255, description="Required if hospital_id is not provided")
     slug: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = None
     short_description: Optional[str] = Field(default=None, max_length=500)
@@ -292,6 +295,9 @@ class DoctorHospitalCreate(BaseModel):
 class DoctorHospitalUpdate(BaseModel):
     """Schema for updating doctor's hospital information."""
 
+    doctor_id: UUID = Field(..., description="The doctor's ID")
+    hospital_id: Optional[UUID] = Field(default=None, description="Hospital ID to link to (optional if already linked)")
+    
     name: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = None
     short_description: Optional[str] = Field(default=None, max_length=500)

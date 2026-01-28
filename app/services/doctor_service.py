@@ -265,16 +265,42 @@ class DoctorService:
         data,
         created_by: Optional[UUID] = None,
     ):
-        """Create a new hospital and link it to the doctor."""
+        """Add hospital to doctor - either by linking existing hospital or creating a new one."""
         from app.models.hospital import Hospital
         import re
-        
-        # Generate slug if not provided
-        slug = data.slug if data.slug else re.sub(r'[^a-z0-9]+', '-', data.name.lower()).strip('-')
         
         # Check if doctor already has a hospital
         if doctor.hospital_id:
             raise ValueError("Doctor already has a hospital. Use update or delete first.")
+        
+        # Case 1: Link to existing hospital by hospital_id
+        if data.hospital_id:
+            result = await self.db.execute(
+                select(Hospital)
+                .where(Hospital.id == data.hospital_id, Hospital.is_deleted == False)
+            )
+            hospital = result.scalar_one_or_none()
+            
+            if not hospital:
+                raise ValueError(f"Hospital with ID {data.hospital_id} not found.")
+            
+            # Link hospital to doctor
+            doctor.hospital_id = hospital.id
+            doctor.updated_by = created_by
+            doctor.updated_at = datetime.now(timezone.utc)
+            
+            await self.db.commit()
+            
+            logger.info("doctor_linked_to_hospital", doctor_id=str(doctor.id), hospital_id=str(hospital.id))
+            
+            return hospital
+        
+        # Case 2: Create a new hospital
+        if not data.name:
+            raise ValueError("Either hospital_id or name must be provided.")
+        
+        # Generate slug if not provided
+        slug = data.slug if data.slug else re.sub(r'[^a-z0-9]+', '-', data.name.lower()).strip('-')
         
         # Create hospital
         hospital = Hospital(
@@ -327,22 +353,48 @@ class DoctorService:
         data,
         updated_by: Optional[UUID] = None,
     ):
-        """Update the doctor's hospital information."""
+        """Update the doctor's hospital information or change hospital association."""
         from app.models.hospital import Hospital
         
-        if not doctor.hospital_id:
-            raise ValueError("Doctor does not have a hospital to update.")
+        if not doctor.hospital_id and not data.hospital_id:
+            raise ValueError("Doctor does not have a hospital. Please add one first or provide hospital_id.")
+        
+        # Case 1: Change to a different hospital
+        if data.hospital_id and data.hospital_id != doctor.hospital_id:
+            result = await self.db.execute(
+                select(Hospital)
+                .where(Hospital.id == data.hospital_id, Hospital.is_deleted == False)
+            )
+            hospital = result.scalar_one_or_none()
+            
+            if not hospital:
+                raise ValueError(f"Hospital with ID {data.hospital_id} not found.")
+            
+            # Update doctor's hospital association
+            doctor.hospital_id = hospital.id
+            doctor.updated_by = updated_by
+            doctor.updated_at = datetime.now(timezone.utc)
+            
+            await self.db.commit()
+            
+            logger.info("doctor_hospital_changed", doctor_id=str(doctor.id), hospital_id=str(hospital.id))
+            
+            return hospital
+        
+        # Case 2: Update current hospital's information
+        hospital_id = data.hospital_id if data.hospital_id else doctor.hospital_id
         
         result = await self.db.execute(
             select(Hospital)
-            .where(Hospital.id == doctor.hospital_id, Hospital.is_deleted == False)
+            .where(Hospital.id == hospital_id, Hospital.is_deleted == False)
         )
         hospital = result.scalar_one_or_none()
         
         if not hospital:
             raise ValueError("Hospital not found.")
         
-        update_data = data.model_dump(exclude_unset=True)
+        # Update hospital fields that were provided
+        update_data = data.model_dump(exclude_unset=True, exclude={'doctor_id', 'hospital_id'})
         
         for field, value in update_data.items():
             setattr(hospital, field, value)

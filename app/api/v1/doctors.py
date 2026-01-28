@@ -70,6 +70,20 @@ async def get_my_hospital(current_user: CurrentUser, db: DatabaseSession):
     return hospital
 
 
+@router.get("/{doctor_id}/hospital", response_model=DoctorHospitalResponse)
+async def get_doctor_hospital(doctor_id: UUID, db: DatabaseSession):
+    """Get hospital information for a specific doctor by doctor_id."""
+    service = DoctorService(db)
+    doctor = await service.get_by_id(doctor_id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    
+    hospital = await service.get_doctor_hospital(doctor)
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital not found. Please add hospital information first.")
+    return hospital
+
+
 @router.post("/me/hospital", response_model=DoctorHospitalResponse, status_code=201)
 async def add_my_hospital(data: DoctorHospitalCreate, current_user: CurrentUser, db: DatabaseSession):
     """Add hospital information to current doctor's profile."""
@@ -77,6 +91,34 @@ async def add_my_hospital(data: DoctorHospitalCreate, current_user: CurrentUser,
     doctor = await service.get_by_user_id(current_user.id)
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor profile not found")
+    
+    # Override doctor_id from token
+    data.doctor_id = doctor.id
+    
+    try:
+        hospital = await service.add_doctor_hospital(doctor, data, current_user.id)
+        return hospital
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{doctor_id}/hospital", response_model=DoctorHospitalResponse, status_code=201)
+async def add_doctor_hospital(
+    doctor_id: UUID,
+    data: DoctorHospitalCreate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    require_admin: bool = Query(False, description="If true, requires admin privileges")
+):
+    """Add hospital information to a doctor's profile by doctor_id."""
+    # Verify doctor exists
+    service = DoctorService(db)
+    doctor = await service.get_by_id(doctor_id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    
+    # Ensure doctor_id in request matches the URL parameter
+    data.doctor_id = doctor_id
     
     try:
         hospital = await service.add_doctor_hospital(doctor, data, current_user.id)
@@ -92,6 +134,32 @@ async def update_my_hospital(data: DoctorHospitalUpdate, current_user: CurrentUs
     doctor = await service.get_by_user_id(current_user.id)
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor profile not found")
+    
+    # Override doctor_id from token
+    data.doctor_id = doctor.id
+    
+    try:
+        hospital = await service.update_doctor_hospital(doctor, data, current_user.id)
+        return hospital
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/{doctor_id}/hospital", response_model=DoctorHospitalResponse)
+async def update_doctor_hospital(
+    doctor_id: UUID,
+    data: DoctorHospitalUpdate,
+    current_user: CurrentUser,
+    db: DatabaseSession
+):
+    """Update a doctor's hospital information by doctor_id."""
+    service = DoctorService(db)
+    doctor = await service.get_by_id(doctor_id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    
+    # Ensure doctor_id in request matches the URL parameter
+    data.doctor_id = doctor_id
     
     try:
         hospital = await service.update_doctor_hospital(doctor, data, current_user.id)
@@ -109,6 +177,26 @@ async def delete_my_hospital(
     """Remove hospital from current doctor's profile."""
     service = DoctorService(db)
     doctor = await service.get_by_user_id(current_user.id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    
+    try:
+        await service.delete_doctor_hospital(doctor, current_user.id, delete_hospital)
+        return None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/{doctor_id}/hospital", status_code=204)
+async def delete_doctor_hospital(
+    doctor_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    delete_hospital: bool = Query(False, description="If true, also soft-delete the hospital record")
+):
+    """Remove hospital from a doctor's profile by doctor_id."""
+    service = DoctorService(db)
+    doctor = await service.get_by_id(doctor_id)
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor profile not found")
     
