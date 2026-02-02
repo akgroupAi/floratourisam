@@ -60,6 +60,8 @@ class DoctorBase(BaseModel):
     license_number: Optional[str] = Field(default=None, max_length=100)
     license_expiry: Optional[date] = None
     years_of_experience: Optional[int] = Field(default=None, ge=0, le=70)
+    education: Optional[List[dict]] = None
+    certifications: Optional[List[dict]] = None
 
 
 class DoctorCreate(DoctorBase):
@@ -86,8 +88,8 @@ class DoctorUpdate(BaseModel):
     license_expiry: Optional[date] = None
     years_of_experience: Optional[int] = Field(default=None, ge=0)
     qualifications: Optional[List[str]] = None
-    education: Optional[dict] = None
-    certifications: Optional[dict] = None
+    education: Optional[List[dict]] = None
+    certifications: Optional[List[dict]] = None
     bio: Optional[str] = None
     languages_spoken: Optional[List[str]] = None
     consultation_fee: Optional[float] = Field(default=None, ge=0)
@@ -156,8 +158,8 @@ class DoctorResponse(BaseSchema):
     license_expiry: Optional[date] = None
     years_of_experience: Optional[int] = None
     qualifications: Optional[List[str]] = None
-    education: Optional[dict] = None
-    certifications: Optional[dict] = None
+    education: Optional[List[dict]] = None
+    certifications: Optional[List[dict]] = None
     bio: Optional[str] = None
     languages_spoken: Optional[List[str]] = None
     consultation_fee: Optional[float] = None

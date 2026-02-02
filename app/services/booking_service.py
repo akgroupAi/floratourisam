@@ -84,9 +84,20 @@ class BookingService:
         created_by: Optional[UUID] = None,
     ) -> Booking:
         """Create a hotel booking."""
-        # Calculate nights and price (simplified)
+        # Fetch room to get price
+        from app.models.hotel import Room
+        result = await self.db.execute(select(Room).where(Room.id == data.room_id))
+        room = result.scalar_one_or_none()
+        
+        if not room:
+            raise ValueError(f"Room with ID {data.room_id} not found")
+
+        # Calculate nights and price
         nights = (data.check_out_date - data.check_in_date).days
-        base_price = 100.0 * nights  # Placeholder pricing
+        if nights < 1:
+            nights = 1
+            
+        base_price = room.price_per_night * nights
 
         booking = Booking(
             patient_id=patient_id,
