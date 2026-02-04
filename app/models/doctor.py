@@ -114,6 +114,32 @@ class Doctor(BaseModel):
         nullable=False,
     )
 
+    # Address
+    address_line1: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    address_line2: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    city: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    state: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    country: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    postal_code: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+
     # Ratings
     rating: Mapped[Optional[float]] = mapped_column(
         Float,

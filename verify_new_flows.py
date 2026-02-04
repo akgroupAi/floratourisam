@@ -58,7 +58,11 @@ async def verify_doctor_flow(db):
         certifications=[
             {"name": "Board Certified", "year": 2016}
         ],
-        consultation_fee=150.0
+        consultation_fee=150.0,
+        address_line1="123 Medical St",
+        city="Health City",
+        country="Medicinal",
+        state="Wealth State"
     )
     
     updated_doc = await service.update(doctor, update_data, user.id)
@@ -67,7 +71,8 @@ async def verify_doctor_flow(db):
     
     assert isinstance(updated_doc.education, list)
     assert len(updated_doc.education) == 2
-    print("✓ Doctor Profile Update Verified")
+    assert updated_doc.city == "Health City"
+    print("✓ Doctor Profile Update Verified (Address included)")
     return updated_doc
 
 async def verify_patient_consultation(db, doctor_id):

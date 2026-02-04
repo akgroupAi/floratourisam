@@ -127,6 +127,12 @@ class DoctorService:
             video_consultation_enabled=data.video_consultation_enabled,
             chat_consultation_enabled=data.chat_consultation_enabled,
             in_person_enabled=data.in_person_enabled,
+            address_line1=data.address_line1,
+            address_line2=data.address_line2,
+            city=data.city,
+            state=data.state,
+            country=data.country,
+            postal_code=data.postal_code,
             created_by=created_by,
         )
 

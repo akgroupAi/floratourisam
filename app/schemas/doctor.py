@@ -63,6 +63,14 @@ class DoctorBase(BaseModel):
     education: Optional[List[dict]] = None
     certifications: Optional[List[dict]] = None
 
+    # Address
+    address_line1: Optional[str] = Field(default=None, max_length=255)
+    address_line2: Optional[str] = Field(default=None, max_length=255)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=100)
+    country: Optional[str] = Field(default=None, max_length=100)
+    postal_code: Optional[str] = Field(default=None, max_length=20)
+
 
 class DoctorCreate(DoctorBase):
     """Doctor creation schema."""
@@ -97,6 +105,14 @@ class DoctorUpdate(BaseModel):
     video_consultation_enabled: Optional[bool] = None
     chat_consultation_enabled: Optional[bool] = None
     in_person_enabled: Optional[bool] = None
+
+    # Address
+    address_line1: Optional[str] = Field(default=None, max_length=255)
+    address_line2: Optional[str] = Field(default=None, max_length=255)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=100)
+    country: Optional[str] = Field(default=None, max_length=100)
+    postal_code: Optional[str] = Field(default=None, max_length=20)
 
 
 class DoctorListResponse(BaseSchema):
@@ -167,6 +183,14 @@ class DoctorResponse(BaseSchema):
     video_consultation_enabled: bool = True
     chat_consultation_enabled: bool = True
     in_person_enabled: bool = True
+
+    # Address
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    postal_code: Optional[str] = None
     rating: Optional[float] = None
     total_reviews: int = 0
     total_consultations: int = 0
@@ -210,6 +234,12 @@ class DoctorResponse(BaseSchema):
                 'video_consultation_enabled': obj.video_consultation_enabled,
                 'chat_consultation_enabled': obj.chat_consultation_enabled,
                 'in_person_enabled': obj.in_person_enabled,
+                'address_line1': obj.address_line1,
+                'address_line2': obj.address_line2,
+                'city': obj.city,
+                'state': obj.state,
+                'country': obj.country,
+                'postal_code': obj.postal_code,
                 'rating': obj.rating,
                 'total_reviews': obj.total_reviews,
                 'total_consultations': obj.total_consultations,
