@@ -705,6 +705,83 @@ async def get_contact_page(db: DatabaseSession):
     }
 
 
+# ============== QUOTE REQUEST FORM ==============
+
+@router.get("/quote-form")
+async def get_quote_form(db: DatabaseSession):
+    """Get quote request form structure (public)."""
+    return {
+        "hero": {
+            "title": "Get Your Personalized Quote",
+            "subtitle": "Share your medical details and we'll provide a customized treatment plan",
+        },
+        "form_fields": [
+            {
+                "name": "country",
+                "label": "Your Country",
+                "type": "select",
+                "required": True,
+                "placeholder": "Select your country",
+                "layout": "half-width",
+                "options": [
+                    "United States", "United Kingdom", "Canada", "Australia",
+                    "India", "Nigeria", "Dubai", "Germany", "France", "Other"
+                ]
+            },
+            {
+                "name": "medical_condition",
+                "label": "Medical Condition",
+                "type": "select",
+                "required": True,
+                "placeholder": "Select condition type",
+                "layout": "half-width",
+                "options": [
+                    "Orthopedics", "Cardiology", "Neurology", "Oncology", 
+                    "Dental", "Ophthalmology", "Gastroenterology", "Urology",
+                    "Dermatology", "Rheumatology", "Other"
+                ]
+            },
+            {
+                "name": "email",
+                "label": "Email Address",
+                "type": "email",
+                "required": True,
+                "placeholder": "your.email@example.com",
+                "layout": "full-width"
+            },
+            {
+                "name": "documents",
+                "label": "Upload Medical Documents (Optional)",
+                "type": "file",
+                "required": False,
+                "accept": ".pdf,.jpg,.jpeg,.png,.doc,.docx",
+                "placeholder": "Drag & drop files here or click to browse\nPDF, JPG, PNG up to 10MB",
+                "layout": "full-width",
+                "multiple": True
+            }
+        ],
+        "form_config": {
+            "submit_button_text": "Get My Free Quote",
+            "success_message": "Thank you! We've received your request and will contact you within 24 hours.",
+            "submit_endpoint": "/api/v1/leads/quote"
+        },
+        "badges": [
+            {
+                "icon": "check-circle",
+                "text": "Free Assessment"
+            },
+            {
+                "icon": "clock",
+                "text": "24hr Response"
+            },
+            {
+                "icon": "shield",
+                "text": "No Obligation"
+            }
+        ]
+    }
+
+
 # ============== NAVIGATION & SETTINGS ==============
 
 @router.get("/navigation")
