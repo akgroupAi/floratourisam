@@ -451,6 +451,253 @@ async def admin_list_leads(
     return PaginatedResponse.create(result.scalars().all(), total, page, page_size)
 
 
+# ============== QUOTES ADMIN ==============
+
+@router.get("/quotes", response_model=PaginatedResponse[LeadSubmissionResponse], dependencies=[RequireAdmin])
+async def admin_list_quotes(
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20),
+    status: Optional[str] = None,
+    country: Optional[str] = None,
+    medical_condition: Optional[str] = None,
+    sort_by: Optional[str] = Query("created_at", regex="^(created_at|name|email|country)$"),
+):
+    """
+    List all quote submissions with filtering (admin).
+    
+    Filter options:
+    - status: new, contacted, qualified, converted
+    - country: Filter by country
+    - medical_condition: Filter by medical condition
+    - sort_by: created_at, name, email, country
+    """
+    query = select(LeadSubmission).where(
+        LeadSubmission.is_deleted == False,
+        LeadSubmission.form_source == "quote_form"
+    )
+    
+    # Apply filters
+    if status:
+        query = query.where(LeadSubmission.status == status)
+    
+    if country:
+        query = query.where(LeadSubmission.country.ilike(f"%{country}%"))
+    
+    if medical_condition:
+        query = query.where(LeadSubmission.medical_condition.ilike(f"%{medical_condition}%"))
+    
+    # Count
+    count_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = count_result.scalar() or 0
+    
+    # Sort
+    if sort_by == "name":
+        query = query.order_by(LeadSubmission.name)
+    elif sort_by == "email":
+        query = query.order_by(LeadSubmission.email)
+    elif sort_by == "country":
+        query = query.order_by(LeadSubmission.country)
+    else:
+        query = query.order_by(LeadSubmission.created_at.desc())
+    
+    # Paginate
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+    
+    return PaginatedResponse.create(result.scalars().all(), total, page, page_size)
+
+
+@router.get("/quotes/{quote_id}", dependencies=[RequireAdmin])
+async def get_quote_detail(quote_id: UUID, db: DatabaseSession):
+    """Get detailed quote submission with attached documents."""
+    result = await db.execute(
+        select(LeadSubmission).where(
+            LeadSubmission.id == quote_id,
+            LeadSubmission.form_source == "quote_form"
+        )
+    )
+    quote = result.scalar_one_or_none()
+    
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    
+    return {
+        "id": quote.id,
+        "email": quote.email,
+        "phone": quote.phone,
+        "name": quote.name,
+        "country": quote.country,
+        "medical_condition": quote.medical_condition,
+        "treatment_interest": quote.treatment_interest,
+        "message": quote.message,
+        "documents": quote.documents,
+        "status": quote.status,
+        "form_source": quote.form_source,
+        "assigned_to": quote.assigned_to,
+        "notes": quote.notes,
+        "utm_source": quote.utm_source,
+        "utm_medium": quote.utm_medium,
+        "utm_campaign": quote.utm_campaign,
+        "created_at": quote.created_at,
+        "updated_at": quote.updated_at,
+    }
+
+
+@router.put("/quotes/{quote_id}/status", dependencies=[RequireAdmin])
+async def update_quote_status(
+    quote_id: UUID,
+    status: str = Query(..., regex="^(new|contacted|qualified|converted)$"),
+    current_user: CurrentUser = None,
+    db: DatabaseSession = None
+):
+    """
+    Update quote status.
+    
+    Status options: new, contacted, qualified, converted
+    """
+    result = await db.execute(
+        select(LeadSubmission).where(
+            LeadSubmission.id == quote_id,
+            LeadSubmission.form_source == "quote_form"
+        )
+    )
+    quote = result.scalar_one_or_none()
+    
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    
+    quote.status = status
+    quote.updated_by = current_user.id
+    await db.commit()
+    
+    return {
+        "success": True,
+        "message": f"Quote status updated to {status}",
+        "quote_id": str(quote.id),
+        "new_status": status
+    }
+
+
+@router.put("/quotes/{quote_id}/assign", dependencies=[RequireAdmin])
+async def assign_quote(
+    quote_id: UUID,
+    assigned_to: UUID = Query(...),
+    current_user: CurrentUser = None,
+    db: DatabaseSession = None
+):
+    """Assign quote to a team member."""
+    result = await db.execute(
+        select(LeadSubmission).where(
+            LeadSubmission.id == quote_id,
+            LeadSubmission.form_source == "quote_form"
+        )
+    )
+    quote = result.scalar_one_or_none()
+    
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    
+    quote.assigned_to = assigned_to
+    quote.updated_by = current_user.id
+    await db.commit()
+    
+    return {
+        "success": True,
+        "message": "Quote assigned successfully",
+        "quote_id": str(quote.id),
+        "assigned_to": str(assigned_to)
+    }
+
+
+@router.put("/quotes/{quote_id}/notes", dependencies=[RequireAdmin])
+async def update_quote_notes(
+    quote_id: UUID,
+    notes: str = Query(...),
+    current_user: CurrentUser = None,
+    db: DatabaseSession = None
+):
+    """Add/update notes on quote."""
+    result = await db.execute(
+        select(LeadSubmission).where(
+            LeadSubmission.id == quote_id,
+            LeadSubmission.form_source == "quote_form"
+        )
+    )
+    quote = result.scalar_one_or_none()
+    
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    
+    quote.notes = notes
+    quote.updated_by = current_user.id
+    await db.commit()
+    
+    return {
+        "success": True,
+        "message": "Notes updated successfully",
+        "quote_id": str(quote.id),
+        "notes": notes
+    }
+
+
+@router.get("/quotes/stats/summary", dependencies=[RequireAdmin])
+async def get_quotes_stats(db: DatabaseSession):
+    """Get quote statistics dashboard."""
+    total_result = await db.execute(
+        select(func.count(LeadSubmission.id)).where(
+            LeadSubmission.form_source == "quote_form",
+            LeadSubmission.is_deleted == False
+        )
+    )
+    total = total_result.scalar() or 0
+    
+    new_result = await db.execute(
+        select(func.count(LeadSubmission.id)).where(
+            LeadSubmission.form_source == "quote_form",
+            LeadSubmission.status == "new",
+            LeadSubmission.is_deleted == False
+        )
+    )
+    new_count = new_result.scalar() or 0
+    
+    contacted_result = await db.execute(
+        select(func.count(LeadSubmission.id)).where(
+            LeadSubmission.form_source == "quote_form",
+            LeadSubmission.status == "contacted",
+            LeadSubmission.is_deleted == False
+        )
+    )
+    contacted_count = contacted_result.scalar() or 0
+    
+    qualified_result = await db.execute(
+        select(func.count(LeadSubmission.id)).where(
+            LeadSubmission.form_source == "quote_form",
+            LeadSubmission.status == "qualified",
+            LeadSubmission.is_deleted == False
+        )
+    )
+    qualified_count = qualified_result.scalar() or 0
+    
+    converted_result = await db.execute(
+        select(func.count(LeadSubmission.id)).where(
+            LeadSubmission.form_source == "quote_form",
+            LeadSubmission.status == "converted",
+            LeadSubmission.is_deleted == False
+        )
+    )
+    converted_count = converted_result.scalar() or 0
+    
+    return {
+        "total_quotes": total,
+        "new": new_count,
+        "contacted": contacted_count,
+        "qualified": qualified_count,
+        "converted": converted_count,
+        "conversion_rate": f"{(converted_count / total * 100) if total > 0 else 0:.1f}%"
+    }
+
+
 @router.put("/leads/{lead_id}/status", dependencies=[RequireAdmin])
 async def update_lead_status(lead_id: UUID, status: str, current_user: CurrentUser, db: DatabaseSession):
     """Update lead status."""
