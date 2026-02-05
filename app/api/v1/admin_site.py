@@ -18,7 +18,7 @@ from app.schemas.site import (
     BlogPostCreate, BlogPostUpdate, BlogPostListResponse, BlogPostResponse,
     TestimonialCreate, TestimonialListResponse, TestimonialResponse,
     FAQCreate, FAQUpdate, FAQResponse,
-    TeamMemberCreate, TeamMemberResponse,
+    TeamMemberCreate, TeamMemberUpdate, TeamMemberResponse,
     LeadSubmissionResponse,
 )
 
@@ -163,6 +163,23 @@ async def delete_treatment(treatment_id: UUID, current_user: CurrentUser, db: Da
     treatment.soft_delete(current_user.id)
     await db.commit()
     return {"message": "Treatment deleted"}
+
+
+@router.post("/services", response_model=TreatmentResponse, dependencies=[RequireAdmin])
+async def create_service(data: TreatmentCreate, current_user: CurrentUser, db: DatabaseSession):
+    """Create a service (alias for treatment)."""
+    # Reuse treatment logic as Service = Treatment in this system
+    treatment_data = data.model_dump()
+    if treatment_data.get("gallery") is None:
+        treatment_data["gallery"] = []
+    if treatment_data.get("procedures") is None:
+        treatment_data["procedures"] = []
+        
+    treatment = Treatment(**treatment_data, created_by=current_user.id)
+    db.add(treatment)
+    await db.commit()
+    await db.refresh(treatment)
+    return treatment
 
 
 # ============== BLOG ADMIN ==============
@@ -385,7 +402,7 @@ async def create_team_member(data: TeamMemberCreate, current_user: CurrentUser, 
 
 
 @router.put("/team/{member_id}", response_model=TeamMemberResponse, dependencies=[RequireAdmin])
-async def update_team_member(member_id: UUID, data: TeamMemberCreate, current_user: CurrentUser, db: DatabaseSession):
+async def update_team_member(member_id: UUID, data: TeamMemberUpdate, current_user: CurrentUser, db: DatabaseSession):
     """Update team member."""
     result = await db.execute(select(TeamMember).where(TeamMember.id == member_id))
     member = result.scalar_one_or_none()

@@ -106,8 +106,11 @@ class TreatmentListResponse(BaseSchema):
     image_url: Optional[str] = None
     success_rate: Optional[float] = None
     patient_count: int = 0
-    savings_percent: Optional[int] = None
+    settings_percent: Optional[int] = None
     price_from: Optional[float] = None
+    average_rating: Optional[float] = None
+    procedures: List[str] = []
+    short_description: Optional[str] = None
     is_featured: bool = False
 
 
@@ -272,6 +275,19 @@ class TeamMemberCreate(BaseModel):
     is_leadership: bool = False
 
 
+class TeamMemberUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    department: Optional[str] = None
+    image_url: Optional[str] = None
+    bio: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    twitter_url: Optional[str] = None
+    is_leadership: Optional[bool] = None
+    is_active: Optional[bool] = None
+    display_order: Optional[int] = None
+
+
 class TeamMemberResponse(BaseSchema):
     id: UUID
     name: str
@@ -284,6 +300,39 @@ class TeamMemberResponse(BaseSchema):
     is_active: bool = True
     is_leadership: bool = False
     display_order: int = 0
+
+
+# ============== Doctor Public Schemas ==============
+
+class DoctorPublicListResponse(BaseSchema):
+    """Public-facing doctor list response for /doctors page."""
+    id: UUID
+    name: str
+    title: Optional[str] = None  # e.g., "Chief Surgeon"
+    specializations: List[str] = []
+    rating: Optional[float] = None
+    years_of_experience: Optional[int] = None
+    hospital_name: Optional[str] = None
+    location: Optional[str] = None  # City
+    image_url: Optional[str] = None
+    consultation_fee: Optional[float] = None
+
+
+class DoctorPublicDetailResponse(BaseSchema):
+    """Public-facing doctor detail response for /doctors/{id} page."""
+    id: UUID
+    name: str
+    title: Optional[str] = None
+    specializations: List[str] = []
+    rating: Optional[float] = None
+    years_of_experience: Optional[int] = None
+    hospital_name: Optional[str] = None
+    location: Optional[str] = None
+    image_url: Optional[str] = None
+    bio: Optional[str] = None
+    consultation_fee: Optional[float] = None
+    languages_spoken: List[str] = []
+    qualifications: List[str] = []
 
 
 # ============== Lead Schemas ==============

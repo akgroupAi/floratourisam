@@ -4,7 +4,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DatabaseSession
@@ -15,6 +15,7 @@ from app.schemas.site import (
     TreatmentListResponse, TreatmentResponse,
     BlogPostListResponse, BlogPostResponse,
     TestimonialListResponse, FAQResponse, TeamMemberResponse,
+    DoctorPublicListResponse, DoctorPublicDetailResponse,
 )
 
 router = APIRouter()
@@ -208,11 +209,217 @@ async def get_destination_hospitals(slug: str, db: DatabaseSession):
     return {"items": [], "total": 0}
 
 
+@router.get("/services/{slug}/doctors", response_model=PaginatedResponse[TeamMemberResponse])
+async def get_service_doctors(
+    slug: str,
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(12, ge=1, le=50),
+):
+    """Get doctors related to a service (treatment)."""
+    # 1. Get treatment to find category
+    treatment_result = await db.execute(
+        select(Treatment).where(Treatment.slug == slug)
+    )
+    treatment = treatment_result.scalar_one_or_none()
+    if not treatment:
+        raise HTTPException(status_code=404, detail="Treatment not found")
+    
+    # 2. Find doctors with specialization matching category or name
+    # Using TeamMemberResponse temporarily as we don't have a public DoctorResponse in site schemas
+    # Effectively we should use a proper doctor schema, but let's assume we map it to TeamMember for now or generic list
+    
+    # Actually, let's use a join
+    from app.models.doctor import Doctor, DoctorSpecialization
+    from app.models.user import User
+    from sqlalchemy.orm import selectinload
+    
+    query = (
+        select(Doctor)
+        .join(DoctorSpecialization, Doctor.id == DoctorSpecialization.doctor_id)
+        .join(User, Doctor.user_id == User.id)
+        .options(selectinload(Doctor.user))
+        .where(
+            Doctor.is_verified == True,
+            or_(
+                DoctorSpecialization.specialization == treatment.category,
+                DoctorSpecialization.specialization == treatment.name
+            )
+        )
+        .order_by(Doctor.rating.desc().nulls_last())
+        .distinct()
+    )
+    
+    # Count
+    count_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = count_result.scalar() or 0
+    
+    # Paginate
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    
+    result = await db.execute(query)
+    doctors = result.scalars().all()
+    
+    # Transform to response
+    items = []
+    for doc in doctors:
+        items.append(TeamMemberResponse(
+            id=doc.id,  # This might need to be user_id or doc_id depending on frontend expectation used in other places
+            name=doc.user.full_name if doc.user else f"Dr. {doc.id}", 
+            role=doc.title or "Specialist",
+            department=treatment.category,
+            image_url=doc.user.avatar_url if doc.user else None,
+            bio=doc.bio,
+            is_active=True,
+            display_order=0
+        ))
+
+    return PaginatedResponse.create(items, total, page, page_size)
+
+
 @router.get("/destinations/{slug}/doctors")
 async def get_destination_doctors(slug: str, db: DatabaseSession, limit: int = 10):
     """Get top doctors in a destination."""
     # Would query doctors by destination
     return {"items": [], "total": 0}
+
+
+# ============== DOCTORS ==============
+
+@router.get("/doctors")
+async def list_doctors(
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(12, ge=1, le=50),
+    search: Optional[str] = None,
+    specialization: Optional[str] = None,
+    location: Optional[str] = None,
+):
+    """List all verified doctors."""
+    from app.models.doctor import Doctor, DoctorSpecialization
+    from app.models.user import User
+    from app.models.hospital import Hospital
+    from sqlalchemy.orm import selectinload
+    
+    query = (
+        select(Doctor)
+        .join(User, Doctor.user_id == User.id)
+        .options(selectinload(Doctor.user))
+        .options(selectinload(Doctor.specializations))
+        .options(selectinload(Doctor.hospital))
+        .where(Doctor.is_verified == True, Doctor.is_deleted == False)
+    )
+    
+    # Filters
+    if search:
+        query = query.where(
+            or_(
+                User.full_name.ilike(f"%{search}%"),
+                Doctor.title.ilike(f"%{search}%")
+            )
+        )
+    
+    if specialization:
+        query = query.join(
+            DoctorSpecialization,
+            DoctorSpecialization.doctor_id == Doctor.id
+        ).where(
+            DoctorSpecialization.specialization == specialization
+        )
+    
+    if location:
+        # Assuming we filter by city from hospital or doctor's primary location
+        query = query.join(
+            Hospital,
+            Doctor.hospital_id == Hospital.id
+        ).where(Hospital.city.ilike(f"%{location}%"))
+    
+    # Count
+    count_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = count_result.scalar() or 0
+    
+    # Paginate
+    query = query.order_by(Doctor.rating.desc().nulls_last(), Doctor.years_of_experience.desc())
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    
+    result = await db.execute(query)
+    doctors = result.scalars().all()
+    
+    # Transform to response
+    items = []
+    for doc in doctors:
+        # Get specializations
+        specs = [s.specialization for s in doc.specializations] if doc.specializations else []
+        
+        # Get primary hospital
+        hospital_name = None
+        location_city = None
+        if doc.hospital:
+            hospital_name = doc.hospital.name
+            location_city = doc.hospital.city
+        
+        items.append(DoctorPublicListResponse(
+            id=doc.id,
+            name=doc.user.full_name if doc.user else f"Dr. {doc.id}",
+            title=doc.title,
+            specializations=specs,
+            rating=doc.rating,
+            years_of_experience=doc.years_of_experience,
+            hospital_name=hospital_name,
+            location=location_city,
+            image_url=doc.user.avatar_url if doc.user else None,
+            consultation_fee=doc.consultation_fee,
+        ))
+    
+    return PaginatedResponse.create(items, total, page, page_size)
+
+
+@router.get("/doctors/{doctor_id}")
+async def get_doctor_detail(doctor_id: UUID, db: DatabaseSession):
+    """Get detailed doctor profile."""
+    from app.models.doctor import Doctor
+    from app.models.user import User
+    from sqlalchemy.orm import selectinload
+    
+    query = (
+        select(Doctor)
+        .options(selectinload(Doctor.user))
+        .options(selectinload(Doctor.specializations))
+        .options(selectinload(Doctor.hospital))
+        .where(Doctor.id == doctor_id, Doctor.is_verified == True)
+    )
+    
+    result = await db.execute(query)
+    doctor = result.scalar_one_or_none()
+    
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+    
+    # Get specializations
+    specs = [s.specialization for s in doctor.specializations] if doctor.specializations else []
+    
+    # Get primary hospital
+    hospital_name = None
+    location_city = None
+    if doctor.hospital:
+        hospital_name = doctor.hospital.name
+        location_city = doctor.hospital.city
+    
+    return DoctorPublicDetailResponse(
+        id=doctor.id,
+        name=doctor.user.full_name if doctor.user else f"Dr. {doctor.id}",
+        title=doctor.title,
+        specializations=specs,
+        rating=doctor.rating,
+        years_of_experience=doctor.years_of_experience,
+        hospital_name=hospital_name,
+        location=location_city,
+        image_url=doctor.user.avatar_url if doctor.user else None,
+        bio=doctor.bio,
+        consultation_fee=doctor.consultation_fee,
+        languages_spoken=doctor.languages_spoken or [],
+        qualifications=doctor.qualifications or [],
+    )
 
 
 # ============== BLOG ==============
@@ -232,6 +439,41 @@ async def list_blog_posts(
         query = query.where(BlogPost.category == category)
     if tag:
         query = query.where(BlogPost.tags.any(tag))
+    
+    # Count
+    count_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = count_result.scalar() or 0
+    
+    # Paginate
+    query = query.order_by(BlogPost.published_at.desc())
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    
+    result = await db.execute(query)
+    posts = result.scalars().all()
+    
+    return PaginatedResponse.create(
+        [BlogPostListResponse.model_validate(p) for p in posts],
+        total, page, page_size
+    )
+
+
+@router.get("/blog/search", response_model=PaginatedResponse[BlogPostListResponse])
+async def search_blog_posts(
+    db: DatabaseSession,
+    q: str = Query(..., min_length=1, description="Search query"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(12, ge=1, le=50),
+):
+    """Search blog posts."""
+    query = select(BlogPost).where(
+        BlogPost.status == "published",
+        BlogPost.is_deleted == False,
+        or_(
+            BlogPost.title.ilike(f"%{q}%"),
+            BlogPost.excerpt.ilike(f"%{q}%"),
+            BlogPost.content.ilike(f"%{q}%")
+        )
+    )
     
     # Count
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
@@ -405,6 +647,30 @@ async def list_testimonials(
         [TestimonialListResponse.model_validate(t) for t in testimonials],
         total, page, page_size
     )
+
+
+
+@router.get("/team")
+async def get_team_page(db: DatabaseSession):
+    """Get team page content."""
+    team_result = await db.execute(
+        select(TeamMember)
+        .where(TeamMember.is_active == True, TeamMember.is_deleted == False)
+        .order_by(TeamMember.display_order)
+    )
+    team = team_result.scalars().all()
+    
+    leadership = [TeamMemberResponse.model_validate(m) for m in team if m.is_leadership]
+    other_members = [TeamMemberResponse.model_validate(m) for m in team if not m.is_leadership]
+    
+    return {
+        "hero": {
+            "title": "Our Team",
+            "subtitle": "Meet the experts behind Flora Medical",
+        },
+        "leadership": leadership,
+        "team": other_members,
+    }
 
 
 # ============== CONTACT ==============
