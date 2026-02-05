@@ -3,9 +3,12 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+import os
+import shutil
+from pathlib import Path
 
 from app.api.deps import DatabaseSession
 from app.models.site import Destination, Treatment, BlogPost, Testimonial, FAQ, TeamMember
@@ -711,10 +714,6 @@ async def get_contact_page(db: DatabaseSession):
 async def get_quote_form(db: DatabaseSession):
     """Get quote request form structure (public)."""
     return {
-        "hero": {
-            "title": "Get Your Personalized Quote",
-            "subtitle": "Share your medical details and we'll provide a customized treatment plan",
-        },
         "form_fields": [
             {
                 "name": "country",
@@ -722,7 +721,6 @@ async def get_quote_form(db: DatabaseSession):
                 "type": "select",
                 "required": True,
                 "placeholder": "Select your country",
-                "layout": "half-width",
                 "options": [
                     "United States", "United Kingdom", "Canada", "Australia",
                     "India", "Nigeria", "Dubai", "Germany", "France", "Other"
@@ -734,7 +732,6 @@ async def get_quote_form(db: DatabaseSession):
                 "type": "select",
                 "required": True,
                 "placeholder": "Select condition type",
-                "layout": "half-width",
                 "options": [
                     "Orthopedics", "Cardiology", "Neurology", "Oncology", 
                     "Dental", "Ophthalmology", "Gastroenterology", "Urology",
@@ -746,40 +743,111 @@ async def get_quote_form(db: DatabaseSession):
                 "label": "Email Address",
                 "type": "email",
                 "required": True,
-                "placeholder": "your.email@example.com",
-                "layout": "full-width"
+                "placeholder": "your.email@example.com"
             },
             {
                 "name": "documents",
                 "label": "Upload Medical Documents (Optional)",
                 "type": "file",
                 "required": False,
-                "accept": ".pdf,.jpg,.jpeg,.png,.doc,.docx",
-                "placeholder": "Drag & drop files here or click to browse\nPDF, JPG, PNG up to 10MB",
-                "layout": "full-width",
-                "multiple": True
+                "accept": ".pdf,.jpg,.jpeg,.png",
+                "placeholder": "Drag & drop files here or click to browse\nPDF, JPG, PNG up to 10MB"
             }
         ],
         "form_config": {
             "submit_button_text": "Get My Free Quote",
-            "success_message": "Thank you! We've received your request and will contact you within 24 hours.",
-            "submit_endpoint": "/api/v1/leads/quote"
-        },
-        "badges": [
-            {
-                "icon": "check-circle",
-                "text": "Free Assessment"
-            },
-            {
-                "icon": "clock",
-                "text": "24hr Response"
-            },
-            {
-                "icon": "shield",
-                "text": "No Obligation"
-            }
-        ]
+            "submit_endpoint": "/api/v1/pages/quote-form"
+        }
     }
+
+
+@router.post("/quote-form")
+async def submit_quote_form(
+    country: str = Form(...),
+    medical_condition: str = Form(...),
+    email: str = Form(...),
+    documents: list[UploadFile] = File(default=[]),
+    db: DatabaseSession = None
+):
+    """
+    Submit quote form with file uploads (public).
+    
+    Accepts form data and optionally uploads medical documents.
+    """
+    from app.models.site import LeadSubmission
+    
+    try:
+        # Create uploads directory if it doesn't exist
+        upload_dir = Path("uploads/quote_submissions")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Store file paths
+        file_paths = []
+        
+        # Process uploaded files
+        if documents:
+            for file in documents:
+                # Validate file type
+                allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png']
+                file_ext = Path(file.filename).suffix.lower()
+                
+                if file_ext not in allowed_extensions:
+                    return {
+                        "success": False,
+                        "message": f"File type {file_ext} not allowed. Only PDF, JPG, JPEG, PNG are allowed."
+                    }
+                
+                # Validate file size (10MB max)
+                file_size = 0
+                content = await file.read()
+                file_size = len(content)
+                
+                if file_size > 10 * 1024 * 1024:  # 10MB
+                    return {
+                        "success": False,
+                        "message": f"File {file.filename} exceeds 10MB limit."
+                    }
+                
+                # Save file with unique name
+                import uuid
+                unique_filename = f"{uuid.uuid4()}{file_ext}"
+                file_path = upload_dir / unique_filename
+                
+                with open(file_path, "wb") as f:
+                    f.write(content)
+                
+                file_paths.append(str(file_path))
+        
+        # Create lead submission in database
+        lead = LeadSubmission(
+            email=email,
+            country=country,
+            medical_condition=medical_condition,
+            documents=file_paths if file_paths else None,
+            form_source="quote_form"
+        )
+        
+        db.add(lead)
+        await db.commit()
+        await db.refresh(lead)
+        
+        return {
+            "success": True,
+            "message": "Thank you! We've received your quote request. Our team will contact you within 24 hours.",
+            "reference_id": str(lead.id),
+            "data": {
+                "country": country,
+                "medical_condition": medical_condition,
+                "email": email,
+                "files_uploaded": len(file_paths)
+            }
+        }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error processing form: {str(e)}"
+        }
 
 
 # ============== NAVIGATION & SETTINGS ==============
