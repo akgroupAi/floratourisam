@@ -6,7 +6,7 @@ from app.api.v1 import (
     auth, users, patients, doctors, consultations,
     hotels, restaurants, bookings, payments, chat, ai, cms,
     pages, admin_site, leads, notifications, email, events, config, documents,
-    patient_documents, patient_medical_records, hospitals,
+    patient_documents, patient_medical_records,
 )
 
 api_router = APIRouter()
@@ -23,7 +23,6 @@ api_router.include_router(doctors.router, prefix="/doctors", tags=["Doctors"])
 
 # Medical services
 api_router.include_router(consultations.router, prefix="/consultations", tags=["Consultations"])
-api_router.include_router(hospitals.router, prefix="/hospitals", tags=["Hospitals"])
 
 # Accommodation & Dining
 api_router.include_router(hotels.router, prefix="/hotels", tags=["Hotels"])
