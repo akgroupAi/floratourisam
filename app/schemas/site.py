@@ -108,6 +108,7 @@ class TreatmentListResponse(BaseSchema):
     patient_count: int = 0
     settings_percent: Optional[int] = None
     price_from: Optional[float] = None
+    price_to: Optional[float] = None
     average_rating: Optional[float] = None
     procedures: List[str] = []
     short_description: Optional[str] = None

@@ -434,6 +434,7 @@ async def list_blog_posts(
     page_size: int = Query(12, ge=1, le=50),
     category: Optional[str] = None,
     tag: Optional[str] = None,
+    search_query: Optional[str] = None,
 ):
     """List published blog posts."""
     query = select(BlogPost).where(BlogPost.status == "published", BlogPost.is_deleted == False)
@@ -442,6 +443,14 @@ async def list_blog_posts(
         query = query.where(BlogPost.category == category)
     if tag:
         query = query.where(BlogPost.tags.any(tag))
+    if search_query:
+        query = query.where(
+            or_(
+                BlogPost.title.ilike(f"%{search_query}%"),
+                BlogPost.excerpt.ilike(f"%{search_query}%"),
+                BlogPost.content.ilike(f"%{search_query}%")
+            )
+        )
     
     # Count
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
