@@ -3,7 +3,7 @@
 from app.models.base import BaseModel, TimestampMixin, AuditMixin
 from app.models.user import User
 from app.models.patient import Patient
-from app.models.doctor import Doctor, DoctorSpecialization, DoctorAvailability
+from app.models.doctor import Doctor, DoctorSpecialization, DoctorAvailability, DoctorAssignment
 from app.models.hospital import Hospital, Department
 from app.models.consultation import Consultation
 from app.models.medical_report import MedicalReport
@@ -18,6 +18,7 @@ from app.models.site import (
     Destination, Treatment, BlogPost, Testimonial, FAQ,
     TeamMember, LeadSubmission, SiteSettings, Navigation
 )
+from app.models.rbac import Role, Permission
 
 __all__ = [
     "BaseModel",
@@ -28,6 +29,7 @@ __all__ = [
     "Doctor",
     "DoctorSpecialization",
     "DoctorAvailability",
+    "DoctorAssignment",
     "Hospital",
     "Department",
     "Consultation",
@@ -48,4 +50,6 @@ __all__ = [
     "AIConversation",
     "CMSPage",
     "CMSBlock",
+    "Role",
+    "Permission",
 ]

@@ -277,3 +277,48 @@ class DoctorAvailability(BaseModel):
         "Doctor",
         back_populates="availability",
     )
+
+
+class DoctorAssignment(BaseModel):
+    """Doctor assignment to hospital and department."""
+
+    __tablename__ = "doctor_assignments"
+
+    doctor_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("doctors.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    hospital_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("hospitals.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    department_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("departments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    is_primary_department: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    # Relationships
+    doctor: Mapped["Doctor"] = relationship(
+        "Doctor",
+        foreign_keys=[doctor_id],
+    )
+    hospital: Mapped["Hospital"] = relationship(
+        "Hospital",
+        foreign_keys=[hospital_id],
+    )
+    department: Mapped[Optional["Department"]] = relationship(
+        "Department",
+        foreign_keys=[department_id],
+    )
+
+    def __repr__(self) -> str:
+        return f"DoctorAssignment(doctor_id={self.doctor_id}, hospital_id={self.hospital_id})"
+

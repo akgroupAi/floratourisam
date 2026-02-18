@@ -43,9 +43,13 @@ class AuthService:
         Returns:
             Auth response with user info and tokens, or None if invalid.
         """
-        # Find user by email
+        from sqlalchemy.orm import selectinload
+        
+        # Find user by email with roles
         result = await self.db.execute(
-            select(User).where(User.email == request.email, User.is_deleted == False)
+            select(User)
+            .options(selectinload(User.roles))
+            .where(User.email == request.email, User.is_deleted == False)
         )
         user = result.scalar_one_or_none()
 
@@ -75,12 +79,19 @@ class AuthService:
 
         logger.info("login_success", user_id=str(user.id), email=user.email)
 
+        # Get role names and permissions
+        role_names = [role.name for role in user.roles]
+        permissions = user.get_all_permissions()
+
         return AuthResponse(
             user_id=str(user.id),
             email=user.email,
             full_name=user.full_name,
             role=user.role,
             is_verified=user.is_verified,
+            is_admin=user.is_admin,
+            roles=role_names,
+            permissions=permissions,
             tokens=TokenResponse(
                 access_token=access_token,
                 refresh_token=refresh_token,

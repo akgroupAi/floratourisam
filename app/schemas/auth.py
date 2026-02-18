@@ -127,4 +127,7 @@ class AuthResponse(BaseSchema):
     full_name: str
     role: str
     is_verified: bool
+    is_admin: bool = False
+    roles: list[str] = []
+    permissions: list[str] = []
     tokens: TokenResponse

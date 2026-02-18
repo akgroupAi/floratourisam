@@ -1,8 +1,9 @@
 """User model for authentication and authorization."""
 
 import uuid
-from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
+from datetime import datetime
+
 
 from sqlalchemy import Boolean, DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -117,6 +118,14 @@ class User(BaseModel):
         uselist=False,
         lazy="selectin",
     )
+    
+    # RBAC relationships
+    roles: Mapped[List["Role"]] = relationship(
+        "Role",
+        secondary="user_roles",
+        back_populates="users",
+        lazy="selectin",
+    )
 
     # Indexes
     __table_args__ = (
@@ -136,3 +145,21 @@ class User(BaseModel):
     def is_superuser(self) -> bool:
         """Check if user is superuser."""
         return self.role == UserRole.SUPER_ADMIN.value
+    
+    def has_role(self, role_name: str) -> bool:
+        """Check if user has a specific role."""
+        return any(r.name == role_name for r in self.roles)
+    
+    def has_permission(self, permission_name: str) -> bool:
+        """Check if user has a specific permission through any of their roles."""
+        for role in self.roles:
+            if role.has_permission(permission_name):
+                return True
+        return False
+    
+    def get_all_permissions(self) -> List[str]:
+        """Get all permissions from all roles."""
+        permissions = set()
+        for role in self.roles:
+            permissions.update(role.get_permission_names())
+        return list(permissions)

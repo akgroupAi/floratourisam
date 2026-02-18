@@ -1,8 +1,10 @@
 """Authentication endpoints."""
 
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DatabaseSession
+from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
+from app.models.user import User
 from app.schemas.auth import (
     AuthResponse, ChangePasswordRequest, LoginRequest,
     PasswordResetConfirm, PasswordResetRequest, RefreshTokenRequest,
@@ -32,6 +34,40 @@ async def register(request: RegisterRequest, db: DatabaseSession):
     if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     return MessageResponse(message="Registration successful. Please verify your email.")
+
+
+@router.post("/admin/register", response_model=MessageResponse, dependencies=[RequireAdmin])
+async def register_admin(request: RegisterRequest, current_user: CurrentUser, db: DatabaseSession):
+    """Register a new admin user (requires admin authentication)."""
+    # Validate role is admin or super_admin
+    from app.utils.enums import UserRole
+    
+    if request.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This endpoint is only for creating admin users"
+        )
+    
+    # Check if email already exists
+    existing_result = await db.execute(
+        select(User).where(User.email == request.email)
+    )
+    if existing_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
+    service = AuthService(db)
+    user = await service.register(request)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to create admin user"
+        )
+    
+    return MessageResponse(message=f"Admin user created successfully: {user.email}")
 
 
 @router.post("/refresh", response_model=TokenResponse)

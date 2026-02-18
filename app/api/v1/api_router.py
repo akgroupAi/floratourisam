@@ -6,7 +6,8 @@ from app.api.v1 import (
     auth, users, patients, doctors, consultations,
     hotels, restaurants, bookings, payments, chat, ai, cms,
     pages, admin_site, leads, notifications, email, events, config, documents,
-    patient_documents, patient_medical_records,
+    patient_documents, patient_medical_records, rbac, dashboard,
+    admin_hospital, admin_department, admin_doctor,
 )
 
 api_router = APIRouter()
@@ -44,6 +45,21 @@ api_router.include_router(pages.router, prefix="/pages", tags=["Public Pages"])
 
 # Admin Site Management
 api_router.include_router(admin_site.router, prefix="/admin/site", tags=["Admin - Site Content"])
+
+# Admin - RBAC (Role-Based Access Control)
+api_router.include_router(rbac.router, prefix="/admin/rbac", tags=["Admin - RBAC"])
+
+# Admin - Dashboard KPIs
+api_router.include_router(dashboard.router, prefix="/admin/dashboard", tags=["Admin - Dashboard"])
+
+# Admin - Hospital Management
+api_router.include_router(admin_hospital.router, prefix="/admin/hospitals", tags=["Admin - Hospitals"])
+
+# Admin - Department Management
+api_router.include_router(admin_department.router, prefix="/admin/departments", tags=["Admin - Departments"])
+
+# Admin - Doctor Management
+api_router.include_router(admin_doctor.router, prefix="/admin/doctors", tags=["Admin - Doctors"])
 
 # Lead Generation
 api_router.include_router(leads.router, prefix="/leads", tags=["Lead Generation"])
