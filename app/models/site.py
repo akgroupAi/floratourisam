@@ -200,6 +200,7 @@ class TeamMember(BaseModel):
     __tablename__ = "team_members"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     role: Mapped[str] = mapped_column(String(255), nullable=False)
     department: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     

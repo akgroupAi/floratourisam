@@ -194,7 +194,7 @@ class BlogPostResponse(BaseSchema):
     read_time_minutes: int = 5
     view_count: int = 0
     like_count: int = 0
-    related_posts: List[str] = []
+    related_posts: Optional[List[str]] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
     created_at: datetime
@@ -267,6 +267,7 @@ class FAQResponse(BaseSchema):
 
 class TeamMemberCreate(BaseModel):
     name: str = Field(..., max_length=255)
+    email: Optional[EmailStr] = None
     role: str = Field(..., max_length=255)
     department: Optional[str] = None
     image_url: Optional[str] = None
@@ -278,6 +279,7 @@ class TeamMemberCreate(BaseModel):
 
 class TeamMemberUpdate(BaseModel):
     name: Optional[str] = None
+    email: Optional[EmailStr] = None
     role: Optional[str] = None
     department: Optional[str] = None
     image_url: Optional[str] = None
@@ -292,6 +294,7 @@ class TeamMemberUpdate(BaseModel):
 class TeamMemberResponse(BaseSchema):
     id: UUID
     name: str
+    email: Optional[str] = None
     role: str
     department: Optional[str] = None
     image_url: Optional[str] = None

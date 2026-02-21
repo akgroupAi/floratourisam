@@ -152,7 +152,7 @@ async def get_total_doctors(db: DatabaseSession):
 
 # ============== HOSPITAL CRUD ==============
 
-@router.get("", dependencies=[RequireAdmin])
+@router.get("", response_model=PaginatedResponse[HospitalResponse], dependencies=[RequireAdmin])
 async def list_hospitals(
     db: DatabaseSession,
     page: int = Query(1, ge=1),

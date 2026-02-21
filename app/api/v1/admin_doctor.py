@@ -266,7 +266,7 @@ async def unassign_doctor(assignment_id: UUID, current_user: CurrentUser, db: Da
 
 # ============== DOCTOR CRUD ==============
 
-@router.get("", dependencies=[RequireAdmin])
+@router.get("", response_model=PaginatedResponse[DoctorResponse], dependencies=[RequireAdmin])
 async def list_doctors(
     db: DatabaseSession,
     page: int = Query(1, ge=1),
