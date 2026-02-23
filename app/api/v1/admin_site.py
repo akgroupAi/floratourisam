@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
@@ -192,7 +193,7 @@ async def admin_list_blog_posts(
     status: Optional[str] = None,
 ):
     """List all blog posts (admin)."""
-    query = select(BlogPost).where(BlogPost.is_deleted == False)
+    query = select(BlogPost).options(selectinload(BlogPost.author)).where(BlogPost.is_deleted == False)
     if status:
         query = query.where(BlogPost.status == status)
     
@@ -216,13 +217,19 @@ async def create_blog_post(data: BlogPostCreate, current_user: CurrentUser, db: 
     db.add(post)
     await db.commit()
     await db.refresh(post)
+    
+    # Explicitly load the author relationship for the response
+    from app.models.user import User
+    author_result = await db.execute(select(User).where(User.id == current_user.id))
+    post.author = author_result.scalar_one_or_none()
+    
     return post
 
 
 @router.get("/blog/{post_id}", response_model=BlogPostResponse, dependencies=[RequireAdmin])
 async def get_blog_post(post_id: UUID, db: DatabaseSession):
     """Get blog post by ID."""
-    result = await db.execute(select(BlogPost).where(BlogPost.id == post_id))
+    result = await db.execute(select(BlogPost).options(selectinload(BlogPost.author)).where(BlogPost.id == post_id))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Blog post not found")
@@ -234,7 +241,7 @@ async def update_blog_post(post_id: UUID, data: BlogPostUpdate, current_user: Cu
     """Update blog post."""
     from datetime import datetime, timezone
     
-    result = await db.execute(select(BlogPost).where(BlogPost.id == post_id))
+    result = await db.execute(select(BlogPost).options(selectinload(BlogPost.author)).where(BlogPost.id == post_id))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Blog post not found")

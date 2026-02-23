@@ -2,7 +2,10 @@
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
@@ -114,6 +117,15 @@ class BlogPost(BaseModel):
     
     # Author
     author_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    author: Mapped[Optional["User"]] = relationship("User")
+
+    @property
+    def author_name(self) -> Optional[str]:
+        return self.author.full_name if self.author else None
+
+    @property
+    def author_avatar(self) -> Optional[str]:
+        return self.author.avatar_url if self.author else None
     
     # Content
     excerpt: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

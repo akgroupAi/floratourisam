@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form
 from sqlalchemy import select, func, or_
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
 import shutil
@@ -437,7 +438,7 @@ async def list_blog_posts(
     search_query: Optional[str] = None,
 ):
     """List published blog posts."""
-    query = select(BlogPost).where(BlogPost.status == "published", BlogPost.is_deleted == False)
+    query = select(BlogPost).options(selectinload(BlogPost.author)).where(BlogPost.status == "published", BlogPost.is_deleted == False)
     
     if category:
         query = query.where(BlogPost.category == category)
@@ -477,7 +478,7 @@ async def search_blog_posts(
     page_size: int = Query(12, ge=1, le=50),
 ):
     """Search blog posts."""
-    query = select(BlogPost).where(
+    query = select(BlogPost).options(selectinload(BlogPost.author)).where(
         BlogPost.status == "published",
         BlogPost.is_deleted == False,
         or_(
@@ -519,7 +520,7 @@ async def get_blog_categories(db: DatabaseSession):
 async def get_blog_post(slug: str, db: DatabaseSession):
     """Get blog post by slug."""
     result = await db.execute(
-        select(BlogPost).where(BlogPost.slug == slug, BlogPost.status == "published")
+        select(BlogPost).options(selectinload(BlogPost.author)).where(BlogPost.slug == slug, BlogPost.status == "published")
     )
     post = result.scalar_one_or_none()
     if not post:

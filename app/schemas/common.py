@@ -42,6 +42,13 @@ class TimestampMixin(BaseModel):
     updated_at: datetime
 
 
+class BasicResponse(BaseSchema):
+    """Basic response with just ID and Name."""
+
+    id: UUID
+    name: str
+
+
 class PaginationParams(BaseModel):
     """Pagination parameters."""
 

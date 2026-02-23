@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.models.hospital import Hospital, Department
 from app.models.doctor import Doctor
-from app.schemas.common import PaginatedResponse, MessageResponse
+from app.schemas.common import PaginatedResponse, MessageResponse, BasicResponse
 from pydantic import BaseModel, Field
 
 router = APIRouter()
@@ -94,6 +94,23 @@ async def get_total_doctors(db: DatabaseSession):
 
 
 # ============== DEPARTMENT CRUD ==============
+
+@router.get("/basic", response_model=list[BasicResponse], dependencies=[RequireAdmin])
+async def list_departments_basic(
+    db: DatabaseSession,
+    hospital_id: Optional[UUID] = None,
+):
+    """List basic department details (ID and Name) for dropdowns. Filters by hospital_id if provided."""
+    query = select(Department.id, Department.name).where(Department.is_deleted == False)
+    
+    if hospital_id:
+        query = query.where(Department.hospital_id == hospital_id)
+        
+    query = query.order_by(Department.name)
+    result = await db.execute(query)
+    
+    return [BasicResponse(id=row.id, name=row.name) for row in result.all()]
+
 
 @router.get("", dependencies=[RequireAdmin])
 async def list_departments(
