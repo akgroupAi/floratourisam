@@ -117,7 +117,7 @@ class BlogPost(BaseModel):
     
     # Author
     author_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    author: Mapped[Optional["User"]] = relationship("User")
+    author: Mapped[Optional["User"]] = relationship("User", foreign_keys=[author_id])
 
     @property
     def author_name(self) -> Optional[str]:
