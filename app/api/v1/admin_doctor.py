@@ -266,13 +266,7 @@ async def unassign_doctor(assignment_id: UUID, current_user: CurrentUser, db: Da
 
 # ============== DOCTOR CRUD ==============
 
-@router.get("/basic", response_model=list[BasicResponse], dependencies=[RequireAdmin])
-async def list_doctors_basic(db: DatabaseSession):
-    """List basic doctor details (ID and Name) for dropdowns."""
-    query = select(Doctor.id, User.full_name.label("name")).join(Doctor.user).where(Doctor.is_deleted == False).order_by(User.full_name)
-    result = await db.execute(query)
-    
-    return [BasicResponse(id=row.id, name=row.name) for row in result.all()]
+
 
 
 @router.get("", response_model=PaginatedResponse[DoctorResponse], dependencies=[RequireAdmin])

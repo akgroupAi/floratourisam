@@ -152,13 +152,7 @@ async def get_total_doctors(db: DatabaseSession):
 
 # ============== HOSPITAL CRUD ==============
 
-@router.get("/basic", response_model=list[BasicResponse], dependencies=[RequireAdmin])
-async def list_hospitals_basic(db: DatabaseSession):
-    """List basic hospital details (ID and Name) for dropdowns."""
-    query = select(Hospital.id, Hospital.name).where(Hospital.is_deleted == False).order_by(Hospital.name)
-    result = await db.execute(query)
-    
-    return [BasicResponse(id=row.id, name=row.name) for row in result.all()]
+
 
 
 @router.get("", response_model=PaginatedResponse[HospitalResponse], dependencies=[RequireAdmin])

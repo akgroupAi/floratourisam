@@ -8,6 +8,7 @@ from app.api.v1 import (
     pages, admin_site, leads, notifications, email, events, config, documents,
     patient_documents, patient_medical_records, rbac, dashboard,
     admin_hospital, admin_department, admin_doctor,
+    hospitals, departments,
 )
 
 api_router = APIRouter()
@@ -21,6 +22,8 @@ api_router.include_router(patients.router, prefix="/patients", tags=["Patients"]
 api_router.include_router(patient_documents.router, prefix="/patients", tags=["Patient Documents"])
 api_router.include_router(patient_medical_records.router, prefix="/patients", tags=["Patient Medical Records"])
 api_router.include_router(doctors.router, prefix="/doctors", tags=["Doctors"])
+api_router.include_router(hospitals.router, prefix="/hospitals", tags=["Hospitals"])
+api_router.include_router(departments.router, prefix="/departments", tags=["Departments"])
 
 # Medical services
 api_router.include_router(consultations.router, prefix="/consultations", tags=["Consultations"])

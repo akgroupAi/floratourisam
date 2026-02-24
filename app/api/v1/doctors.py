@@ -4,14 +4,25 @@ from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireDoctor
-from app.schemas.common import PaginatedResponse, PaginationParams
+from app.schemas.common import PaginatedResponse, PaginationParams, BasicResponse
 from app.schemas.doctor import (
     DoctorCreate, DoctorListResponse, DoctorResponse, DoctorUpdate, 
     DoctorAvailabilityCreate, DoctorHospitalCreate, DoctorHospitalUpdate, DoctorHospitalResponse
 )
 from app.services.doctor_service import DoctorService
+from sqlalchemy import select
+from app.models.doctor import Doctor
+from app.models.user import User
 
 router = APIRouter()
+
+@router.get("/basic", response_model=list[BasicResponse])
+async def list_doctors_basic(db: DatabaseSession):
+    """List basic doctor details (ID and Name) for dropdowns."""
+    query = select(Doctor.id, User.full_name.label("name")).join(Doctor.user).where(Doctor.is_deleted == False).order_by(User.full_name)
+    result = await db.execute(query)
+    
+    return [BasicResponse(id=row.id, name=row.name) for row in result.all()]
 
 
 @router.get("", response_model=PaginatedResponse[DoctorListResponse])
