@@ -221,17 +221,31 @@ class TestimonialListResponse(BaseSchema):
     patient_country: Optional[str] = None
     patient_avatar: Optional[str] = None
     treatment_name: Optional[str] = None
-    rating: int
-    content: str
-    is_featured: bool = False
-
-
-class TestimonialResponse(TestimonialListResponse):
     hospital_name: Optional[str] = None
     title: Optional[str] = None
     video_url: Optional[str] = None
+    rating: int
+    content: str
+    is_featured: bool = False
     is_approved: bool = False
-    created_at: datetime
+    created_at: Optional[datetime] = None
+
+
+class TestimonialResponse(TestimonialListResponse):
+    pass
+
+
+class TestimonialUpdate(BaseModel):
+    patient_name: Optional[str] = None
+    patient_country: Optional[str] = None
+    treatment_name: Optional[str] = None
+    hospital_name: Optional[str] = None
+    rating: Optional[int] = Field(None, ge=1, le=5)
+    title: Optional[str] = None
+    content: Optional[str] = None
+    video_url: Optional[str] = None
+    is_featured: Optional[bool] = None
+    is_approved: Optional[bool] = None
 
 
 # ============== FAQ Schemas ==============

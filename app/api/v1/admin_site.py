@@ -3,7 +3,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,7 @@ from app.schemas.site import (
     DestinationCreate, DestinationUpdate, DestinationListResponse, DestinationResponse,
     TreatmentCreate, TreatmentUpdate, TreatmentListResponse, TreatmentResponse,
     BlogPostCreate, BlogPostUpdate, BlogPostListResponse, BlogPostResponse,
-    TestimonialCreate, TestimonialListResponse, TestimonialResponse,
+    TestimonialCreate, TestimonialListResponse, TestimonialResponse, TestimonialUpdate,
     FAQCreate, FAQUpdate, FAQResponse,
     TeamMemberCreate, TeamMemberUpdate, TeamMemberResponse,
     LeadSubmissionResponse,
@@ -293,10 +293,135 @@ async def admin_list_testimonials(
 
 
 @router.post("/testimonials", response_model=TestimonialResponse, dependencies=[RequireAdmin])
-async def create_testimonial(data: TestimonialCreate, current_user: CurrentUser, db: DatabaseSession):
-    """Create a testimonial."""
-    testimonial = Testimonial(**data.model_dump(), created_by=current_user.id)
+async def create_testimonial(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    patient_name: str = Form(...),
+    patient_country: Optional[str] = Form(None),
+    treatment_name: Optional[str] = Form(None),
+    hospital_name: Optional[str] = Form(None),
+    rating: int = Form(default=5, ge=1, le=5),
+    title: Optional[str] = Form(None),
+    content: str = Form(...),
+    video_url: Optional[str] = Form(None),
+    is_featured: bool = Form(False),
+    patient_avatar: Optional[UploadFile] = File(None),
+):
+    """Create a testimonial. patient_avatar must be an image file (JPEG, PNG, WebP) under 2MB."""
+    import os, shutil
+    from pathlib import Path
+
+    avatar_path: Optional[str] = None
+
+    if patient_avatar:
+        # Validate content type
+        allowed_types = {"image/jpeg", "image/png", "image/webp"}
+        if patient_avatar.content_type not in allowed_types:
+            raise HTTPException(status_code=400, detail="patient_avatar must be a JPEG, PNG, or WebP image.")
+        # Validate file size (max 2 MB)
+        contents = await patient_avatar.read()
+        if len(contents) > 2 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="patient_avatar must not exceed 2 MB.")
+        # Save file
+        upload_dir = Path("uploads/testimonials")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        file_ext = patient_avatar.filename.rsplit(".", 1)[-1] if "." in patient_avatar.filename else "jpg"
+        import uuid as _uuid
+        filename = f"{_uuid.uuid4()}.{file_ext}"
+        file_path = upload_dir / filename
+        with open(file_path, "wb") as f:
+            f.write(contents)
+        avatar_path = str(file_path)
+
+    testimonial = Testimonial(
+        patient_name=patient_name,
+        patient_country=patient_country,
+        patient_avatar=avatar_path,
+        treatment_name=treatment_name,
+        hospital_name=hospital_name,
+        rating=rating,
+        title=title,
+        content=content,
+        video_url=video_url,
+        is_featured=is_featured,
+        created_by=current_user.id,
+    )
     db.add(testimonial)
+    await db.commit()
+    await db.refresh(testimonial)
+    return testimonial
+
+
+@router.put("/testimonials/{testimonial_id}", response_model=TestimonialResponse, dependencies=[RequireAdmin])
+async def update_testimonial(
+    testimonial_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    patient_name: Optional[str] = Form(None),
+    patient_country: Optional[str] = Form(None),
+    treatment_name: Optional[str] = Form(None),
+    hospital_name: Optional[str] = Form(None),
+    rating: Optional[int] = Form(None),
+    title: Optional[str] = Form(None),
+    content: Optional[str] = Form(None),
+    video_url: Optional[str] = Form(None),
+    is_featured: Optional[bool] = Form(None),
+    is_approved: Optional[bool] = Form(None),
+    patient_avatar: Optional[UploadFile] = File(None),
+):
+    """Update a testimonial. patient_avatar must be an image file (JPEG, PNG, WebP) under 2MB."""
+    import os
+    from pathlib import Path
+
+    result = await db.execute(select(Testimonial).where(Testimonial.id == testimonial_id))
+    testimonial = result.scalar_one_or_none()
+    if not testimonial:
+        raise HTTPException(status_code=404, detail="Testimonial not found")
+
+    # Apply text field updates
+    if patient_name is not None:
+        testimonial.patient_name = patient_name
+    if patient_country is not None:
+        testimonial.patient_country = patient_country
+    if treatment_name is not None:
+        testimonial.treatment_name = treatment_name
+    if hospital_name is not None:
+        testimonial.hospital_name = hospital_name
+    if rating is not None:
+        testimonial.rating = rating
+    if title is not None:
+        testimonial.title = title
+    if content is not None:
+        testimonial.content = content
+    if video_url is not None:
+        testimonial.video_url = video_url
+    if is_featured is not None:
+        testimonial.is_featured = is_featured
+    if is_approved is not None:
+        testimonial.is_approved = is_approved
+
+    # Handle new image upload
+    if patient_avatar and patient_avatar.filename:
+        allowed_types = {"image/jpeg", "image/png", "image/webp"}
+        if patient_avatar.content_type not in allowed_types:
+            raise HTTPException(status_code=400, detail="patient_avatar must be a JPEG, PNG, or WebP image.")
+        contents = await patient_avatar.read()
+        if len(contents) > 2 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="patient_avatar must not exceed 2 MB.")
+        # Remove old file if it exists
+        if testimonial.patient_avatar and os.path.exists(testimonial.patient_avatar):
+            os.remove(testimonial.patient_avatar)
+        upload_dir = Path("uploads/testimonials")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        file_ext = patient_avatar.filename.rsplit(".", 1)[-1] if "." in patient_avatar.filename else "jpg"
+        import uuid as _uuid
+        filename = f"{_uuid.uuid4()}.{file_ext}"
+        file_path = upload_dir / filename
+        with open(file_path, "wb") as f:
+            f.write(contents)
+        testimonial.patient_avatar = str(file_path)
+
+    testimonial.updated_by = current_user.id
     await db.commit()
     await db.refresh(testimonial)
     return testimonial
