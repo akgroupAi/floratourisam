@@ -8,6 +8,7 @@ from app.api.v1 import (
     pages, admin_site, leads, notifications, email, events, config, documents,
     patient_documents, patient_medical_records, rbac, dashboard,
     admin_hospital, admin_department, admin_doctor,
+    admin_hotel, admin_apartment, admin_restaurant,
     hospitals, departments,
 )
 
@@ -63,6 +64,15 @@ api_router.include_router(admin_department.router, prefix="/admin/departments", 
 
 # Admin - Doctor Management
 api_router.include_router(admin_doctor.router, prefix="/admin/doctors", tags=["Admin - Doctors"])
+
+# Admin - Hotel Management
+api_router.include_router(admin_hotel.router, prefix="/admin/hotels", tags=["Admin - Hotels"])
+
+# Admin - Apartment Management
+api_router.include_router(admin_apartment.router, prefix="/admin/apartments", tags=["Admin - Apartments"])
+
+# Admin - Restaurant Management
+api_router.include_router(admin_restaurant.router, prefix="/admin/restaurants", tags=["Admin - Restaurants"])
 
 # Lead Generation
 api_router.include_router(leads.router, prefix="/leads", tags=["Lead Generation"])

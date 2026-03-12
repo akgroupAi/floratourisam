@@ -8,7 +8,7 @@ from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, Stri
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import BaseModel
+from app.models.base import BaseModel, SimpleBaseModel
 from app.utils.enums import MealType
 
 
@@ -201,6 +201,16 @@ class Restaurant(BaseModel):
         back_populates="restaurant",
         lazy="dynamic",
     )
+    menu_categories: Mapped[List["MenuCategory"]] = relationship(
+        "MenuCategory",
+        back_populates="restaurant",
+        lazy="dynamic",
+    )
+    thalis: Mapped[List["Thali"]] = relationship(
+        "Thali",
+        back_populates="restaurant",
+        lazy="dynamic",
+    )
 
     def __repr__(self) -> str:
         return f"Restaurant(id={self.id}, name={self.name})"
@@ -215,6 +225,13 @@ class MenuItem(BaseModel):
         UUID(as_uuid=True),
         ForeignKey("restaurants.id", ondelete="CASCADE"),
         nullable=False,
+    )
+
+    # Category FK (optional – links to MenuCategory)
+    category_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("menu_categories.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     # Basic info
@@ -314,6 +331,11 @@ class MenuItem(BaseModel):
         "Restaurant",
         back_populates="menu_items",
     )
+    category_obj: Mapped[Optional["MenuCategory"]] = relationship(
+        "MenuCategory",
+        back_populates="menu_items",
+        foreign_keys=[category_id],
+    )
 
     def __repr__(self) -> str:
         return f"MenuItem(id={self.id}, name={self.name})"
@@ -407,3 +429,104 @@ class MealBooking(BaseModel):
         "Restaurant",
         back_populates="meal_bookings",
     )
+
+
+class MenuCategory(BaseModel):
+    """Menu category for grouping menu items within a restaurant."""
+
+    __tablename__ = "menu_categories"
+
+    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    description: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    display_order: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+
+    # Relationships
+    restaurant: Mapped["Restaurant"] = relationship(
+        "Restaurant",
+        back_populates="menu_categories",
+    )
+    menu_items: Mapped[List["MenuItem"]] = relationship(
+        "MenuItem",
+        back_populates="category_obj",
+        foreign_keys="MenuItem.category_id",
+        lazy="dynamic",
+    )
+
+    def __repr__(self) -> str:
+        return f"MenuCategory(id={self.id}, name={self.name})"
+
+
+class Thali(BaseModel):
+    """Thali – a fixed meal set containing multiple menu items."""
+
+    __tablename__ = "thalis"
+
+    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    description: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    price: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+    image_url: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+    # List of menu item UUIDs included in this thali
+    menu_item_ids: Mapped[Optional[List[str]]] = mapped_column(
+        ARRAY(String),
+        nullable=True,
+    )
+    is_available: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+    display_order: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+
+    # Relationships
+    restaurant: Mapped["Restaurant"] = relationship(
+        "Restaurant",
+        back_populates="thalis",
+    )
+
+    def __repr__(self) -> str:
+        return f"Thali(id={self.id}, name={self.name})"

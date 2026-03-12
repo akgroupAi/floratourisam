@@ -8,7 +8,8 @@ from app.models.hospital import Hospital, Department
 from app.models.consultation import Consultation
 from app.models.medical_report import MedicalReport
 from app.models.hotel import Hotel, Room, RoomAvailability
-from app.models.restaurant import Restaurant, MenuItem, MealBooking
+from app.models.restaurant import Restaurant, MenuItem, MealBooking, MenuCategory, Thali
+from app.models.apartment import Apartment
 from app.models.booking import Booking
 from app.models.payment import Payment, PaymentTransaction
 from app.models.chat import ChatRoom, ChatMessage, ChatParticipant
@@ -40,6 +41,9 @@ __all__ = [
     "Restaurant",
     "MenuItem",
     "MealBooking",
+    "MenuCategory",
+    "Thali",
+    "Apartment",
     "Booking",
     "Payment",
     "PaymentTransaction",
