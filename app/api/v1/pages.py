@@ -11,16 +11,18 @@ import os
 import shutil
 from pathlib import Path
 
-from app.api.deps import DatabaseSession
-from app.models.site import Destination, Treatment, BlogPost, Testimonial, FAQ, TeamMember
+from app.api.deps import DatabaseSession, CurrentUser
+from app.models.site import Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember
 from app.schemas.common import PaginatedResponse
 from app.schemas.site import (
     DestinationListResponse, DestinationResponse,
     TreatmentListResponse, TreatmentResponse,
     BlogPostListResponse, BlogPostResponse,
+    BlogCommentCreate, BlogCommentResponse,
     TestimonialListResponse, FAQResponse, TeamMemberResponse,
     DoctorPublicListResponse, DoctorPublicDetailResponse,
 )
+from app.services.blog_comment_service import BlogCommentService
 
 router = APIRouter()
 
@@ -533,7 +535,44 @@ async def get_blog_post(slug: str, db: DatabaseSession):
     return post
 
 
-# ============== ABOUT PAGE ==============
+@router.get("/blog/{slug}/comments", response_model=List[BlogCommentResponse])
+async def list_blog_comments(slug: str, db: DatabaseSession):
+    """List approved (threaded) comments for a blog post."""
+    result = await db.execute(
+        select(BlogPost).where(BlogPost.slug == slug, BlogPost.status == "published")
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Blog post not found")
+
+    service = BlogCommentService(db)
+    return await service.get_for_post(post.id, approved_only=True)
+
+
+@router.post("/blog/{slug}/comments", response_model=BlogCommentResponse, status_code=201)
+async def create_blog_comment(
+    slug: str,
+    data: BlogCommentCreate,
+    db: DatabaseSession,
+    current_user: CurrentUser = None,
+):
+    """Submit a comment on a blog post. Auth is optional; guests must supply guest_name."""
+    result = await db.execute(
+        select(BlogPost).where(BlogPost.slug == slug, BlogPost.status == "published")
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Blog post not found")
+
+    service = BlogCommentService(db)
+    user_id = current_user.id if current_user else None
+    try:
+        return await service.create(post.id, data, user_id=user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+
 
 @router.get("/about")
 async def get_about_page(db: DatabaseSession):

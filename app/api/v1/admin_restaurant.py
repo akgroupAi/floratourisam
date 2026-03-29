@@ -137,6 +137,7 @@ class RestaurantResponse(BaseModel):
 
 class MenuCategoryCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
+    meal_type: Optional[str] = None
     description: Optional[str] = None
     display_order: int = 0
     is_active: bool = True
@@ -144,6 +145,7 @@ class MenuCategoryCreate(BaseModel):
 
 class MenuCategoryUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=100)
+    meal_type: Optional[str] = None
     description: Optional[str] = None
     display_order: Optional[int] = None
     is_active: Optional[bool] = None
@@ -153,6 +155,7 @@ class MenuCategoryResponse(BaseModel):
     id: UUID
     restaurant_id: UUID
     name: str
+    meal_type: Optional[str] = None
     description: Optional[str] = None
     display_order: int
     is_active: bool

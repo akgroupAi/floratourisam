@@ -2,17 +2,26 @@
 
 from typing import Optional
 from uuid import UUID
+
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import func, select
+
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireDoctor
-from app.schemas.common import PaginatedResponse, PaginationParams, BasicResponse
-from app.schemas.doctor import (
-    DoctorCreate, DoctorListResponse, DoctorResponse, DoctorUpdate, 
-    DoctorAvailabilityCreate, DoctorHospitalCreate, DoctorHospitalUpdate, DoctorHospitalResponse
-)
-from app.services.doctor_service import DoctorService
-from sqlalchemy import select
+from app.models.consultation import Consultation
 from app.models.doctor import Doctor
 from app.models.user import User
+from app.schemas.common import BasicResponse, PaginatedResponse, PaginationParams
+from app.schemas.doctor import (
+    DoctorAvailabilityCreate,
+    DoctorCreate,
+    DoctorHospitalCreate,
+    DoctorHospitalResponse,
+    DoctorHospitalUpdate,
+    DoctorListResponse,
+    DoctorResponse,
+    DoctorUpdate,
+)
+from app.services.doctor_service import DoctorService
 
 router = APIRouter()
 
@@ -44,6 +53,51 @@ async def get_my_doctor_profile(current_user: CurrentUser, db: DatabaseSession):
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor profile not found")
     return doctor
+
+
+@router.get("/me/stats", summary="Doctor dashboard stats")
+async def get_my_doctor_stats(current_user: CurrentUser, db: DatabaseSession):
+    """
+    Returns key statistics for the doctor's own dashboard:
+    - total_consultations: lifetime consultations
+    - total_patients: unique patients ever seen
+    - rating: current average rating
+    - total_reviews: number of reviews received
+    - consultation_fee: current fee
+    """
+    service = DoctorService(db)
+    doctor = await service.get_by_user_id(current_user.id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+
+    total_consultations = (
+        await db.execute(
+            select(func.count()).where(
+                Consultation.doctor_id == doctor.id,
+                Consultation.is_deleted == False,
+            )
+        )
+    ).scalar() or 0
+
+    total_patients = (
+        await db.execute(
+            select(func.count(func.distinct(Consultation.patient_id))).where(
+                Consultation.doctor_id == doctor.id,
+                Consultation.is_deleted == False,
+            )
+        )
+    ).scalar() or 0
+
+    return {
+        "doctor_id": doctor.id,
+        "total_consultations": total_consultations,
+        "total_patients": total_patients,
+        "rating": doctor.rating,
+        "total_reviews": doctor.total_reviews,
+        "consultation_fee": doctor.consultation_fee,
+        "years_of_experience": doctor.years_of_experience,
+        "is_verified": doctor.is_verified,
+    }
 
 
 @router.put("/me", response_model=DoctorResponse)

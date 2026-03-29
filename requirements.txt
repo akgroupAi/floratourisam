@@ -49,3 +49,8 @@ mypy
 
 # Background Tasks
 celery
+
+# Google Calendar / Meet integration
+google-api-python-client
+google-auth
+google-auth-oauthlib

@@ -151,8 +151,9 @@ async def upload_document(
         raise HTTPException(status_code=400, detail="File too large. Maximum size is 50MB")
     
     # Generate unique filename
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-    unique_filename = f"{uuid_lib.uuid4()}.{ext}"
+    original_filename = file.filename or "uploaded_document"
+    ext = original_filename.rsplit(".", 1)[-1].lower() if "." in original_filename else ""
+    unique_filename = f"{uuid_lib.uuid4()}.{ext}" if ext else str(uuid_lib.uuid4())
     
     # Create user directory
     user_dir = os.path.join(UPLOAD_DIR, str(current_user.id))
@@ -167,15 +168,15 @@ async def upload_document(
     document = Document(
         user_id=current_user.id,
         filename=unique_filename,
-        original_filename=file.filename,
+        original_filename=original_filename,
         file_path=file_path,
         file_url=f"/api/v1/documents/{unique_filename}/download",
-        file_type=get_mime_type(file.filename),
+        file_type=get_mime_type(original_filename),
         file_extension=ext,
         file_size=file_size,
         category=category,
         document_type=document_type,
-        title=title or file.filename,
+        title=title or original_filename,
         description=description,
         entity_type=entity_type,
         entity_id=UUID(entity_id) if entity_id else None,

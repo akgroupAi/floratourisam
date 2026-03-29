@@ -51,9 +51,19 @@ class Booking(BaseModel):
         ForeignKey("rooms.id", ondelete="SET NULL"),
         nullable=True,
     )
+    apartment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("apartments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     restaurant_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("restaurants.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    package_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("medical_packages.id", ondelete="SET NULL"),
         nullable=True,
     )
 

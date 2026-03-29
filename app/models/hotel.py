@@ -227,6 +227,10 @@ class Room(BaseModel):
         String(255),
         nullable=False,
     )
+    room_number: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
     room_type: Mapped[str] = mapped_column(
         String(50),
         default=RoomType.DOUBLE.value,

@@ -26,6 +26,12 @@ class RestaurantService:
         )
         return result.scalar_one_or_none()
 
+    async def get_list_minimal(self) -> List[Restaurant]:
+        """Get minimal list of all active restaurants."""
+        query = select(Restaurant).where(Restaurant.is_active == True).order_by(Restaurant.name.asc())
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
     async def get_list(
         self,
         pagination: PaginationParams,

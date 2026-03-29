@@ -4,11 +4,17 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from app.api.deps import DatabaseSession
 from app.schemas.common import PaginatedResponse, PaginationParams
-from app.schemas.restaurant import RestaurantResponse, MenuItemResponse
+from app.schemas.restaurant import RestaurantResponse, MenuItemResponse, RestaurantMinimalResponse
 from app.services.restaurant_service import RestaurantService
 
 router = APIRouter()
 
+
+@router.get("/all", response_model=list[RestaurantMinimalResponse])
+async def list_all_restaurants_minimal(db: DatabaseSession):
+    """List all restaurants minimal."""
+    service = RestaurantService(db)
+    return await service.get_list_minimal()
 
 @router.get("", response_model=PaginatedResponse[RestaurantResponse])
 async def list_restaurants(db: DatabaseSession, page: int = Query(1), page_size: int = Query(20), city: str = None):

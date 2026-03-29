@@ -1,59 +1,230 @@
-"""Booking endpoints."""
+"""Booking endpoints.
 
+Patient-facing booking flows:
+  Hotel      → POST /bookings/hotel       (book room)
+  Apartment  → POST /bookings/apartment   (book apartment)
+  Restaurant → POST /bookings/restaurant  (reserve table + optional food pre-order)
+  My list    → GET  /bookings/me
+  Detail     → GET  /bookings/{id}
+  Cancel     → POST /bookings/{id}/cancel
+  Availability check → GET /bookings/rooms/{room_id}/availability
+"""
+
+from datetime import date
+from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Query
+
+from fastapi import APIRouter, HTTPException, Query, status
+
 from app.api.deps import CurrentUser, DatabaseSession
-from app.schemas.booking import BookingListResponse, BookingResponse, HotelBookingCreate, RestaurantBookingCreate, BookingCancelRequest
+from app.schemas.booking import (
+    ApartmentBookingCreate,
+    BookingCancelRequest,
+    BookingListResponse,
+    BookingResponse,
+    HotelBookingCreate,
+    RestaurantBookingCreate,
+)
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.services.booking_service import BookingService
 from app.services.patient_service import PatientService
+from app.utils.enums import BookingType
 
 router = APIRouter()
 
 
-@router.get("", response_model=PaginatedResponse[BookingListResponse])
-async def list_bookings(current_user: CurrentUser, db: DatabaseSession, page: int = Query(1), page_size: int = Query(20)):
-    """List user's bookings."""
+@router.get(
+    "/rooms/{room_id}/availability",
+    summary="Check hotel room availability",
+    description="Returns whether a room is available for the given date range.",
+)
+async def check_room_availability(
+    room_id: UUID,
+    db: DatabaseSession,
+    check_in: date = Query(..., description="Check-in date (YYYY-MM-DD)"),
+    check_out: date = Query(..., description="Check-out date (YYYY-MM-DD)"),
+):
+    if check_out <= check_in:
+        raise HTTPException(status_code=400, detail="check_out must be after check_in")
+    service = BookingService(db)
+    available = await service.check_room_availability(room_id, check_in, check_out)
+    nights = (check_out - check_in).days
+    return {"room_id": room_id, "check_in": check_in, "check_out": check_out, "nights": nights, "available": available}
+
+
+@router.post(
+    "/hotel",
+    response_model=BookingResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Book a hotel room",
+    description=(
+        "Books a hotel room for the patient. Validates date-range availability against "
+        "RoomAvailability and existing bookings. "
+        "Price = room.price_per_night × nights + 10% tax. "
+        "Confirmation email sent immediately."
+    ),
+)
+async def create_hotel_booking(
+    data: HotelBookingCreate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    if data.check_out_date <= data.check_in_date:
+        raise HTTPException(status_code=400, detail="check_out_date must be after check_in_date")
+
+    patient_service = PatientService(db)
+    patient = await patient_service.get_or_create(current_user.id)
+
+    service = BookingService(db)
+    try:
+        return await service.create_hotel_booking(
+            patient_id=patient.id,
+            data=data,
+            created_by=current_user.id,
+            user=current_user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post(
+    "/apartment",
+    response_model=BookingResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Book an apartment",
+    description=(
+        "Books an apartment for the patient. "
+        "Price uses monthly rate (≥28 nights), weekly rate (≥7 nights), or nightly rate. "
+        "Confirmation email sent immediately."
+    ),
+)
+async def create_apartment_booking(
+    data: ApartmentBookingCreate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    if data.check_out_date <= data.check_in_date:
+        raise HTTPException(status_code=400, detail="check_out_date must be after check_in_date")
+
+    patient_service = PatientService(db)
+    patient = await patient_service.get_or_create(current_user.id)
+
+    service = BookingService(db)
+    try:
+        return await service.create_apartment_booking(
+            patient_id=patient.id,
+            data=data,
+            created_by=current_user.id,
+            user=current_user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post(
+    "/restaurant",
+    response_model=BookingResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Reserve a restaurant table",
+    description=(
+        "Reserves a table and optionally pre-orders food items. "
+        "If `ordered_items` is provided, a MealBooking record is created with per-item pricing "
+        "and the booking total is calculated (5% service charge). "
+        "Confirmation email sent immediately."
+    ),
+)
+async def create_restaurant_booking(
+    data: RestaurantBookingCreate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    patient_service = PatientService(db)
+    patient = await patient_service.get_or_create(current_user.id)
+
+    service = BookingService(db)
+    try:
+        return await service.create_restaurant_booking(
+            patient_id=patient.id,
+            data=data,
+            created_by=current_user.id,
+            user=current_user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.get(
+    "/me",
+    response_model=PaginatedResponse[BookingListResponse],
+    summary="List my bookings",
+    description="Returns the authenticated patient's bookings, newest first.",
+)
+async def list_my_bookings(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    booking_type: Optional[BookingType] = Query(default=None, description="Filter: hotel | apartment | restaurant | consultation"),
+    booking_status: Optional[str] = Query(default=None, alias="status"),
+):
     patient_service = PatientService(db)
     patient = await patient_service.get_by_user_id(current_user.id)
+    if not patient:
+        return PaginatedResponse.create([], 0, page, page_size)
+
+    from app.utils.enums import BookingStatus as BS
+    status_enum = None
+    if booking_status:
+        try:
+            status_enum = BS(booking_status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {booking_status}")
+
     service = BookingService(db)
-    bookings, total = await service.get_list(PaginationParams(page=page, page_size=page_size), patient.id if patient else None)
+    bookings, total = await service.get_list(
+        PaginationParams(page=page, page_size=page_size),
+        patient_id=patient.id,
+        booking_type=booking_type,
+        status=status_enum,
+    )
     return PaginatedResponse.create(bookings, total, page, page_size)
 
 
-@router.post("/hotel", response_model=BookingResponse)
-async def create_hotel_booking(data: HotelBookingCreate, current_user: CurrentUser, db: DatabaseSession):
-    """Create hotel booking."""
-    patient_service = PatientService(db)
-    patient = await patient_service.get_or_create(current_user.id)
-    service = BookingService(db)
-    return await service.create_hotel_booking(patient.id, data, current_user.id)
-
-
-@router.post("/restaurant", response_model=BookingResponse)
-async def create_restaurant_booking(data: RestaurantBookingCreate, current_user: CurrentUser, db: DatabaseSession):
-    """Create restaurant booking."""
-    patient_service = PatientService(db)
-    patient = await patient_service.get_or_create(current_user.id)
-    service = BookingService(db)
-    return await service.create_restaurant_booking(patient.id, data, current_user.id)
-
-
-@router.get("/{booking_id}", response_model=BookingResponse)
-async def get_booking(booking_id: UUID, current_user: CurrentUser, db: DatabaseSession):
-    """Get booking by ID."""
+@router.get(
+    "/{booking_id}",
+    response_model=BookingResponse,
+    summary="Get booking details",
+)
+async def get_booking(
+    booking_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
     service = BookingService(db)
     booking = await service.get_by_id(booking_id)
     if not booking:
-        raise HTTPException(status_code=404, detail="Booking not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
     return booking
 
 
-@router.post("/{booking_id}/cancel", response_model=BookingResponse)
-async def cancel_booking(booking_id: UUID, data: BookingCancelRequest, current_user: CurrentUser, db: DatabaseSession):
-    """Cancel a booking."""
+@router.post(
+    "/{booking_id}/cancel",
+    response_model=BookingResponse,
+    summary="Cancel a booking",
+    description="Cancels the booking. If already paid, 80% refund is calculated.",
+)
+async def cancel_booking(
+    booking_id: UUID,
+    data: BookingCancelRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
     service = BookingService(db)
     booking = await service.get_by_id(booking_id)
     if not booking:
-        raise HTTPException(status_code=404, detail="Booking not found")
-    return await service.cancel(booking, data, current_user.id)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    try:
+        return await service.cancel(booking, data, current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+

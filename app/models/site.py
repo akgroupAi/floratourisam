@@ -156,6 +156,86 @@ class BlogPost(BaseModel):
     # Related
     related_posts: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
 
+    # Comments relationship (top-level only; replies loaded per comment)
+    comments: Mapped[List["BlogComment"]] = relationship(
+        "BlogComment",
+        primaryjoin="and_(BlogComment.post_id == BlogPost.id, BlogComment.parent_id == None, BlogComment.is_deleted == False)",
+        order_by="BlogComment.created_at.asc()",
+        lazy="selectin",
+        viewonly=True,
+    )
+
+    @property
+    def comment_count(self) -> int:
+        """Total approved top-level comments loaded via relationship."""
+        return len([c for c in self.comments if c.is_approved])
+
+
+class BlogComment(BaseModel):
+    """Comment on a blog post, with optional threading (one level of replies)."""
+
+    __tablename__ = "blog_comments"
+
+    # Post link
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("blog_posts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Author — authenticated user (nullable to support guest comments)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Guest commenter info (used when user_id is None)
+    guest_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    guest_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # Threading — parent_id is None for top-level comments
+    parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("blog_comments.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+
+    # Content
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Moderation
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+
+    # Relationships
+    user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[user_id], lazy="select")
+    replies: Mapped[List["BlogComment"]] = relationship(
+        "BlogComment",
+        primaryjoin="and_(BlogComment.parent_id == BlogComment.id, BlogComment.is_deleted == False)",
+        foreign_keys="BlogComment.parent_id",
+        order_by="BlogComment.created_at.asc()",
+        lazy="selectin",
+        viewonly=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"BlogComment(id={self.id}, post={self.post_id}, approved={self.is_approved})"
+
+    @property
+    def author_name(self) -> Optional[str]:
+        if self.user:
+            return self.user.full_name
+        return self.guest_name
+
+    @property
+    def author_avatar(self) -> Optional[str]:
+        if self.user:
+            return getattr(self.user, "avatar_url", None)
+        return None
+
 
 class Testimonial(BaseModel):
     """Patient testimonial."""

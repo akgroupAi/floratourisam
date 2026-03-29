@@ -82,6 +82,20 @@ class Settings(BaseSettings):
     AI_SERVICE_URL: Optional[str] = None
     AI_API_KEY: Optional[str] = None
 
+    # SMTP Email
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_USE_TLS: bool = True
+    EMAIL_FROM_ADDRESS: str = "noreply@medicaltourism.com"
+    EMAIL_FROM_NAME: str = "Medical Tourism Platform"
+
+    # Google Calendar / Meet
+    GOOGLE_CALENDAR_ENABLED: bool = False
+    GOOGLE_SERVICE_ACCOUNT_JSON: Optional[str] = None  # Path to service account JSON file
+    GOOGLE_CALENDAR_TIMEZONE: str = "UTC"
+
     @property
     def async_database_url(self) -> str:
         """Return async database URL."""

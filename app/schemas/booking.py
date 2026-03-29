@@ -1,13 +1,13 @@
 """Booking schemas."""
 
 from datetime import date, datetime, time
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from app.schemas.common import BaseSchema
-from app.utils.enums import BookingStatus, BookingType
+from app.utils.enums import BookingStatus, BookingType, MealType
 
 
 class BookingBase(BaseModel):
@@ -19,7 +19,7 @@ class BookingBase(BaseModel):
 
 
 class HotelBookingCreate(BookingBase):
-    """Hotel booking creation."""
+    """Hotel room booking."""
 
     room_id: UUID
     check_in_date: date
@@ -32,14 +32,41 @@ class HotelBookingCreate(BookingBase):
         super().__init__(**data)
 
 
+class ApartmentBookingCreate(BookingBase):
+    """Apartment booking."""
+
+    apartment_id: UUID
+    check_in_date: date
+    check_out_date: date
+    guest_count: int = Field(default=1, ge=1, le=10)
+    guest_details: Optional[dict] = None
+
+    def __init__(self, **data):
+        data["booking_type"] = BookingType.APARTMENT
+        super().__init__(**data)
+
+
+class OrderedItem(BaseModel):
+    """A single menu item included in a restaurant booking."""
+
+    item_id: UUID
+    quantity: int = Field(default=1, ge=1)
+    notes: Optional[str] = Field(default=None, max_length=200)
+
+
 class RestaurantBookingCreate(BookingBase):
-    """Restaurant booking creation."""
+    """Restaurant table reservation with optional food pre-order."""
 
     restaurant_id: UUID
     booking_date: date
     booking_time: time
+    meal_type: MealType = MealType.LUNCH
     guest_count: int = Field(default=1, ge=1, le=20)
     dietary_requirements: Optional[str] = Field(default=None, max_length=500)
+    # Optional pre-ordered items; if provided, creates a MealBooking record
+    ordered_items: Optional[List[OrderedItem]] = None
+    contact_name: Optional[str] = Field(default=None, max_length=255)
+    contact_phone: Optional[str] = Field(default=None, max_length=20)
 
     def __init__(self, **data):
         data["booking_type"] = BookingType.RESTAURANT
@@ -84,8 +111,7 @@ class BookingListResponse(BaseSchema):
     is_paid: bool
     created_at: datetime
 
-    # Related info
-    entity_name: Optional[str] = None  # Hotel name, restaurant name, etc.
+    entity_name: Optional[str] = None  # Hotel / Apartment / Restaurant name
 
 
 class BookingResponse(BaseSchema):
@@ -100,6 +126,7 @@ class BookingResponse(BaseSchema):
     # Related entities
     consultation_id: Optional[UUID] = None
     hotel_room_id: Optional[UUID] = None
+    apartment_id: Optional[UUID] = None
     restaurant_id: Optional[UUID] = None
 
     # Dates
@@ -161,3 +188,4 @@ class BookingStatsResponse(BaseModel):
     total_revenue: float
     bookings_by_type: dict[str, int]
     bookings_by_status: dict[str, int]
+

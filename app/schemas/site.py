@@ -194,13 +194,52 @@ class BlogPostResponse(BaseSchema):
     read_time_minutes: int = 5
     view_count: int = 0
     like_count: int = 0
+    comment_count: int = 0
     related_posts: Optional[List[str]] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
     created_at: datetime
 
 
-# ============== Testimonial Schemas ==============
+# ============== Blog Comment Schemas ==============
+
+class BlogCommentCreate(BaseModel):
+    """Submit a new comment on a blog post."""
+
+    content: str = Field(..., min_length=2, max_length=2000)
+    parent_id: Optional[UUID] = None  # Set to reply to an existing comment
+    # Required only for guest (unauthenticated) submissions
+    guest_name: Optional[str] = Field(default=None, max_length=255)
+    guest_email: Optional[str] = Field(default=None, max_length=255)
+
+
+class BlogCommentUpdate(BaseModel):
+    """Edit the content of an existing comment (author or admin only)."""
+
+    content: str = Field(..., min_length=2, max_length=2000)
+
+
+class BlogCommentResponse(BaseSchema):
+    """A single comment, optionally nested with replies."""
+
+    id: UUID
+    post_id: UUID
+    parent_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    author_name: Optional[str] = None
+    author_avatar: Optional[str] = None
+    content: str
+    is_approved: bool
+    replies: List["BlogCommentResponse"] = []
+    created_at: datetime
+    updated_at: datetime
+
+
+# Allow self-referential schema
+BlogCommentResponse.model_rebuild()
+
+
+
 
 class TestimonialCreate(BaseModel):
     patient_name: str = Field(..., max_length=255)

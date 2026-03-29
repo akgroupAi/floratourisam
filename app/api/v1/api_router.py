@@ -3,13 +3,15 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
-    auth, users, patients, doctors, consultations,
-    hotels, restaurants, bookings, payments, chat, ai, cms,
+    auth, users, patients, doctors, consultations, appointments,
+    hotels, restaurants, bookings, apartments, stays, payments, chat, ai, cms,
     pages, admin_site, leads, notifications, email, events, config, documents,
-    patient_documents, patient_medical_records, rbac, dashboard,
+    patient_documents, patient_medical_records, patient_medical_reports, rbac, dashboard,
     admin_hospital, admin_department, admin_doctor,
     admin_hotel, admin_apartment, admin_restaurant,
-    hospitals, departments,
+    admin_forex, admin_package, forex,
+    hospitals, departments, reviews,
+    packages, favorites,
 )
 
 api_router = APIRouter()
@@ -22,15 +24,20 @@ api_router.include_router(users.router, prefix="/users", tags=["Users"])
 api_router.include_router(patients.router, prefix="/patients", tags=["Patients"])
 api_router.include_router(patient_documents.router, prefix="/patients", tags=["Patient Documents"])
 api_router.include_router(patient_medical_records.router, prefix="/patients", tags=["Patient Medical Records"])
+api_router.include_router(patient_medical_reports.router, prefix="/patients", tags=["Patient Medical Reports"])
 api_router.include_router(doctors.router, prefix="/doctors", tags=["Doctors"])
 api_router.include_router(hospitals.router, prefix="/hospitals", tags=["Hospitals"])
 api_router.include_router(departments.router, prefix="/departments", tags=["Departments"])
 
 # Medical services
 api_router.include_router(consultations.router, prefix="/consultations", tags=["Consultations"])
+api_router.include_router(appointments.router, prefix="/appointments", tags=["Appointments"])
 
 # Accommodation & Dining
 api_router.include_router(hotels.router, prefix="/hotels", tags=["Hotels"])
+api_router.include_router(apartments.router, prefix="/apartments", tags=["Apartments"])
+api_router.include_router(stays.router, prefix="/stays", tags=["Stays (Apartments)"])
+api_router.include_router(reviews.router, prefix="/reviews", tags=["Reviews & Ratings"])
 api_router.include_router(restaurants.router, prefix="/restaurants", tags=["Restaurants"])
 
 # Bookings & Payments
@@ -74,6 +81,19 @@ api_router.include_router(admin_apartment.router, prefix="/admin/apartments", ta
 # Admin - Restaurant Management
 api_router.include_router(admin_restaurant.router, prefix="/admin/restaurants", tags=["Admin - Restaurants"])
 
+# Admin - Forex Management
+api_router.include_router(admin_forex.router, prefix="/admin/forex", tags=["Admin - Forex Exchange"])
+
+# Forex Management
+api_router.include_router(forex.router, prefix="/forex", tags=["Forex Exchange"])
+
+# Medical Packages
+api_router.include_router(packages.router, prefix="/packages", tags=["Medical Packages"])
+api_router.include_router(admin_package.router, prefix="/admin/packages", tags=["Admin - Medical Packages"])
+
+# Favorites / Wishlist
+api_router.include_router(favorites.router, prefix="/favorites", tags=["Favorites"])
+
 # Lead Generation
 api_router.include_router(leads.router, prefix="/leads", tags=["Lead Generation"])
 
@@ -83,3 +103,4 @@ api_router.include_router(email.router, prefix="/email", tags=["Email System"])
 api_router.include_router(events.router, prefix="/events", tags=["Events & Calendar"])
 api_router.include_router(config.router, prefix="/config", tags=["Configuration"])
 api_router.include_router(documents.router, prefix="/documents", tags=["Document Management"])
+

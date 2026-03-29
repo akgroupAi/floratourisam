@@ -10,18 +10,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.models.site import (
-    Destination, Treatment, BlogPost, Testimonial, FAQ, TeamMember, LeadSubmission
+    Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember, LeadSubmission
 )
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.schemas.site import (
     DestinationCreate, DestinationUpdate, DestinationListResponse, DestinationResponse,
     TreatmentCreate, TreatmentUpdate, TreatmentListResponse, TreatmentResponse,
     BlogPostCreate, BlogPostUpdate, BlogPostListResponse, BlogPostResponse,
+    BlogCommentCreate, BlogCommentUpdate, BlogCommentResponse,
     TestimonialCreate, TestimonialListResponse, TestimonialResponse, TestimonialUpdate,
     FAQCreate, FAQUpdate, FAQResponse,
     TeamMemberCreate, TeamMemberUpdate, TeamMemberResponse,
     LeadSubmissionResponse,
 )
+from app.services.blog_comment_service import BlogCommentService
 
 router = APIRouter()
 
@@ -183,6 +185,60 @@ async def create_service(data: TreatmentCreate, current_user: CurrentUser, db: D
     return treatment
 
 
+@router.get("/services", response_model=PaginatedResponse[TreatmentListResponse], dependencies=[RequireAdmin])
+async def admin_list_services(
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    category: Optional[str] = None,
+):
+    """List all services (admin)."""
+    query = select(Treatment).where(Treatment.is_deleted == False)
+    if category:
+        query = query.where(Treatment.category == category)
+    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
+    query = query.order_by(Treatment.display_order).offset((page - 1) * page_size).limit(page_size)
+    rows = await db.execute(query)
+    return PaginatedResponse.create(list(rows.scalars().all()), total, page, page_size)
+
+
+@router.get("/services/{service_id}", response_model=TreatmentResponse, dependencies=[RequireAdmin])
+async def get_service(service_id: UUID, db: DatabaseSession):
+    """Get service by ID."""
+    result = await db.execute(select(Treatment).where(Treatment.id == service_id, Treatment.is_deleted == False))
+    service = result.scalar_one_or_none()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    return service
+
+
+@router.put("/services/{service_id}", response_model=TreatmentResponse, dependencies=[RequireAdmin])
+async def update_service(service_id: UUID, data: TreatmentUpdate, current_user: CurrentUser, db: DatabaseSession):
+    """Update a service."""
+    result = await db.execute(select(Treatment).where(Treatment.id == service_id, Treatment.is_deleted == False))
+    service = result.scalar_one_or_none()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(service, field, value)
+    service.updated_by = current_user.id
+    await db.commit()
+    return service
+
+
+@router.delete("/services/{service_id}", status_code=204, dependencies=[RequireAdmin])
+async def delete_service(service_id: UUID, current_user: CurrentUser, db: DatabaseSession):
+    """Soft-delete a service."""
+    result = await db.execute(select(Treatment).where(Treatment.id == service_id, Treatment.is_deleted == False))
+    service = result.scalar_one_or_none()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    service.is_deleted = True
+    service.deleted_by = current_user.id
+    service.deleted_at = func.now()
+    await db.commit()
+
+
 # ============== BLOG ADMIN ==============
 
 @router.get("/blog", response_model=PaginatedResponse[BlogPostListResponse], dependencies=[RequireAdmin])
@@ -269,7 +325,72 @@ async def delete_blog_post(post_id: UUID, current_user: CurrentUser, db: Databas
     return {"message": "Blog post deleted"}
 
 
-# ============== TESTIMONIALS ADMIN ==============
+# ============== BLOG COMMENTS ADMIN ==============
+
+@router.get("/blog/{post_id}/comments", response_model=PaginatedResponse[BlogCommentResponse], dependencies=[RequireAdmin])
+async def admin_list_blog_comments(
+    post_id: UUID,
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    is_approved: Optional[bool] = None,
+):
+    """List all comments for a blog post (approved + pending). Admin only."""
+    service = BlogCommentService(db)
+    comments, total = await service.get_all_for_post(post_id, page=page, page_size=page_size)
+    if is_approved is not None:
+        comments = [c for c in comments if c.is_approved == is_approved]
+    return {
+        "items": comments,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if page_size else 1,
+    }
+
+
+@router.post("/blog/comments/{comment_id}/approve", response_model=BlogCommentResponse, dependencies=[RequireAdmin])
+async def approve_blog_comment(comment_id: UUID, current_user: CurrentUser, db: DatabaseSession):
+    """Approve a pending blog comment."""
+    service = BlogCommentService(db)
+    comment = await service.get_by_id(comment_id)
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return await service.approve(comment, updated_by=current_user.id)
+
+
+@router.post("/blog/comments/{comment_id}/unapprove", response_model=BlogCommentResponse, dependencies=[RequireAdmin])
+async def unapprove_blog_comment(comment_id: UUID, current_user: CurrentUser, db: DatabaseSession):
+    """Remove approval from a blog comment (puts it back to pending)."""
+    service = BlogCommentService(db)
+    comment = await service.get_by_id(comment_id)
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return await service.unapprove(comment, updated_by=current_user.id)
+
+
+@router.put("/blog/comments/{comment_id}", response_model=BlogCommentResponse, dependencies=[RequireAdmin])
+async def update_blog_comment(comment_id: UUID, data: BlogCommentUpdate, current_user: CurrentUser, db: DatabaseSession):
+    """Edit comment content (admin moderation)."""
+    service = BlogCommentService(db)
+    comment = await service.get_by_id(comment_id)
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return await service.update(comment, data, updated_by=current_user.id)
+
+
+@router.delete("/blog/comments/{comment_id}", dependencies=[RequireAdmin])
+async def delete_blog_comment(comment_id: UUID, current_user: CurrentUser, db: DatabaseSession):
+    """Soft-delete a blog comment."""
+    service = BlogCommentService(db)
+    comment = await service.get_by_id(comment_id)
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    await service.delete(comment, deleted_by=current_user.id)
+    return {"message": "Comment deleted"}
+
+
+
 
 @router.get("/testimonials", response_model=PaginatedResponse[TestimonialListResponse], dependencies=[RequireAdmin])
 async def admin_list_testimonials(
@@ -331,7 +452,7 @@ async def create_testimonial(
         file_path = upload_dir / filename
         with open(file_path, "wb") as f:
             f.write(contents)
-        avatar_path = str(file_path)
+        avatar_path = f"/static/{file_path}"
 
     testimonial = Testimonial(
         patient_name=patient_name,
@@ -409,8 +530,10 @@ async def update_testimonial(
         if len(contents) > 2 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="patient_avatar must not exceed 2 MB.")
         # Remove old file if it exists
-        if testimonial.patient_avatar and os.path.exists(testimonial.patient_avatar):
-            os.remove(testimonial.patient_avatar)
+        if testimonial.patient_avatar:
+            old_path = testimonial.patient_avatar[8:] if testimonial.patient_avatar.startswith("/static/") else testimonial.patient_avatar
+            if os.path.exists(old_path):
+                os.remove(old_path)
         upload_dir = Path("uploads/testimonials")
         upload_dir.mkdir(parents=True, exist_ok=True)
         file_ext = patient_avatar.filename.rsplit(".", 1)[-1] if "." in patient_avatar.filename else "jpg"
@@ -419,7 +542,7 @@ async def update_testimonial(
         file_path = upload_dir / filename
         with open(file_path, "wb") as f:
             f.write(contents)
-        testimonial.patient_avatar = str(file_path)
+        testimonial.patient_avatar = f"/static/{file_path}"
 
     testimonial.updated_by = current_user.id
     await db.commit()

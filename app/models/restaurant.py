@@ -447,6 +447,10 @@ class MenuCategory(BaseModel):
         String(100),
         nullable=False,
     )
+    meal_type: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
     description: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,

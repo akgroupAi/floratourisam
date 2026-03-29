@@ -145,6 +145,7 @@ class RoomCreate(BaseModel):
     """Schema for creating a room."""
 
     name: str = Field(..., min_length=2, max_length=255)
+    room_number: str = Field(..., min_length=1, max_length=50)
     room_type: str = Field(..., description="standard, deluxe, suite, etc.")
     description: Optional[str] = None
     max_occupancy: int = Field(2, ge=1)
@@ -165,6 +166,7 @@ class RoomUpdate(BaseModel):
     """Schema for updating a room."""
 
     name: Optional[str] = Field(None, min_length=2, max_length=255)
+    room_number: Optional[str] = Field(None, min_length=1, max_length=50)
     room_type: Optional[str] = None
     description: Optional[str] = None
     max_occupancy: Optional[int] = Field(None, ge=1)
@@ -187,6 +189,7 @@ class RoomResponse(BaseModel):
     id: UUID
     hotel_id: UUID
     name: str
+    room_number: Optional[str] = None
     room_type: str
     description: Optional[str] = None
     max_occupancy: int

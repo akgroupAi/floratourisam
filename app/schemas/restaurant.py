@@ -18,6 +18,11 @@ class RestaurantResponse(BaseSchema):
     rating: Optional[float] = None
     price_range: Optional[str] = None
 
+class RestaurantMinimalResponse(BaseSchema):
+    """Minimal restaurant response schema."""
+    id: UUID
+    name: str
+
 class MenuItemResponse(BaseSchema):
     """Menu item response schema."""
     id: UUID

@@ -19,6 +19,7 @@ class BookingType(str, Enum):
 
     CONSULTATION = "consultation"
     HOTEL = "hotel"
+    APARTMENT = "apartment"
     RESTAURANT = "restaurant"
     PACKAGE = "package"
 
@@ -155,6 +156,44 @@ class NotificationType(str, Enum):
     CONSULTATION_REMINDER = "consultation_reminder"
     MESSAGE_RECEIVED = "message_received"
     SYSTEM = "system"
+
+
+class FavoriteEntityType(str, Enum):
+    """Types of entities that can be saved to a patient's favorites."""
+
+    DOCTOR = "doctor"
+    HOSPITAL = "hospital"
+    PACKAGE = "package"
+    HOTEL = "hotel"
+    APARTMENT = "apartment"
+    RESTAURANT = "restaurant"
+
+
+class PackageCategory(str, Enum):
+    """Medical package categories."""
+
+    CARDIAC = "cardiac"
+    ORTHOPEDIC = "orthopedic"
+    DENTAL = "dental"
+    WELLNESS = "wellness"
+    COSMETIC = "cosmetic"
+    FERTILITY = "fertility"
+    ONCOLOGY = "oncology"
+    NEUROLOGY = "neurology"
+    OPHTHALMOLOGY = "ophthalmology"
+    GENERAL = "general"
+
+
+class PackageItemType(str, Enum):
+    """Types of items included in a medical package."""
+
+    CONSULTATION = "consultation"
+    PROCEDURE = "procedure"
+    DIAGNOSTIC_TEST = "diagnostic_test"
+    HOSPITAL_STAY = "hospital_stay"
+    MEDICATION = "medication"
+    THERAPY = "therapy"
+    OTHER = "other"
 
 
 class BloodGroup(str, Enum):

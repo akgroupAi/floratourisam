@@ -12,14 +12,17 @@ from app.models.restaurant import Restaurant, MenuItem, MealBooking, MenuCategor
 from app.models.apartment import Apartment
 from app.models.booking import Booking
 from app.models.payment import Payment, PaymentTransaction
+from app.models.package import MedicalPackage, PackageItem
+from app.models.favorite import PatientFavorite
 from app.models.chat import ChatRoom, ChatMessage, ChatParticipant
 from app.models.ai_log import AILog, AIConversation
 from app.models.cms import CMSPage, CMSBlock
 from app.models.site import (
-    Destination, Treatment, BlogPost, Testimonial, FAQ,
+    Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ,
     TeamMember, LeadSubmission, SiteSettings, Navigation
 )
 from app.models.rbac import Role, Permission
+from app.models.review import Review
 
 __all__ = [
     "BaseModel",
@@ -56,4 +59,9 @@ __all__ = [
     "CMSBlock",
     "Role",
     "Permission",
+    "Review",
+    "MedicalPackage",
+    "PackageItem",
+    "PatientFavorite",
+    "BlogComment",
 ]

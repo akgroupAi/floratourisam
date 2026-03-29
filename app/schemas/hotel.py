@@ -23,6 +23,7 @@ class RoomResponse(BaseSchema):
     id: UUID
     hotel_id: UUID
     name: str
+    room_number: Optional[str] = None
     room_type: str
     description: Optional[str] = None
     max_occupancy: int
