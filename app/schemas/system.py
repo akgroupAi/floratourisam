@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.schemas.common import BaseSchema
 
@@ -313,12 +313,11 @@ class DocumentResponse(BaseSchema):
     is_processed: bool
     created_at: datetime
 
+    @field_validator("tags", mode="before")
     @classmethod
-    def model_validate(cls, obj, *args, **kwargs):
-        """Coerce None tags to empty list before validation."""
-        if hasattr(obj, "tags") and obj.tags is None:
-            obj.tags = []
-        return super().model_validate(obj, *args, **kwargs)
+    def coerce_tags(cls, v):
+        """Convert None to empty list."""
+        return v if v is not None else []
 
 
 class DocumentShareCreate(BaseModel):

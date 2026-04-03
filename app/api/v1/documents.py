@@ -188,6 +188,7 @@ async def upload_document(
         document_type=document_type,
         title=title or original_filename,
         description=description,
+        tags=[],
         entity_type=entity_type,
         entity_id=_parse_uuid(entity_id),
         checksum=get_file_hash(content),
