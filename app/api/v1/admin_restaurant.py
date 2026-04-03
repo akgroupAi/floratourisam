@@ -1,5 +1,6 @@
 """Restaurant management endpoints for admin panel."""
 
+from datetime import time
 from typing import List, Optional
 from uuid import UUID
 
@@ -109,8 +110,8 @@ class RestaurantResponse(BaseModel):
     postal_code: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    opening_time: Optional[str] = None
-    closing_time: Optional[str] = None
+    opening_time: Optional[time] = None
+    closing_time: Optional[time] = None
     operating_hours: Optional[dict] = None
     features: Optional[List[str]] = None
     dietary_options: Optional[List[str]] = None
