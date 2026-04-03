@@ -32,6 +32,16 @@ def get_file_hash(file_content: bytes) -> str:
     return hashlib.sha256(file_content).hexdigest()
 
 
+def _parse_uuid(value: Optional[str]) -> Optional[UUID]:
+    """Safely parse a UUID string, raising HTTP 400 on invalid input."""
+    if not value:
+        return None
+    try:
+        return UUID(value)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail=f"Invalid UUID format for entity_id: '{value}'")
+
+
 def get_mime_type(filename: str) -> str:
     """Get MIME type from filename."""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -179,7 +189,7 @@ async def upload_document(
         title=title or original_filename,
         description=description,
         entity_type=entity_type,
-        entity_id=UUID(entity_id) if entity_id else None,
+        entity_id=_parse_uuid(entity_id),
         checksum=get_file_hash(content),
         storage_provider="local",
         created_by=current_user.id,
