@@ -313,6 +313,13 @@ class DocumentResponse(BaseSchema):
     is_processed: bool
     created_at: datetime
 
+    @classmethod
+    def model_validate(cls, obj, *args, **kwargs):
+        """Coerce None tags to empty list before validation."""
+        if hasattr(obj, "tags") and obj.tags is None:
+            obj.tags = []
+        return super().model_validate(obj, *args, **kwargs)
+
 
 class DocumentShareCreate(BaseModel):
     """Share document."""
