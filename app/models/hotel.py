@@ -190,6 +190,16 @@ class Hotel(BaseModel):
         nullable=True,
     )
 
+    # Nearby places (stored as JSON arrays of objects)
+    nearby_restaurants: Mapped[Optional[list]] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+    nearby_transport: Mapped[Optional[list]] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
     # SEO
     meta_title: Mapped[Optional[str]] = mapped_column(
         String(255),

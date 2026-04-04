@@ -17,6 +17,26 @@ router = APIRouter()
 # ============== SCHEMAS ==============
 
 
+class NearbyRestaurant(BaseModel):
+    """Nearby restaurant object."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    cuisine_type: Optional[str] = None
+    distance_km: Optional[float] = Field(None, ge=0)
+    price_range: Optional[str] = Field(None, description="e.g. '$', '$$', '$$$'")
+    address: Optional[str] = None
+    rating: Optional[float] = Field(None, ge=0, le=5)
+
+
+class NearbyTransport(BaseModel):
+    """Nearby transport option object."""
+
+    type: str = Field(..., description="e.g. metro, bus, taxi, airport, train")
+    name: str = Field(..., min_length=1, max_length=255)
+    distance_km: Optional[float] = Field(None, ge=0)
+    description: Optional[str] = None
+
+
 class HotelCreate(BaseModel):
     """Schema for creating a hotel."""
 
@@ -48,8 +68,8 @@ class HotelCreate(BaseModel):
     cover_image_url: Optional[str] = None
     logo_url: Optional[str] = None
     gallery: Optional[List[str]] = None
-    nearby_restaurants: Optional[List[str]] = None
-    nearby_transport: Optional[List[str]] = None
+    nearby_restaurants: Optional[List[NearbyRestaurant]] = None
+    nearby_transport: Optional[List[NearbyTransport]] = None
     policies: Optional[dict] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
@@ -88,6 +108,8 @@ class HotelUpdate(BaseModel):
     cover_image_url: Optional[str] = None
     logo_url: Optional[str] = None
     gallery: Optional[List[str]] = None
+    nearby_restaurants: Optional[List[NearbyRestaurant]] = None
+    nearby_transport: Optional[List[NearbyTransport]] = None
     policies: Optional[dict] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
@@ -130,6 +152,8 @@ class HotelResponse(BaseModel):
     cover_image_url: Optional[str] = None
     logo_url: Optional[str] = None
     gallery: Optional[List[str]] = None
+    nearby_restaurants: Optional[List[NearbyRestaurant]] = None
+    nearby_transport: Optional[List[NearbyTransport]] = None
     policies: Optional[dict] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
