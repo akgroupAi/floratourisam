@@ -22,7 +22,7 @@ class RoomResponse(BaseSchema):
     """Room response schema."""
     id: UUID
     hotel_id: UUID
-    name: str
+    name: Optional[str] = None
     room_number: Optional[str] = None
     room_type: str
     description: Optional[str] = None

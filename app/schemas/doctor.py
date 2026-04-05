@@ -60,6 +60,7 @@ class DoctorBase(BaseModel):
     license_number: Optional[str] = Field(default=None, max_length=100)
     license_expiry: Optional[date] = None
     years_of_experience: Optional[int] = Field(default=None, ge=0, le=70)
+    primary_specialty: Optional[str] = Field(default=None, max_length=100)
     education: Optional[List[dict]] = None
     certifications: Optional[List[dict]] = None
 
@@ -95,6 +96,7 @@ class DoctorUpdate(BaseModel):
     hospital_id: Optional[UUID] = None
     license_expiry: Optional[date] = None
     years_of_experience: Optional[int] = Field(default=None, ge=0)
+    primary_specialty: Optional[str] = Field(default=None, max_length=100)
     qualifications: Optional[List[str]] = None
     education: Optional[List[dict]] = None
     certifications: Optional[List[dict]] = None
@@ -124,6 +126,7 @@ class DoctorListResponse(BaseSchema):
     title: Optional[str] = None
     hospital_name: Optional[str] = None
     primary_specialization: Optional[str] = None
+    primary_specialty: Optional[str] = None
     years_of_experience: Optional[int] = None
     consultation_fee: Optional[float] = None
     rating: Optional[float] = None
@@ -151,6 +154,7 @@ class DoctorListResponse(BaseSchema):
                 'title': obj.title,
                 'hospital_name': obj.hospital.name if obj.hospital else None,
                 'primary_specialization': obj.specializations[0].specialization if obj.specializations else None,
+                'primary_specialty': obj.primary_specialty,
                 'years_of_experience': obj.years_of_experience,
                 'consultation_fee': obj.consultation_fee,
                 'rating': obj.rating,
@@ -172,6 +176,7 @@ class DoctorResponse(BaseSchema):
     title: Optional[str] = None
     license_number: Optional[str] = None
     license_expiry: Optional[date] = None
+    primary_specialty: Optional[str] = None
     years_of_experience: Optional[int] = None
     qualifications: Optional[List[str]] = None
     education: Optional[List[dict]] = None
@@ -252,6 +257,7 @@ class DoctorResponse(BaseSchema):
                 'email': obj.user.email,
                 'phone': obj.user.phone,
                 'avatar_url': obj.user.avatar_url,
+                'primary_specialty': obj.primary_specialty,
                 'hospital_name': obj.hospital.name if obj.hospital else None,
             }
         return obj

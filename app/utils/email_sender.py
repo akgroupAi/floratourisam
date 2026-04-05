@@ -405,3 +405,43 @@ def render_doctor_appointment_html(
     </body>
     </html>
     """
+def render_verification_email_html(
+    *,
+    full_name: str,
+    verification_url: str,
+) -> str:
+    """Render the email verification HTML template."""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px;">
+      <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <div style="background:#0066cc;padding:24px;text-align:center;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">Verify Your Email</h1>
+        </div>
+        <div style="padding:32px;">
+          <p style="font-size:16px;color:#333;">Welcome <strong>{full_name}</strong>,</p>
+          <p style="font-size:14px;color:#555;">
+            Thank you for registering. Please click the button below to verify your email address and activate your account:
+          </p>
+          <div style="text-align:center;margin:30px 0;">
+            <a href="{verification_url}" style="background:#0066cc;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;font-weight:bold;">Verify Email</a>
+          </div>
+          <p style="font-size:14px;color:#555;">
+            If the button above doesn't work, you can copy and paste the following link into your browser:
+          </p>
+          <p style="font-size:12px;color:#888;word-break:break-all;">
+            <a href="{verification_url}" style="color:#0066cc;">{verification_url}</a>
+          </p>
+          <p style="font-size:13px;color:#888;margin-top:30px;">
+            If you did not create an account, no further action is required.
+          </p>
+        </div>
+        <div style="background:#f9f9f9;padding:16px;text-align:center;">
+          <p style="font-size:12px;color:#aaa;margin:0;">Medical Tourism Platform</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """

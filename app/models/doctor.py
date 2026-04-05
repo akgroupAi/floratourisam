@@ -59,6 +59,10 @@ class Doctor(BaseModel):
         Date,
         nullable=True,
     )
+    primary_specialty: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
     years_of_experience: Mapped[Optional[int]] = mapped_column(
         Integer,
         nullable=True,

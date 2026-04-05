@@ -33,7 +33,7 @@ async def register(request: RegisterRequest, db: DatabaseSession):
     user = await service.register(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-    return MessageResponse(message="Registration successful. Please verify your email.")
+    return MessageResponse(message="Registration successful. We have sent a verification link to your email.")
 
 
 @router.post("/admin/register", response_model=MessageResponse, dependencies=[RequireAdmin])

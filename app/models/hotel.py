@@ -115,14 +115,6 @@ class Hotel(BaseModel):
         ARRAY(String),
         nullable=True,
     )
-    nearby_restaurants: Mapped[Optional[List[str]]] = mapped_column(
-        ARRAY(String),
-        nullable=True,
-    )
-    nearby_transport: Mapped[Optional[List[str]]] = mapped_column(
-        ARRAY(String),
-        nullable=True,
-    )
 
     # Amenities
     amenities: Mapped[Optional[List[str]]] = mapped_column(
@@ -241,9 +233,9 @@ class Room(BaseModel):
     )
 
     # Basic info
-    name: Mapped[str] = mapped_column(
+    name: Mapped[Optional[str]] = mapped_column(
         String(255),
-        nullable=False,
+        nullable=True,
     )
     room_number: Mapped[Optional[str]] = mapped_column(
         String(50),

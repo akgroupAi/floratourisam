@@ -161,6 +161,28 @@ class AuthService:
         await self.db.commit()
         await self.db.refresh(user)
 
+        # Send verification email
+        from app.utils.email_sender import send_email, render_verification_email_html
+        
+        # In a real app, this URL would point to the frontend verify page
+        # For now, we'll use a placeholder or the API endpoint
+        verification_url = f"http://localhost:3000/verify-email?token={user.verification_token}"
+        
+        email_html = render_verification_email_html(
+            full_name=user.full_name,
+            verification_url=verification_url
+        )
+        
+        await send_email(
+            db=self.db,
+            to_email=user.email,
+            to_name=user.full_name,
+            subject="Verify your email - Medical Tourism Platform",
+            body_html=email_html,
+            category="verification",
+            user_id=user.id
+        )
+
         logger.info("user_registered", user_id=str(user.id), email=user.email, role=user.role)
 
         return user

@@ -168,7 +168,7 @@ class HotelResponse(BaseModel):
 class RoomCreate(BaseModel):
     """Schema for creating a room."""
 
-    name: str = Field(..., min_length=2, max_length=255)
+    name: Optional[str] = Field(None, min_length=2, max_length=255)
     room_number: str = Field(..., min_length=1, max_length=50)
     room_type: str = Field(..., description="standard, deluxe, suite, etc.")
     description: Optional[str] = None

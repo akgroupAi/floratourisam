@@ -118,6 +118,7 @@ class DoctorService:
             title=data.title,
             license_number=data.license_number,
             license_expiry=data.license_expiry,
+            primary_specialty=data.primary_specialty,
             years_of_experience=data.years_of_experience,
             qualifications=data.qualifications,
             bio=data.bio,
