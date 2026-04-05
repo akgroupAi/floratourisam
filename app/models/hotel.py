@@ -115,6 +115,14 @@ class Hotel(BaseModel):
         ARRAY(String),
         nullable=True,
     )
+    nearby_restaurants: Mapped[Optional[List[str]]] = mapped_column(
+        ARRAY(String),
+        nullable=True,
+    )
+    nearby_transport: Mapped[Optional[List[str]]] = mapped_column(
+        ARRAY(String),
+        nullable=True,
+    )
 
     # Amenities
     amenities: Mapped[Optional[List[str]]] = mapped_column(
@@ -214,7 +222,7 @@ class Hotel(BaseModel):
     rooms: Mapped[List["Room"]] = relationship(
         "Room",
         back_populates="hotel",
-        lazy="dynamic",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:
@@ -327,7 +335,7 @@ class Room(BaseModel):
     availability: Mapped[List["RoomAvailability"]] = relationship(
         "RoomAvailability",
         back_populates="room",
-        lazy="dynamic",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:
@@ -344,7 +352,7 @@ class RoomAvailability(BaseModel):
         ForeignKey("rooms.id", ondelete="CASCADE"),
         nullable=False,
     )
-    date: Mapped[datetime.date] = mapped_column(
+    date: Mapped[date] = mapped_column(
         Date,
         nullable=False,
         index=True,
