@@ -106,9 +106,6 @@ async def register(request: RegisterRequest, db: DatabaseSession):
     user = await service.register(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-<<<<<<< HEAD
-    return MessageResponse(message="Registration successful. We have sent a verification link to your email.")
-=======
 
     # Send verification email (best-effort — don't fail registration if email fails)
     if user.verification_token:
@@ -123,7 +120,6 @@ async def register(request: RegisterRequest, db: DatabaseSession):
         )
 
     return MessageResponse(message="Registration successful. Please check your email to verify your account.")
->>>>>>> 26cae43 (Fix: Email authentication)
 
 
 @router.post("/admin/register", response_model=MessageResponse, dependencies=[RequireAdmin])
