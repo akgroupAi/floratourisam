@@ -19,6 +19,8 @@ class Currency(BaseModel):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     symbol: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     exchange_rate: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    buy_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    sell_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     def __repr__(self):

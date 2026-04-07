@@ -16,6 +16,8 @@ class HotelResponse(BaseSchema):
     star_rating: Optional[int] = None
     cover_image_url: Optional[str] = None
     rating: Optional[float] = None
+    facilities: Optional[dict] = None
+    policies: Optional[dict] = None
     min_price: Optional[float] = None  # Computed field
 
 class RoomResponse(BaseSchema):
@@ -28,5 +30,6 @@ class RoomResponse(BaseSchema):
     description: Optional[str] = None
     max_occupancy: int
     price_per_night: float
+    view: Optional[dict] = None
     is_available: bool = True
     images: Optional[List[str]] = None

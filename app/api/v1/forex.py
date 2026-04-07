@@ -27,6 +27,15 @@ async def list_active_currencies(db: DatabaseSession):
     return currencies
 
 
+@router.get("/all-currencies", response_model=List[CurrencyResponse])
+async def list_all_currencies(db: DatabaseSession):
+    """List all currencies for the frontend without pagination."""
+    query = select(Currency).where(Currency.is_deleted == False).order_by(Currency.code.asc())
+    result = await db.execute(query)
+    currencies = result.scalars().all()
+    return currencies
+
+
 @router.get("/calculate")
 async def calculate_forex(
     from_currency_id: uuid.UUID,

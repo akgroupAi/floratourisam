@@ -189,6 +189,10 @@ class Hotel(BaseModel):
         JSONB,
         nullable=True,
     )
+    facilities: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
 
     # Nearby places (stored as JSON arrays of objects)
     nearby_restaurants: Mapped[Optional[list]] = mapped_column(
@@ -278,8 +282,8 @@ class Room(BaseModel):
         ARRAY(String),
         nullable=True,
     )
-    view: Mapped[Optional[str]] = mapped_column(
-        String(100),
+    view: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
         nullable=True,
     )
 

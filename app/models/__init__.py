@@ -22,7 +22,9 @@ from app.models.site import (
     TeamMember, LeadSubmission, SiteSettings, Navigation
 )
 from app.models.rbac import Role, Permission
+from app.models.forex import Currency, ForexRequest
 from app.models.review import Review
+from app.models.system import Notification, EmailTemplate, EmailLog, Event, AdminConfig, Document, DocumentShare
 
 __all__ = [
     "BaseModel",
@@ -64,4 +66,13 @@ __all__ = [
     "PackageItem",
     "PatientFavorite",
     "BlogComment",
+    "Currency",
+    "ForexRequest",
+    "Notification",
+    "EmailTemplate",
+    "EmailLog",
+    "Event",
+    "AdminConfig",
+    "Document",
+    "DocumentShare",
 ]

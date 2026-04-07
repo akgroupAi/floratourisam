@@ -5,7 +5,16 @@ from fastapi import APIRouter, HTTPException, Query
 from app.api.deps import DatabaseSession
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.schemas.hotel import HotelResponse, RoomResponse
+from app.schemas.review import (
+    ReviewCreate,
+    ReviewListItem,
+    ReviewPublicResponse,
+    ReviewResponse,
+    ReviewSummary,
+)
 from app.services.hotel_service import HotelService
+from app.services.review_service import ReviewService
+from app.api.deps import CurrentUser
 
 router = APIRouter()
 
@@ -28,6 +37,26 @@ async def get_hotel(hotel_id: UUID, db: DatabaseSession):
     return hotel
 
 
+@router.get("/{hotel_id}/facilities", response_model=dict)
+async def get_hotel_facilities(hotel_id: UUID, db: DatabaseSession):
+    """Get hotel facilities (public)."""
+    result = await db.execute(
+        select(Hotel.facilities).where(Hotel.id == hotel_id, Hotel.is_active == True)
+    )
+    facilities = result.scalar()
+    return facilities or {}
+
+
+@router.get("/{hotel_id}/policies", response_model=dict)
+async def get_hotel_policies(hotel_id: UUID, db: DatabaseSession):
+    """Get hotel policies (public)."""
+    result = await db.execute(
+        select(Hotel.policies).where(Hotel.id == hotel_id, Hotel.is_active == True)
+    )
+    policies = result.scalar()
+    return policies or {}
+
+
 @router.get("/{hotel_id}/rooms", response_model=list[RoomResponse])
 async def get_hotel_rooms(hotel_id: UUID, db: DatabaseSession):
     """Get hotel rooms."""
@@ -41,3 +70,58 @@ async def check_room_availability(hotel_id: UUID, room_id: UUID, check_in: str, 
     service = HotelService(db)
     available = await service.check_availability(room_id, check_in, check_out)
     return {"available": available}
+
+
+# ============== REVIEWS ==============
+
+
+@router.get(
+    "/{hotel_id}/reviews", response_model=PaginatedResponse[ReviewPublicResponse]
+)
+async def list_hotel_reviews(
+    hotel_id: UUID,
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    sort_by: str = Query("created_at", description="created_at | rating | helpful_count"),
+):
+    """List approved reviews for a hotel."""
+    service = ReviewService(db)
+    reviews, total = await service.list_for_entity(
+        entity_type="hotel",
+        entity_id=hotel_id,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+    )
+    return PaginatedResponse.create(reviews, total, page, page_size)
+
+
+@router.get("/{hotel_id}/reviews/summary", response_model=ReviewSummary)
+async def get_hotel_review_summary(hotel_id: UUID, db: DatabaseSession):
+    """Get rating summary for a hotel."""
+    service = ReviewService(db)
+    return await service.get_entity_summary(entity_type="hotel", entity_id=hotel_id)
+
+
+@router.post("/{hotel_id}/reviews", response_model=ReviewResponse)
+async def submit_hotel_review(
+    hotel_id: UUID,
+    data: ReviewCreate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Submit a review for a hotel."""
+    # Ensure data entity_id matches URL hotel_id
+    if data.entity_id != hotel_id:
+        data.entity_id = hotel_id
+    if data.entity_type != "hotel":
+        data.entity_type = "hotel"
+
+    service = ReviewService(db)
+    try:
+        return await service.submit_review(
+            user_id=current_user.id, data=data, created_by=current_user.id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

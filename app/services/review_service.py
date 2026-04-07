@@ -426,6 +426,7 @@ class ReviewService:
         page: int = 1,
         page_size: int = 30,
         entity_type: Optional[str] = None,
+        entity_id: Optional[UUID] = None,
         is_approved: Optional[bool] = None,
         is_verified: Optional[bool] = None,
         min_rating: Optional[int] = None,
@@ -433,6 +434,8 @@ class ReviewService:
         base = select(Review).where(Review.is_deleted == False)
         if entity_type:
             base = base.where(Review.entity_type == entity_type)
+        if entity_id:
+            base = base.where(Review.entity_id == entity_id)
         if is_approved is not None:
             base = base.where(Review.is_approved == is_approved)
         if is_verified is not None:

@@ -10,6 +10,13 @@ from sqlalchemy import func, or_, select
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.models.hotel import Hotel, Room
 from app.schemas.common import MessageResponse, PaginatedResponse
+from app.schemas.review import (
+    AdminReviewApprove,
+    AdminReviewResponse,
+    ReviewListItem,
+    ReviewResponse,
+)
+from app.services.review_service import ReviewService
 
 router = APIRouter()
 
@@ -70,6 +77,7 @@ class HotelCreate(BaseModel):
     gallery: Optional[List[str]] = None
     nearby_restaurants: Optional[List[NearbyRestaurant]] = None
     nearby_transport: Optional[List[NearbyTransport]] = None
+    facilities: Optional[dict] = None
     policies: Optional[dict] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
@@ -110,6 +118,7 @@ class HotelUpdate(BaseModel):
     gallery: Optional[List[str]] = None
     nearby_restaurants: Optional[List[NearbyRestaurant]] = None
     nearby_transport: Optional[List[NearbyTransport]] = None
+    facilities: Optional[dict] = None
     policies: Optional[dict] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
@@ -154,6 +163,7 @@ class HotelResponse(BaseModel):
     gallery: Optional[List[str]] = None
     nearby_restaurants: Optional[List[NearbyRestaurant]] = None
     nearby_transport: Optional[List[NearbyTransport]] = None
+    facilities: Optional[dict] = None
     policies: Optional[dict] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
@@ -176,7 +186,7 @@ class RoomCreate(BaseModel):
     bed_type: Optional[str] = None
     bed_count: int = Field(1, ge=1)
     size_sqm: Optional[float] = None
-    view: Optional[str] = None
+    view: Optional[dict] = None
     amenities: Optional[List[str]] = None
     price_per_night: float = Field(..., gt=0)
     total_rooms: int = Field(1, ge=1)
@@ -197,7 +207,7 @@ class RoomUpdate(BaseModel):
     bed_type: Optional[str] = None
     bed_count: Optional[int] = Field(None, ge=1)
     size_sqm: Optional[float] = None
-    view: Optional[str] = None
+    view: Optional[dict] = None
     amenities: Optional[List[str]] = None
     price_per_night: Optional[float] = Field(None, gt=0)
     total_rooms: Optional[int] = Field(None, ge=1)
@@ -220,7 +230,7 @@ class RoomResponse(BaseModel):
     bed_type: Optional[str] = None
     bed_count: int
     size_sqm: Optional[float] = None
-    view: Optional[str] = None
+    view: Optional[dict] = None
     amenities: Optional[List[str]] = None
     price_per_night: float
     total_rooms: int
@@ -385,6 +395,156 @@ async def delete_hotel(hotel_id: UUID, current_user: CurrentUser, db: DatabaseSe
     hotel.deleted_by = current_user.id
     await db.commit()
     return MessageResponse(message="Hotel deleted successfully")
+
+
+# ============== FACILITIES & POLICIES ==============
+
+
+@router.get("/{hotel_id}/facilities", response_model=dict, dependencies=[RequireAdmin])
+async def get_hotel_facilities(hotel_id: UUID, db: DatabaseSession):
+    """Get hotel facilities."""
+    result = await db.execute(
+        select(Hotel.facilities).where(Hotel.id == hotel_id, Hotel.is_deleted == False)
+    )
+    facilities = result.scalar()
+    return facilities or {}
+
+
+@router.put("/{hotel_id}/facilities", response_model=dict, dependencies=[RequireAdmin])
+async def update_hotel_facilities(
+    hotel_id: UUID, facilities: dict, current_user: CurrentUser, db: DatabaseSession
+):
+    """Update hotel facilities."""
+    result = await db.execute(
+        select(Hotel).where(Hotel.id == hotel_id, Hotel.is_deleted == False)
+    )
+    hotel = result.scalar_one_or_none()
+    if not hotel:
+        raise HTTPException(status_code=404, detail="Hotel not found")
+
+    hotel.facilities = facilities
+    hotel.updated_by = current_user.id
+    await db.commit()
+    return hotel.facilities
+
+
+@router.get("/{hotel_id}/policies", response_model=dict, dependencies=[RequireAdmin])
+async def get_hotel_policies(hotel_id: UUID, db: DatabaseSession):
+    """Get hotel policies."""
+    result = await db.execute(
+        select(Hotel.policies).where(Hotel.id == hotel_id, Hotel.is_deleted == False)
+    )
+    policies = result.scalar()
+    return policies or {}
+
+
+@router.put("/{hotel_id}/policies", response_model=dict, dependencies=[RequireAdmin])
+async def update_hotel_policies(
+    hotel_id: UUID, policies: dict, current_user: CurrentUser, db: DatabaseSession
+):
+    """Update hotel policies."""
+    result = await db.execute(
+        select(Hotel).where(Hotel.id == hotel_id, Hotel.is_deleted == False)
+    )
+    hotel = result.scalar_one_or_none()
+    if not hotel:
+        raise HTTPException(status_code=404, detail="Hotel not found")
+
+    hotel.policies = policies
+    hotel.updated_by = current_user.id
+    await db.commit()
+    return hotel.policies
+
+
+# ============== REVIEWS ==============
+
+
+@router.get(
+    "/{hotel_id}/reviews",
+    response_model=PaginatedResponse[ReviewListItem],
+    dependencies=[RequireAdmin],
+)
+async def list_hotel_reviews_admin(
+    hotel_id: UUID,
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    is_approved: Optional[bool] = None,
+):
+    """List all reviews for a hotel (admin)."""
+    service = ReviewService(db)
+    reviews, total = await service.admin_list(
+        page=page,
+        page_size=page_size,
+        entity_type="hotel",
+        entity_id=hotel_id,
+        is_approved=is_approved,
+    )
+    
+    return PaginatedResponse.create(reviews, total, page, page_size)
+
+
+@router.patch(
+    "/reviews/{review_id}/approve",
+    response_model=ReviewResponse,
+    dependencies=[RequireAdmin],
+)
+async def approve_review(
+    review_id: UUID,
+    data: AdminReviewApprove,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Approve or reject a review."""
+    service = ReviewService(db)
+    try:
+        return await service.admin_approve(
+            review_id=review_id, data=data, admin_id=current_user.id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post(
+    "/reviews/{review_id}/respond",
+    response_model=ReviewResponse,
+    dependencies=[RequireAdmin],
+)
+async def respond_to_review(
+    review_id: UUID,
+    data: AdminReviewResponse,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Post an official response to a review."""
+    service = ReviewService(db)
+    try:
+        return await service.admin_respond(
+            review_id=review_id,
+            response_text=data.response_text,
+            admin_id=current_user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete(
+    "/reviews/{review_id}",
+    response_model=MessageResponse,
+    dependencies=[RequireAdmin],
+)
+async def delete_review_admin(
+    review_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Delete a review (admin)."""
+    service = ReviewService(db)
+    try:
+        await service.admin_delete(review_id=review_id, admin_id=current_user.id)
+        return MessageResponse(message="Review deleted successfully")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # ============== ROOM CRUD ==============

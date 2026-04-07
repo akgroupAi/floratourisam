@@ -18,6 +18,8 @@ class CurrencyCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     symbol: Optional[str] = Field(None, max_length=10)
     exchange_rate: float = Field(..., gt=0.0)
+    buy_rate: float = Field(0.0, ge=0.0)
+    sell_rate: float = Field(0.0, ge=0.0)
     is_active: bool = True
 
 
@@ -27,6 +29,8 @@ class CurrencyUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=100)
     symbol: Optional[str] = Field(None, max_length=10)
     exchange_rate: Optional[float] = Field(None, gt=0.0)
+    buy_rate: Optional[float] = Field(None, ge=0.0)
+    sell_rate: Optional[float] = Field(None, ge=0.0)
     is_active: Optional[bool] = None
 
 
@@ -37,7 +41,10 @@ class CurrencyResponse(BaseSchema):
     name: str
     symbol: Optional[str] = None
     exchange_rate: float
+    buy_rate: float
+    sell_rate: float
     is_active: bool
+    updated_at: datetime
 
     class Config:
         from_attributes = True
