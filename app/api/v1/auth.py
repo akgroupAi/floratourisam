@@ -20,6 +20,7 @@ router = APIRouter()
 
 def _build_verification_email_html(full_name: str, token: str) -> str:
     """Render a simple HTML verification email."""
+    verify_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
     return f"""
     <!DOCTYPE html>
     <html>
@@ -33,14 +34,20 @@ def _build_verification_email_html(full_name: str, token: str) -> str:
         <div style="padding:32px;">
           <p style="font-size:16px;color:#333;">Dear <strong>{full_name}</strong>,</p>
           <p style="font-size:14px;color:#555;">
-            Thank you for registering. Please use the verification code below to
-            activate your account:
+            Thank you for registering. Click the button below to verify your email address
+            and activate your account:
           </p>
-          <div style="background:#f0f4ff;border-radius:6px;padding:16px 24px;
-                      text-align:center;margin:24px 0;">
-            <code style="font-size:20px;letter-spacing:4px;color:#0066cc;
-                         font-weight:bold;">{token}</code>
+          <div style="text-align:center;margin:32px 0;">
+            <a href="{verify_url}"
+               style="background:#0066cc;color:#fff;padding:14px 32px;border-radius:6px;
+                      text-decoration:none;font-size:16px;font-weight:bold;
+                      display:inline-block;">
+              Verify Email Address
+            </a>
           </div>
+          <p style="font-size:12px;color:#999;word-break:break-all;">
+            Or copy this link into your browser:<br>{verify_url}
+          </p>
           <p style="font-size:13px;color:#888;">
             If you did not create an account, you can safely ignore this email.
           </p>
@@ -56,6 +63,7 @@ def _build_verification_email_html(full_name: str, token: str) -> str:
 
 def _build_reset_email_html(full_name: str, token: str) -> str:
     """Render a simple HTML password-reset email."""
+    reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
     return f"""
     <!DOCTYPE html>
     <html>
@@ -69,13 +77,19 @@ def _build_reset_email_html(full_name: str, token: str) -> str:
         <div style="padding:32px;">
           <p style="font-size:16px;color:#333;">Dear <strong>{full_name}</strong>,</p>
           <p style="font-size:14px;color:#555;">
-            Use the token below to reset your password:
+            Click the button below to reset your password:
           </p>
-          <div style="background:#fff0f0;border-radius:6px;padding:16px 24px;
-                      text-align:center;margin:24px 0;">
-            <code style="font-size:20px;letter-spacing:4px;color:#cc3300;
-                         font-weight:bold;">{token}</code>
+          <div style="text-align:center;margin:32px 0;">
+            <a href="{reset_url}"
+               style="background:#cc3300;color:#fff;padding:14px 32px;border-radius:6px;
+                      text-decoration:none;font-size:16px;font-weight:bold;
+                      display:inline-block;">
+              Reset Password
+            </a>
           </div>
+          <p style="font-size:12px;color:#999;word-break:break-all;">
+            Or copy this link into your browser:<br>{reset_url}
+          </p>
           <p style="font-size:13px;color:#888;">
             If you did not request a password reset, please ignore this email.
           </p>

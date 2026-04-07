@@ -91,6 +91,9 @@ class Settings(BaseSettings):
     EMAIL_FROM_ADDRESS: str = "noreply@medicaltourism.com"
     EMAIL_FROM_NAME: str = "Medical Tourism Platform"
 
+    # Frontend URL (used to build verification / reset links in emails)
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # Google Calendar / Meet
     GOOGLE_CALENDAR_ENABLED: bool = False
     GOOGLE_SERVICE_ACCOUNT_JSON: Optional[str] = None  # Path to service account JSON file
