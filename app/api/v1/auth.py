@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
+from app.core.config import settings
 from app.models.user import User
 from app.schemas.auth import (
     AuthResponse, ChangePasswordRequest, LoginRequest,
@@ -12,8 +13,80 @@ from app.schemas.auth import (
 )
 from app.schemas.common import MessageResponse
 from app.services.auth_service import AuthService
+from app.utils.email_sender import send_email
 
 router = APIRouter()
+
+
+def _build_verification_email_html(full_name: str, token: str) -> str:
+    """Render a simple HTML verification email."""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px;">
+      <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;
+                  overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <div style="background:#0066cc;padding:24px;text-align:center;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">Verify Your Email</h1>
+        </div>
+        <div style="padding:32px;">
+          <p style="font-size:16px;color:#333;">Dear <strong>{full_name}</strong>,</p>
+          <p style="font-size:14px;color:#555;">
+            Thank you for registering. Please use the verification code below to
+            activate your account:
+          </p>
+          <div style="background:#f0f4ff;border-radius:6px;padding:16px 24px;
+                      text-align:center;margin:24px 0;">
+            <code style="font-size:20px;letter-spacing:4px;color:#0066cc;
+                         font-weight:bold;">{token}</code>
+          </div>
+          <p style="font-size:13px;color:#888;">
+            If you did not create an account, you can safely ignore this email.
+          </p>
+        </div>
+        <div style="background:#f9f9f9;padding:16px;text-align:center;">
+          <p style="font-size:12px;color:#aaa;margin:0;">{settings.EMAIL_FROM_NAME}</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+
+def _build_reset_email_html(full_name: str, token: str) -> str:
+    """Render a simple HTML password-reset email."""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px;">
+      <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;
+                  overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <div style="background:#cc3300;padding:24px;text-align:center;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">Password Reset Request</h1>
+        </div>
+        <div style="padding:32px;">
+          <p style="font-size:16px;color:#333;">Dear <strong>{full_name}</strong>,</p>
+          <p style="font-size:14px;color:#555;">
+            Use the token below to reset your password:
+          </p>
+          <div style="background:#fff0f0;border-radius:6px;padding:16px 24px;
+                      text-align:center;margin:24px 0;">
+            <code style="font-size:20px;letter-spacing:4px;color:#cc3300;
+                         font-weight:bold;">{token}</code>
+          </div>
+          <p style="font-size:13px;color:#888;">
+            If you did not request a password reset, please ignore this email.
+          </p>
+        </div>
+        <div style="background:#f9f9f9;padding:16px;text-align:center;">
+          <p style="font-size:12px;color:#aaa;margin:0;">{settings.EMAIL_FROM_NAME}</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -33,7 +106,24 @@ async def register(request: RegisterRequest, db: DatabaseSession):
     user = await service.register(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+<<<<<<< HEAD
     return MessageResponse(message="Registration successful. We have sent a verification link to your email.")
+=======
+
+    # Send verification email (best-effort — don't fail registration if email fails)
+    if user.verification_token:
+        await send_email(
+            db=db,
+            to_email=user.email,
+            to_name=user.full_name,
+            subject="Verify your email address",
+            body_html=_build_verification_email_html(user.full_name, user.verification_token),
+            category="verification",
+            user_id=user.id,
+        )
+
+    return MessageResponse(message="Registration successful. Please check your email to verify your account.")
+>>>>>>> 26cae43 (Fix: Email authentication)
 
 
 @router.post("/admin/register", response_model=MessageResponse, dependencies=[RequireAdmin])
@@ -102,7 +192,26 @@ async def verify_email(request: VerifyEmailRequest, db: DatabaseSession):
 async def forgot_password(request: PasswordResetRequest, db: DatabaseSession):
     """Request password reset."""
     service = AuthService(db)
-    await service.request_password_reset(request.email)
+    reset_token = await service.request_password_reset(request.email)
+
+    # If a token was generated, look up the user and send the reset email
+    if reset_token:
+        from sqlalchemy import select as _select
+        result = await db.execute(
+            _select(User).where(User.email == request.email)
+        )
+        user = result.scalar_one_or_none()
+        if user:
+            await send_email(
+                db=db,
+                to_email=user.email,
+                to_name=user.full_name,
+                subject="Password reset request",
+                body_html=_build_reset_email_html(user.full_name, reset_token),
+                category="password_reset",
+                user_id=user.id,
+            )
+
     return MessageResponse(message="If email exists, reset instructions have been sent")
 
 
