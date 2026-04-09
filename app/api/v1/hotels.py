@@ -1,5 +1,6 @@
 """Hotel endpoints."""
 
+from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from app.api.deps import DatabaseSession
@@ -20,10 +21,26 @@ router = APIRouter()
 
 
 @router.get("", response_model=PaginatedResponse[HotelResponse])
-async def list_hotels(db: DatabaseSession, page: int = Query(1), page_size: int = Query(20), city: str = None):
+async def list_hotels(
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    city: Optional[str] = Query(None),
+    min_price: Optional[float] = Query(None, ge=0, description="Minimum price per night"),
+    max_price: Optional[float] = Query(None, ge=0, description="Maximum price per night"),
+    min_rating: Optional[float] = Query(None, ge=0, le=5, description="Minimum rating (e.g. 3, 3.5, 4, 4.5)"),
+    amenities: Optional[list[str]] = Query(None, description="Filter by amenities: wifi, pool, spa, gym, restaurant, kitchen, medical_support"),
+):
     """List hotels with filters."""
     service = HotelService(db)
-    hotels, total = await service.get_list(PaginationParams(page=page, page_size=page_size), city)
+    hotels, total = await service.get_list(
+        PaginationParams(page=page, page_size=page_size),
+        city=city,
+        min_price=min_price,
+        max_price=max_price,
+        min_rating=min_rating,
+        amenities=amenities,
+    )
     return PaginatedResponse.create(hotels, total, page, page_size)
 
 

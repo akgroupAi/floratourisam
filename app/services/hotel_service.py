@@ -3,7 +3,9 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import Float, cast, func, select
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -30,12 +32,31 @@ class HotelService:
         self,
         pagination: PaginationParams,
         city: Optional[str] = None,
+        min_price: Optional[float] = None,
+        max_price: Optional[float] = None,
+        min_rating: Optional[float] = None,
+        amenities: Optional[List[str]] = None,
     ) -> tuple[List[Hotel], int]:
         """Get paginated list of hotels."""
         query = select(Hotel).where(Hotel.is_active == True)
 
         if city:
             query = query.where(func.lower(Hotel.city) == city.lower())
+
+        if min_price is not None:
+            query = query.where(Hotel.base_price_per_night >= min_price)
+
+        if max_price is not None:
+            query = query.where(Hotel.base_price_per_night <= max_price)
+
+        if min_rating is not None:
+            query = query.where(Hotel.rating >= min_rating)
+
+        if amenities:
+            for amenity in amenities:
+                query = query.where(
+                    Hotel.amenities.contains(cast([amenity], ARRAY(String)))
+                )
 
         # Get count
         count_query = select(func.count()).select_from(query.subquery())
