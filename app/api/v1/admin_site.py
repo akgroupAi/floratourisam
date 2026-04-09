@@ -716,7 +716,7 @@ async def admin_list_quotes(
     status: Optional[str] = None,
     country: Optional[str] = None,
     medical_condition: Optional[str] = None,
-    sort_by: Optional[str] = Query("created_at", regex="^(created_at|name|email|country)$"),
+    sort_by: Optional[str] = Query("created_at", pattern="^(created_at|name|email|country)$"),
 ):
     """
     List all quote submissions with filtering (admin).
@@ -802,7 +802,7 @@ async def get_quote_detail(quote_id: UUID, db: DatabaseSession):
 @router.put("/quotes/{quote_id}/status", dependencies=[RequireAdmin])
 async def update_quote_status(
     quote_id: UUID,
-    status: str = Query(..., regex="^(new|contacted|qualified|converted)$"),
+    status: str = Query(..., pattern="^(new|contacted|qualified|converted)$"),
     current_user: CurrentUser = None,
     db: DatabaseSession = None
 ):
