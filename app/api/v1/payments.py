@@ -109,10 +109,10 @@ async def stripe_webhook(request: Request, db: DatabaseSession):
 @router.post("/{payment_id}/refund")
 async def refund_payment(
     payment_id: UUID,
-    reason: Optional[str] = None,
-    amount: Optional[float] = None,
     current_user: CurrentUser,
     db: DatabaseSession,
+    reason: Optional[str] = None,
+    amount: Optional[float] = None,
 ):
     """Refund a Stripe payment (full or partial)."""
     service = StripeService(db)
