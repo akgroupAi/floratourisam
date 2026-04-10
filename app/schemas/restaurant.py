@@ -70,18 +70,36 @@ class MenuItemResponse(BaseSchema):
     """Menu item response schema."""
     id: UUID
     restaurant_id: UUID
+    category_id: Optional[UUID] = None
     name: str
     description: Optional[str] = None
     category: str
     price: float
+    currency: str = "USD"
     image_url: Optional[str] = None
     is_vegetarian: bool = False
     is_vegan: bool = False
     is_gluten_free: bool = False
+    allergens: Optional[List[str]] = None
     calories: Optional[int] = None
+    suitable_for_diabetics: bool = False
+    low_sodium: bool = False
+    medical_diet_notes: Optional[str] = None
+    is_available: bool = True
     is_featured: bool = False
-    available_for: Optional[str] = None
+    badge: Optional[str] = None
+    tags: Optional[List[str]] = None
+    available_for: Optional[List[str]] = None
     display_order: int = 0
+
+
+class MenuCategoryWithItems(BaseSchema):
+    """Menu category with its items."""
+    id: UUID
+    name: str
+    description: Optional[str] = None
+    display_order: int = 0
+    items: List[MenuItemResponse] = []
 
 
 class MenuCategoryResponse(BaseSchema):

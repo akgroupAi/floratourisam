@@ -340,6 +340,19 @@ class MenuItem(BaseModel):
         default=0,
         nullable=False,
     )
+    badge: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )  # Legendary, Popular, Chef's Pick, Must Try, Spicy, Premium
+    tags: Mapped[Optional[List[str]]] = mapped_column(
+        ARRAY(String),
+        nullable=True,
+    )  # Additional tags for filtering
+    currency: Mapped[str] = mapped_column(
+        String(3),
+        default="USD",
+        nullable=False,
+    )
 
     # Relationships
     restaurant: Mapped["Restaurant"] = relationship(

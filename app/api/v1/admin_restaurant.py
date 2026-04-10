@@ -191,6 +191,9 @@ class MenuItemCreate(BaseModel):
     is_available: bool = True
     available_for: Optional[List[str]] = None
     is_featured: bool = False
+    badge: Optional[str] = Field(None, max_length=50, description="Display badge: Legendary, Popular, Chef's Pick, Must Try, Spicy, Premium")
+    tags: Optional[List[str]] = None
+    currency: str = "USD"
     display_order: int = 0
 
 
@@ -212,6 +215,9 @@ class MenuItemUpdate(BaseModel):
     is_available: Optional[bool] = None
     available_for: Optional[List[str]] = None
     is_featured: Optional[bool] = None
+    badge: Optional[str] = Field(None, max_length=50)
+    tags: Optional[List[str]] = None
+    currency: Optional[str] = None
     display_order: Optional[int] = None
 
 
@@ -235,6 +241,9 @@ class MenuItemResponse(BaseModel):
     is_available: bool
     available_for: Optional[List[str]] = None
     is_featured: bool
+    badge: Optional[str] = None
+    tags: Optional[List[str]] = None
+    currency: str = "USD"
     display_order: int
 
     class Config:

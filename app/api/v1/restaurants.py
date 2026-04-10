@@ -15,6 +15,7 @@ from app.schemas.restaurant import (
     RestaurantResponse,
     MenuItemResponse,
     MenuCategoryResponse,
+    MenuCategoryWithItems,
     RestaurantMinimalResponse,
     DiningPassResponse,
 )
@@ -117,6 +118,83 @@ async def get_restaurant_menu(restaurant_id: UUID, db: DatabaseSession):
     """Get restaurant menu."""
     service = RestaurantService(db)
     return await service.get_menu(restaurant_id)
+
+
+@router.get("/{restaurant_id}/menu/grouped", response_model=list[MenuCategoryWithItems])
+async def get_restaurant_menu_grouped(restaurant_id: UUID, db: DatabaseSession):
+    """Get restaurant menu grouped by category with items."""
+    from app.models.restaurant import MenuItem, MenuCategory as MenuCategoryModel
+    from collections import OrderedDict
+
+    # Get categories
+    cat_result = await db.execute(
+        select(MenuCategoryModel).where(
+            MenuCategoryModel.restaurant_id == restaurant_id,
+            MenuCategoryModel.is_active == True,
+            MenuCategoryModel.is_deleted == False,
+        ).order_by(MenuCategoryModel.display_order)
+    )
+    categories = list(cat_result.scalars().all())
+
+    # Get available menu items
+    item_result = await db.execute(
+        select(MenuItem).where(
+            MenuItem.restaurant_id == restaurant_id,
+            MenuItem.is_available == True,
+            MenuItem.is_deleted == False,
+        ).order_by(MenuItem.display_order)
+    )
+    items = list(item_result.scalars().all())
+
+    # Build category map
+    grouped = OrderedDict()
+    for cat in categories:
+        grouped[cat.id] = {
+            "id": cat.id,
+            "name": cat.name,
+            "description": cat.description,
+            "display_order": cat.display_order,
+            "items": [],
+        }
+
+    # Assign items to categories
+    uncategorized_items = []
+    for item in items:
+        if item.category_id and item.category_id in grouped:
+            grouped[item.category_id]["items"].append(item)
+        else:
+            uncategorized_items.append(item)
+
+    result = list(grouped.values())
+
+    # Add uncategorized items under a generic group
+    if uncategorized_items:
+        from uuid import uuid4
+        result.append({
+            "id": uuid4(),
+            "name": "Other",
+            "description": None,
+            "display_order": 9999,
+            "items": uncategorized_items,
+        })
+
+    return result
+
+
+@router.get("/{restaurant_id}/menu/highlights", response_model=list[MenuItemResponse])
+async def get_menu_highlights(restaurant_id: UUID, db: DatabaseSession):
+    """Get featured/highlighted menu items (chef's curated selection)."""
+    from app.models.restaurant import MenuItem
+
+    result = await db.execute(
+        select(MenuItem).where(
+            MenuItem.restaurant_id == restaurant_id,
+            MenuItem.is_available == True,
+            MenuItem.is_deleted == False,
+            MenuItem.is_featured == True,
+        ).order_by(MenuItem.display_order)
+    )
+    return list(result.scalars().all())
 
 
 @router.get("/{restaurant_id}/categories", response_model=list[MenuCategoryResponse])
