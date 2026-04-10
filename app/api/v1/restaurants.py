@@ -311,6 +311,13 @@ async def purchase_dining_pass(
     if not dining_pass:
         raise HTTPException(status_code=404, detail="Dining pass not found")
 
+    # Check date-based availability
+    today = datetime.now(timezone.utc).date()
+    if dining_pass.available_from and today < dining_pass.available_from:
+        raise HTTPException(status_code=400, detail="This dining pass is not available yet")
+    if dining_pass.available_until and today > dining_pass.available_until:
+        raise HTTPException(status_code=400, detail="This dining pass is no longer available")
+
     # Get restaurant name
     rest_result = await db.execute(
         select(Restaurant.name).where(Restaurant.id == restaurant_id)

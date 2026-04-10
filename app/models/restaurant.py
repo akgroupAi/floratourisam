@@ -606,6 +606,14 @@ class DiningPass(BaseModel):
         default=True,
         nullable=False,
     )
+    available_from: Mapped[Optional[date]] = mapped_column(
+        Date,
+        nullable=True,
+    )
+    available_until: Mapped[Optional[date]] = mapped_column(
+        Date,
+        nullable=True,
+    )
 
     # Relationships
     restaurant: Mapped["Restaurant"] = relationship(

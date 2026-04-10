@@ -1,6 +1,6 @@
 """Restaurant schemas."""
 
-from datetime import time
+from datetime import date, time
 from typing import Any, List, Optional
 from uuid import UUID
 from pydantic import BaseModel, Field, field_serializer
@@ -132,3 +132,5 @@ class DiningPassResponse(BaseSchema):
     price: float
     currency: str = "USD"
     is_active: bool = True
+    available_from: Optional[date] = None
+    available_until: Optional[date] = None

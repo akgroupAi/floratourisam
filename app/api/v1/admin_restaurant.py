@@ -1,6 +1,6 @@
 """Restaurant management endpoints for admin panel."""
 
-from datetime import time
+from datetime import date, time
 from typing import List, Optional
 from uuid import UUID
 
@@ -896,6 +896,8 @@ class DiningPassCreate(BaseModel):
     price: float = Field(..., gt=0)
     currency: str = "USD"
     is_active: bool = True
+    available_from: Optional[date] = None
+    available_until: Optional[date] = None
 
 
 class DiningPassUpdate(BaseModel):
@@ -906,6 +908,8 @@ class DiningPassUpdate(BaseModel):
     price: Optional[float] = Field(None, gt=0)
     currency: Optional[str] = None
     is_active: Optional[bool] = None
+    available_from: Optional[date] = None
+    available_until: Optional[date] = None
 
 
 class DiningPassResponse(BaseModel):
@@ -918,6 +922,8 @@ class DiningPassResponse(BaseModel):
     price: float
     currency: str
     is_active: bool
+    available_from: Optional[date] = None
+    available_until: Optional[date] = None
 
     class Config:
         from_attributes = True
