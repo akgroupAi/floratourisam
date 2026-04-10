@@ -28,6 +28,9 @@ redis
 httpx
 aiohttp
 
+# Payment
+stripe>=7.0.0
+
 # Utilities
 python-dotenv
 python-dateutil

@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     PAYMENT_GATEWAY_KEY: Optional[str] = None
     PAYMENT_GATEWAY_SECRET: Optional[str] = None
 
+    # Stripe
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_PUBLISHABLE_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_CURRENCY: str = "usd"
+
     # AI Service
     AI_SERVICE_URL: Optional[str] = None
     AI_API_KEY: Optional[str] = None
