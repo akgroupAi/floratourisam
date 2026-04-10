@@ -282,6 +282,10 @@ class Room(BaseModel):
         ARRAY(String),
         nullable=True,
     )
+    highlights: Mapped[Optional[List[str]]] = mapped_column(
+        ARRAY(String),
+        nullable=True,
+    )
     view: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
@@ -306,7 +310,7 @@ class Room(BaseModel):
     )
 
     # Medical features
-    wheelchair_accessible: Mapped[bool] = mapped_column(
+    inwheelchair_accessible: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         nullable=False,

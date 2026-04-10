@@ -188,6 +188,7 @@ class RoomCreate(BaseModel):
     size_sqm: Optional[float] = None
     view: Optional[dict] = None
     amenities: Optional[List[str]] = None
+    highlights: Optional[List[str]] = None
     price_per_night: float = Field(..., gt=0)
     total_rooms: int = Field(1, ge=1)
     images: Optional[List[str]] = None
@@ -209,6 +210,7 @@ class RoomUpdate(BaseModel):
     size_sqm: Optional[float] = None
     view: Optional[dict] = None
     amenities: Optional[List[str]] = None
+    highlights: Optional[List[str]] = None
     price_per_night: Optional[float] = Field(None, gt=0)
     total_rooms: Optional[int] = Field(None, ge=1)
     images: Optional[List[str]] = None
@@ -232,6 +234,7 @@ class RoomResponse(BaseModel):
     size_sqm: Optional[float] = None
     view: Optional[dict] = None
     amenities: Optional[List[str]] = None
+    highlights: Optional[List[str]] = None
     price_per_night: float
     total_rooms: int
     is_available: bool
