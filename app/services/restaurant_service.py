@@ -3,7 +3,8 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import Float, String, cast, func, select
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -11,6 +12,9 @@ from app.models.restaurant import Restaurant, MenuItem
 from app.schemas.common import PaginationParams
 
 logger = get_logger(__name__)
+
+# Price range ordering for sort
+PRICE_RANGE_ORDER = {"$": 1, "$$": 2, "$$$": 3, "$$$$": 4}
 
 
 class RestaurantService:
@@ -36,20 +40,63 @@ class RestaurantService:
         self,
         pagination: PaginationParams,
         city: Optional[str] = None,
+        cuisine_type: Optional[str] = None,
+        min_rating: Optional[float] = None,
+        dietary_options: Optional[List[str]] = None,
+        price_range: Optional[str] = None,
+        sort_by: Optional[str] = "recommended",
+        user_lat: Optional[float] = None,
+        user_lng: Optional[float] = None,
     ) -> tuple[List[Restaurant], int]:
-        """Get paginated list of restaurants."""
+        """Get paginated list of restaurants with filters and sorting."""
         query = select(Restaurant).where(Restaurant.is_active == True)
 
         if city:
             query = query.where(func.lower(Restaurant.city) == city.lower())
+
+        if cuisine_type:
+            query = query.where(
+                Restaurant.cuisine_types.contains(cast([cuisine_type], ARRAY(String)))
+            )
+
+        if min_rating is not None:
+            query = query.where(Restaurant.rating >= min_rating)
+
+        if dietary_options:
+            for option in dietary_options:
+                query = query.where(
+                    Restaurant.dietary_options.contains(cast([option], ARRAY(String)))
+                )
+
+        if price_range:
+            query = query.where(Restaurant.price_range == price_range)
 
         # Get count
         count_query = select(func.count()).select_from(query.subquery())
         total_result = await self.db.execute(count_query)
         total = total_result.scalar() or 0
 
+        # Apply sorting
+        if sort_by == "highest_rated":
+            query = query.order_by(Restaurant.rating.desc().nullslast())
+        elif sort_by == "most_reviews":
+            query = query.order_by(Restaurant.total_reviews.desc())
+        elif sort_by == "nearest_first" and user_lat is not None and user_lng is not None:
+            # Approximate distance using Euclidean on lat/lng
+            distance = func.sqrt(
+                func.pow(Restaurant.latitude - user_lat, 2)
+                + func.pow(Restaurant.longitude - user_lng, 2)
+            )
+            query = query.order_by(distance.asc().nullslast())
+        else:
+            # recommended: featured first, then rating, then reviews
+            query = query.order_by(
+                Restaurant.is_featured.desc(),
+                Restaurant.rating.desc().nullslast(),
+                Restaurant.total_reviews.desc(),
+            )
+
         # Apply pagination
-        query = query.order_by(Restaurant.name.asc())
         query = query.offset(pagination.offset).limit(pagination.page_size)
 
         result = await self.db.execute(query)

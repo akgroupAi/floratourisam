@@ -1,7 +1,7 @@
 """Restaurant endpoints."""
 
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -60,10 +60,32 @@ async def list_all_restaurants_minimal(db: DatabaseSession):
     return await service.get_list_minimal()
 
 @router.get("", response_model=PaginatedResponse[RestaurantResponse])
-async def list_restaurants(db: DatabaseSession, page: int = Query(1), page_size: int = Query(20), city: str = None):
-    """List restaurants."""
+async def list_restaurants(
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    city: Optional[str] = Query(None),
+    cuisine_type: Optional[str] = Query(None, description="Filter by cuisine type"),
+    min_rating: Optional[float] = Query(None, ge=0, le=5, description="Minimum rating: 3, 3.5, 4, 4.5"),
+    dietary_options: Optional[list[str]] = Query(None, description="Filter by dietary options: vegetarian, vegan, gluten_free, jain, organic, halal"),
+    price_range: Optional[str] = Query(None, pattern="^(\\$|\\$\\$|\\$\\$\\$|\\$\\$\\$\\$)$", description="Price range: $, $$, $$$, $$$$"),
+    sort_by: Optional[str] = Query("recommended", pattern="^(recommended|highest_rated|most_reviews|nearest_first)$", description="Sort order"),
+    user_lat: Optional[float] = Query(None, description="User latitude for nearest_first sort"),
+    user_lng: Optional[float] = Query(None, description="User longitude for nearest_first sort"),
+):
+    """List restaurants with filters and sorting."""
     service = RestaurantService(db)
-    restaurants, total = await service.get_list(PaginationParams(page=page, page_size=page_size), city)
+    restaurants, total = await service.get_list(
+        PaginationParams(page=page, page_size=page_size),
+        city=city,
+        cuisine_type=cuisine_type,
+        min_rating=min_rating,
+        dietary_options=dietary_options,
+        price_range=price_range,
+        sort_by=sort_by,
+        user_lat=user_lat,
+        user_lng=user_lng,
+    )
     return PaginatedResponse.create(restaurants, total, page, page_size)
 
 
