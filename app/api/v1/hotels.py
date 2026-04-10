@@ -30,8 +30,9 @@ async def list_hotels(
     max_price: Optional[float] = Query(None, ge=0, description="Maximum price per night"),
     min_rating: Optional[float] = Query(None, ge=0, le=5, description="Minimum rating (e.g. 3, 3.5, 4, 4.5)"),
     amenities: Optional[list[str]] = Query(None, description="Filter by amenities: wifi, pool, spa, gym, restaurant, kitchen, medical_support"),
+    sort_by: Optional[str] = Query("recommended", pattern="^(recommended|price_low_to_high|price_high_to_low|highest_rated|most_reviews)$", description="Sort order"),
 ):
-    """List hotels with filters."""
+    """List hotels with filters and sorting."""
     service = HotelService(db)
     hotels, total = await service.get_list(
         PaginationParams(page=page, page_size=page_size),
@@ -40,6 +41,7 @@ async def list_hotels(
         max_price=max_price,
         min_rating=min_rating,
         amenities=amenities,
+        sort_by=sort_by,
     )
     return PaginatedResponse.create(hotels, total, page, page_size)
 

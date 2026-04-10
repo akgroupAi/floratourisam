@@ -11,14 +11,52 @@ class HotelResponse(BaseSchema):
     name: str
     slug: str
     description: Optional[str] = None
-    city: str
-    country: str
+    short_description: Optional[str] = None
     star_rating: Optional[int] = None
+
+    # Contact
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+
+    # Location
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: str
+    state: Optional[str] = None
+    country: str
+    postal_code: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    distance_to_hospital_km: Optional[float] = None
+    nearest_hospital: Optional[str] = None
+
+    # Media
+    logo_url: Optional[str] = None
     cover_image_url: Optional[str] = None
+    gallery: Optional[List[str]] = None
+
+    # Amenities
+    amenities: Optional[List[str]] = None
+    medical_amenities: Optional[List[str]] = None
+
+    # Pricing
+    base_price_per_night: Optional[float] = None
+    currency: str = "USD"
+
+    # Ratings
     rating: Optional[float] = None
+    total_reviews: int = 0
+
+    # Policies
+    check_in_time: Optional[str] = None
+    check_out_time: Optional[str] = None
+    cancellation_policy: Optional[str] = None
     facilities: Optional[dict] = None
     policies: Optional[dict] = None
-    min_price: Optional[float] = None  # Computed field
+
+    # Status
+    is_featured: bool = False
 
 class RoomResponse(BaseSchema):
     """Room response schema."""

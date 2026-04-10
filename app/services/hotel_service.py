@@ -36,6 +36,7 @@ class HotelService:
         max_price: Optional[float] = None,
         min_rating: Optional[float] = None,
         amenities: Optional[List[str]] = None,
+        sort_by: Optional[str] = "recommended",
     ) -> tuple[List[Hotel], int]:
         """Get paginated list of hotels."""
         query = select(Hotel).where(Hotel.is_active == True)
@@ -63,8 +64,23 @@ class HotelService:
         total_result = await self.db.execute(count_query)
         total = total_result.scalar() or 0
 
-        # Apply pagination
-        query = query.order_by(Hotel.name.asc())
+        # Apply sorting
+        if sort_by == "price_low_to_high":
+            query = query.order_by(Hotel.base_price_per_night.asc().nullslast())
+        elif sort_by == "price_high_to_low":
+            query = query.order_by(Hotel.base_price_per_night.desc().nullslast())
+        elif sort_by == "highest_rated":
+            query = query.order_by(Hotel.rating.desc().nullslast())
+        elif sort_by == "most_reviews":
+            query = query.order_by(Hotel.total_reviews.desc())
+        else:
+            # recommended: featured first, then by rating, then by reviews
+            query = query.order_by(
+                Hotel.is_featured.desc(),
+                Hotel.rating.desc().nullslast(),
+                Hotel.total_reviews.desc(),
+            )
+
         query = query.offset(pagination.offset).limit(pagination.page_size)
 
         result = await self.db.execute(query)
