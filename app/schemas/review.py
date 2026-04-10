@@ -47,6 +47,24 @@ class ReviewCreate(BaseModel):
         return v.strip() if v else v
 
 
+class SimpleReviewCreate(BaseModel):
+    """Simplified review input — entity info comes from the URL."""
+
+    rating: int = Field(..., ge=1, le=5, description="Star rating from 1 (poor) to 5 (excellent)")
+    title: Optional[str] = Field(None, max_length=255, description="Short headline")
+    body: Optional[str] = Field(None, min_length=10, max_length=5000, description="Full review text")
+
+    @field_validator("title")
+    @classmethod
+    def strip_title(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if v else v
+
+    @field_validator("body")
+    @classmethod
+    def strip_body(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if v else v
+
+
 class ReviewUpdate(BaseModel):
     """Update own review. Only allowed while review is pending approval."""
 

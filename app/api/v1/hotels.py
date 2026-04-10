@@ -12,6 +12,7 @@ from app.schemas.review import (
     ReviewPublicResponse,
     ReviewResponse,
     ReviewSummary,
+    SimpleReviewCreate,
 )
 from app.services.hotel_service import HotelService
 from app.services.review_service import ReviewService
@@ -126,21 +127,23 @@ async def get_hotel_review_summary(hotel_id: UUID, db: DatabaseSession):
 @router.post("/{hotel_id}/reviews", response_model=ReviewResponse)
 async def submit_hotel_review(
     hotel_id: UUID,
-    data: ReviewCreate,
+    data: SimpleReviewCreate,
     current_user: CurrentUser,
     db: DatabaseSession,
 ):
-    """Submit a review for a hotel."""
-    # Ensure data entity_id matches URL hotel_id
-    if data.entity_id != hotel_id:
-        data.entity_id = hotel_id
-    if data.entity_type != "hotel":
-        data.entity_type = "hotel"
+    """Submit a review for a hotel. Only rating, title, and body are required in the body."""
+    review_data = ReviewCreate(
+        entity_type="hotel",
+        entity_id=hotel_id,
+        rating=data.rating,
+        title=data.title,
+        body=data.body,
+    )
 
     service = ReviewService(db)
     try:
         return await service.submit_review(
-            user_id=current_user.id, data=data, created_by=current_user.id
+            user_id=current_user.id, data=review_data, created_by=current_user.id
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
