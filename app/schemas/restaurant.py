@@ -1,8 +1,9 @@
 """Restaurant schemas."""
 
-from typing import List, Optional
+from datetime import time
+from typing import Any, List, Optional
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from app.schemas.common import BaseSchema
 
 
@@ -37,9 +38,17 @@ class RestaurantResponse(BaseSchema):
     gallery: Optional[List[str]] = None
 
     # Hours
-    opening_time: Optional[str] = None
-    closing_time: Optional[str] = None
+    opening_time: Optional[Any] = None
+    closing_time: Optional[Any] = None
     operating_hours: Optional[dict] = None
+
+    @field_serializer("opening_time", "closing_time")
+    def serialize_time(self, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        if isinstance(v, time):
+            return v.strftime("%H:%M")
+        return str(v)
 
     # Features & dietary
     features: Optional[List[str]] = None
