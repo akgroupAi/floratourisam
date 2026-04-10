@@ -144,6 +144,16 @@ class Restaurant(BaseModel):
         nullable=False,
     )
 
+    # Distance from hospital
+    distance_to_hospital_km: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    nearest_hospital: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
     # Capacity
     seating_capacity: Mapped[Optional[int]] = mapped_column(
         Integer,
@@ -208,6 +218,11 @@ class Restaurant(BaseModel):
     )
     thalis: Mapped[List["Thali"]] = relationship(
         "Thali",
+        back_populates="restaurant",
+        lazy="dynamic",
+    )
+    dining_passes: Mapped[List["DiningPass"]] = relationship(
+        "DiningPass",
         back_populates="restaurant",
         lazy="dynamic",
     )
@@ -534,3 +549,146 @@ class Thali(BaseModel):
 
     def __repr__(self) -> str:
         return f"Thali(id={self.id}, name={self.name})"
+
+
+class DiningPass(BaseModel):
+    """Dining pass for restaurant meal packages."""
+
+    __tablename__ = "dining_passes"
+
+    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    description: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    tokens: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    duration_days: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    price: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+    currency: Mapped[str] = mapped_column(
+        String(3),
+        default="USD",
+        nullable=False,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+
+    # Relationships
+    restaurant: Mapped["Restaurant"] = relationship(
+        "Restaurant",
+        back_populates="dining_passes",
+    )
+    purchases: Mapped[List["DiningPassPurchase"]] = relationship(
+        "DiningPassPurchase",
+        back_populates="dining_pass",
+        lazy="dynamic",
+    )
+
+    def __repr__(self) -> str:
+        return f"DiningPass(id={self.id}, name={self.name})"
+
+
+class DiningPassPurchase(BaseModel):
+    """Record of a purchased dining pass."""
+
+    __tablename__ = "dining_pass_purchases"
+
+    dining_pass_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("dining_passes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Pass details (snapshot at purchase time)
+    pass_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    reference_code: Mapped[str] = mapped_column(
+        String(50),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    # Token tracking
+    tokens_total: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    tokens_used: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+
+    # Validity
+    purchased_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    # Pricing
+    amount_paid: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+    currency: Mapped[str] = mapped_column(
+        String(3),
+        default="USD",
+        nullable=False,
+    )
+
+    # Status: active, expired, fully_used, cancelled
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="active",
+        nullable=False,
+    )
+
+    # Relationships
+    dining_pass: Mapped["DiningPass"] = relationship(
+        "DiningPass",
+        back_populates="purchases",
+    )
+
+    def __repr__(self) -> str:
+        return f"DiningPassPurchase(id={self.id}, ref={self.reference_code})"
