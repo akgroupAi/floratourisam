@@ -702,6 +702,10 @@ class DiningPassPurchase(BaseModel):
         "DiningPass",
         back_populates="purchases",
     )
+    restaurant: Mapped["Restaurant"] = relationship(
+        "Restaurant",
+        foreign_keys=[restaurant_id],
+    )
 
     def __repr__(self) -> str:
         return f"DiningPassPurchase(id={self.id}, ref={self.reference_code})"

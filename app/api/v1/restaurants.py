@@ -1,15 +1,17 @@
 """Restaurant endpoints."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from math import ceil
 from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DatabaseSession
-from app.models.restaurant import DiningPass, DiningPassPurchase, MenuCategory
+from app.models.restaurant import DiningPass, DiningPassPurchase, MenuCategory, Restaurant
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.schemas.restaurant import (
     RestaurantResponse,
@@ -30,24 +32,63 @@ router = APIRouter()
 
 class PurchasePassRequest(BaseModel):
     dining_pass_id: UUID
+    start_date: Optional[date] = Field(None, description="When the pass should start. Defaults to today if not provided.")
 
 
 class PurchasePassResponse(BaseModel):
     id: UUID
     reference_code: str
+    qr_data: str
     pass_name: str
     restaurant_id: UUID
+    restaurant_name: Optional[str] = None
     tokens_total: int
     tokens_used: int
     tokens_remaining: int
+    percentage_used: float
     purchased_at: str
     expires_at: str
+    days_left: int
     amount_paid: float
     currency: str
     status: str
 
     class Config:
         from_attributes = True
+
+
+# ============== HELPERS ==============
+
+
+def _build_pass_response(p: DiningPassPurchase, restaurant_name: Optional[str] = None) -> PurchasePassResponse:
+    """Build a PurchasePassResponse from a DiningPassPurchase model."""
+    now = datetime.now(timezone.utc)
+    expires = p.expires_at.replace(tzinfo=timezone.utc) if p.expires_at.tzinfo is None else p.expires_at
+    days_left = max(0, (expires - now).days)
+    tokens_remaining = p.tokens_total - p.tokens_used
+    pct_used = round((p.tokens_used / p.tokens_total) * 100, 1) if p.tokens_total > 0 else 0.0
+
+    # QR data: JSON string that admin scanner can parse
+    qr_data = f'{{"ref":"{p.reference_code}","restaurant_id":"{p.restaurant_id}"}}'
+
+    return PurchasePassResponse(
+        id=p.id,
+        reference_code=p.reference_code,
+        qr_data=qr_data,
+        pass_name=p.pass_name,
+        restaurant_id=p.restaurant_id,
+        restaurant_name=restaurant_name or (p.restaurant.name if hasattr(p, "restaurant") and p.restaurant else None),
+        tokens_total=p.tokens_total,
+        tokens_used=p.tokens_used,
+        tokens_remaining=tokens_remaining,
+        percentage_used=pct_used,
+        purchased_at=str(p.purchased_at),
+        expires_at=str(p.expires_at),
+        days_left=days_left,
+        amount_paid=p.amount_paid,
+        currency=p.currency,
+        status=p.status,
+    )
 
 
 # ============== ENDPOINTS ==============
@@ -96,33 +137,34 @@ async def list_restaurants(
 async def get_my_dining_passes(
     current_user: CurrentUser,
     db: DatabaseSession,
+    status_filter: Optional[str] = Query(None, pattern="^(active|expired|fully_used|cancelled)$", description="Filter by pass status"),
 ):
-    """Get all dining passes purchased by the current user."""
-    result = await db.execute(
-        select(DiningPassPurchase).where(
+    """Get all dining passes purchased by the current user with QR data."""
+    query = (
+        select(DiningPassPurchase)
+        .options(selectinload(DiningPassPurchase.restaurant))
+        .where(
             DiningPassPurchase.user_id == current_user.id,
             DiningPassPurchase.is_deleted == False,
-        ).order_by(DiningPassPurchase.purchased_at.desc())
+        )
     )
+
+    if status_filter:
+        query = query.where(DiningPassPurchase.status == status_filter)
+
+    query = query.order_by(DiningPassPurchase.purchased_at.desc())
+    result = await db.execute(query)
     purchases = result.scalars().all()
 
-    return [
-        PurchasePassResponse(
-            id=p.id,
-            reference_code=p.reference_code,
-            pass_name=p.pass_name,
-            restaurant_id=p.restaurant_id,
-            tokens_total=p.tokens_total,
-            tokens_used=p.tokens_used,
-            tokens_remaining=p.tokens_total - p.tokens_used,
-            purchased_at=str(p.purchased_at),
-            expires_at=str(p.expires_at),
-            amount_paid=p.amount_paid,
-            currency=p.currency,
-            status=p.status,
-        )
-        for p in purchases
-    ]
+    # Auto-expire passes that are past expiry date
+    now = datetime.now(timezone.utc)
+    for p in purchases:
+        expires = p.expires_at.replace(tzinfo=timezone.utc) if p.expires_at.tzinfo is None else p.expires_at
+        if p.status == "active" and now > expires:
+            p.status = "expired"
+    await db.commit()
+
+    return [_build_pass_response(p) for p in purchases]
 
 
 @router.get("/{restaurant_id}", response_model=RestaurantResponse)
@@ -256,7 +298,7 @@ async def purchase_dining_pass(
     current_user: CurrentUser,
     db: DatabaseSession,
 ):
-    """Purchase a dining pass for a restaurant."""
+    """Purchase a dining pass for a restaurant. Optionally pick a start date."""
     result = await db.execute(
         select(DiningPass).where(
             DiningPass.id == data.dining_pass_id,
@@ -269,18 +311,33 @@ async def purchase_dining_pass(
     if not dining_pass:
         raise HTTPException(status_code=404, detail="Dining pass not found")
 
+    # Get restaurant name
+    rest_result = await db.execute(
+        select(Restaurant.name).where(Restaurant.id == restaurant_id)
+    )
+    restaurant_name = rest_result.scalar_one_or_none() or ""
+
     now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(days=dining_pass.duration_days)
+
+    # Use user-selected start_date or default to now
+    if data.start_date:
+        start_dt = datetime.combine(data.start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        if start_dt.date() < now.date():
+            raise HTTPException(status_code=400, detail="Start date cannot be in the past")
+    else:
+        start_dt = now
+
+    expires_at = start_dt + timedelta(days=dining_pass.duration_days)
 
     purchase = DiningPassPurchase(
         dining_pass_id=dining_pass.id,
         user_id=current_user.id,
         restaurant_id=restaurant_id,
         pass_name=dining_pass.name,
-        reference_code=generate_reference_id("DPP"),
+        reference_code=generate_reference_id("FLR"),
         tokens_total=dining_pass.tokens,
         tokens_used=0,
-        purchased_at=now,
+        purchased_at=start_dt,
         expires_at=expires_at,
         amount_paid=dining_pass.price,
         currency=dining_pass.currency,
@@ -291,17 +348,38 @@ async def purchase_dining_pass(
     await db.commit()
     await db.refresh(purchase)
 
-    return PurchasePassResponse(
-        id=purchase.id,
-        reference_code=purchase.reference_code,
-        pass_name=purchase.pass_name,
-        restaurant_id=purchase.restaurant_id,
-        tokens_total=purchase.tokens_total,
-        tokens_used=purchase.tokens_used,
-        tokens_remaining=purchase.tokens_total - purchase.tokens_used,
-        purchased_at=str(purchase.purchased_at),
-        expires_at=str(purchase.expires_at),
-        amount_paid=purchase.amount_paid,
-        currency=purchase.currency,
-        status=purchase.status,
+    return _build_pass_response(purchase, restaurant_name=restaurant_name)
+
+
+@router.get(
+    "/{restaurant_id}/pass-verify/{reference_code}",
+    response_model=PurchasePassResponse,
+)
+async def verify_pass_by_qr(
+    restaurant_id: UUID,
+    reference_code: str,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Verify a dining pass by reference code (QR scan). Returns pass details and validity."""
+    result = await db.execute(
+        select(DiningPassPurchase)
+        .options(selectinload(DiningPassPurchase.restaurant))
+        .where(
+            DiningPassPurchase.reference_code == reference_code,
+            DiningPassPurchase.restaurant_id == restaurant_id,
+            DiningPassPurchase.is_deleted == False,
+        )
     )
+    purchase = result.scalar_one_or_none()
+    if not purchase:
+        raise HTTPException(status_code=404, detail="Pass not found for this restaurant")
+
+    # Auto-expire if past expiry
+    now = datetime.now(timezone.utc)
+    expires = purchase.expires_at.replace(tzinfo=timezone.utc) if purchase.expires_at.tzinfo is None else purchase.expires_at
+    if purchase.status == "active" and now > expires:
+        purchase.status = "expired"
+        await db.commit()
+
+    return _build_pass_response(purchase)
