@@ -310,7 +310,7 @@ class Room(BaseModel):
     )
 
     # Medical features
-    inwheelchair_accessible: Mapped[bool] = mapped_column(
+    wheelchair_accessible: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         nullable=False,
