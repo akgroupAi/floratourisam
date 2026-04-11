@@ -406,10 +406,16 @@ async def create_restaurant(
     payload = data.model_dump()
     for time_field in ("opening_time", "closing_time"):
         val = payload.get(time_field)
-        if val:
+        if val and isinstance(val, str):
             from datetime import time as dt_time
-            h, m = val.split(":")
-            payload[time_field] = dt_time(int(h), int(m))
+            parts = val.split(":")
+            if len(parts) >= 2:
+                payload[time_field] = dt_time(int(parts[0]), int(parts[1]))
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{time_field} must be in HH:MM format",
+                )
 
     restaurant = Restaurant(**payload, created_by=current_user.id)
     db.add(restaurant)
@@ -466,8 +472,14 @@ async def update_restaurant(
         val = payload.get(time_field)
         if val and isinstance(val, str):
             from datetime import time as dt_time
-            h, m = val.split(":")
-            payload[time_field] = dt_time(int(h), int(m))
+            parts = val.split(":")
+            if len(parts) >= 2:
+                payload[time_field] = dt_time(int(parts[0]), int(parts[1]))
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{time_field} must be in HH:MM format",
+                )
 
     for field, value in payload.items():
         setattr(restaurant, field, value)
