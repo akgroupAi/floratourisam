@@ -10,6 +10,13 @@ from sqlalchemy import func, or_, select
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.models.apartment import Apartment
 from app.schemas.common import MessageResponse, PaginatedResponse
+from app.schemas.review import (
+    AdminReviewApprove,
+    AdminReviewResponse,
+    ReviewListItem,
+    ReviewResponse,
+)
+from app.services.review_service import ReviewService
 
 router = APIRouter()
 
@@ -25,7 +32,11 @@ class ApartmentCreate(BaseModel):
     description: Optional[str] = None
     short_description: Optional[str] = None
     bedroom_type: str = Field("studio", description="studio, 1BR, 2BR, 3BR, 4BR+")
+    property_type: Optional[str] = Field(None, description="Entire home, Private room, Shared room")
     capacity: int = Field(2, ge=1)
+    bedrooms: int = Field(1, ge=0)
+    beds: int = Field(1, ge=0)
+    bathrooms: int = Field(1, ge=0)
     price_per_night: Optional[float] = Field(None, gt=0)
     price_per_week: Optional[float] = Field(None, gt=0)
     price_per_month: Optional[float] = Field(None, gt=0)
@@ -38,11 +49,22 @@ class ApartmentCreate(BaseModel):
     postal_code: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    distance_to_hospital_km: Optional[float] = None
+    nearest_hospital: Optional[str] = None
     amenities: Optional[List[str]] = None
+    medical_amenities: Optional[List[str]] = None
+    highlights: Optional[List[dict]] = Field(None, description='[{"icon": "hospital", "title": "Steps from hospital", "description": "300m walk"}]')
     cover_image_url: Optional[str] = None
     logo_url: Optional[str] = None
     gallery: Optional[List[str]] = None
     nearby_places: Optional[dict] = None
+    check_in_time: Optional[str] = Field(None, description="HH:MM format")
+    check_out_time: Optional[str] = Field(None, description="HH:MM format")
+    house_rules: Optional[List[str]] = Field(None, description='["Children welcome", "No pets"]')
+    safety_features: Optional[List[str]] = Field(None, description='["Smoke alarm", "Carbon monoxide alarm"]')
+    cancellation_policy: Optional[str] = None
     priority: int = 0
     is_active: bool = True
     is_available: bool = True
@@ -59,7 +81,11 @@ class ApartmentUpdate(BaseModel):
     description: Optional[str] = None
     short_description: Optional[str] = None
     bedroom_type: Optional[str] = None
+    property_type: Optional[str] = None
     capacity: Optional[int] = Field(None, ge=1)
+    bedrooms: Optional[int] = Field(None, ge=0)
+    beds: Optional[int] = Field(None, ge=0)
+    bathrooms: Optional[int] = Field(None, ge=0)
     price_per_night: Optional[float] = Field(None, gt=0)
     price_per_week: Optional[float] = Field(None, gt=0)
     price_per_month: Optional[float] = Field(None, gt=0)
@@ -72,11 +98,22 @@ class ApartmentUpdate(BaseModel):
     postal_code: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    distance_to_hospital_km: Optional[float] = None
+    nearest_hospital: Optional[str] = None
     amenities: Optional[List[str]] = None
+    medical_amenities: Optional[List[str]] = None
+    highlights: Optional[List[dict]] = None
     cover_image_url: Optional[str] = None
     logo_url: Optional[str] = None
     gallery: Optional[List[str]] = None
     nearby_places: Optional[dict] = None
+    check_in_time: Optional[str] = None
+    check_out_time: Optional[str] = None
+    house_rules: Optional[List[str]] = None
+    safety_features: Optional[List[str]] = None
+    cancellation_policy: Optional[str] = None
     priority: Optional[int] = None
     is_active: Optional[bool] = None
     is_available: Optional[bool] = None
@@ -95,7 +132,11 @@ class ApartmentResponse(BaseModel):
     description: Optional[str] = None
     short_description: Optional[str] = None
     bedroom_type: str
+    property_type: Optional[str] = None
     capacity: int
+    bedrooms: int = 1
+    beds: int = 1
+    bathrooms: int = 1
     price_per_night: Optional[float] = None
     price_per_week: Optional[float] = None
     price_per_month: Optional[float] = None
@@ -108,13 +149,24 @@ class ApartmentResponse(BaseModel):
     postal_code: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    distance_to_hospital_km: Optional[float] = None
+    nearest_hospital: Optional[str] = None
     amenities: Optional[List[str]] = None
+    medical_amenities: Optional[List[str]] = None
+    highlights: Optional[list] = None
     cover_image_url: Optional[str] = None
     logo_url: Optional[str] = None
     gallery: Optional[List[str]] = None
     nearby_places: Optional[dict] = None
     rating: Optional[float] = None
     total_reviews: int = 0
+    check_in_time: Optional[str] = None
+    check_out_time: Optional[str] = None
+    house_rules: Optional[list] = None
+    safety_features: Optional[list] = None
+    cancellation_policy: Optional[str] = None
     priority: int = 0
     is_active: bool
     is_available: bool
@@ -302,3 +354,93 @@ async def delete_apartment(
     apartment.deleted_by = current_user.id
     await db.commit()
     return MessageResponse(message="Apartment deleted successfully")
+
+
+# ============== REVIEWS ==============
+
+
+@router.get(
+    "/{apartment_id}/reviews",
+    response_model=PaginatedResponse[ReviewListItem],
+    dependencies=[RequireAdmin],
+)
+async def list_apartment_reviews_admin(
+    apartment_id: UUID,
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    is_approved: Optional[bool] = None,
+):
+    """List all reviews for an apartment (admin)."""
+    service = ReviewService(db)
+    reviews, total = await service.admin_list(
+        page=page,
+        page_size=page_size,
+        entity_type="apartment",
+        entity_id=apartment_id,
+        is_approved=is_approved,
+    )
+    return PaginatedResponse.create(reviews, total, page, page_size)
+
+
+@router.patch(
+    "/reviews/{review_id}/approve",
+    response_model=ReviewResponse,
+    dependencies=[RequireAdmin],
+)
+async def approve_review(
+    review_id: UUID,
+    data: AdminReviewApprove,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Approve or reject a review."""
+    service = ReviewService(db)
+    try:
+        return await service.admin_approve(
+            review_id=review_id, data=data, admin_id=current_user.id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post(
+    "/reviews/{review_id}/respond",
+    response_model=ReviewResponse,
+    dependencies=[RequireAdmin],
+)
+async def respond_to_review(
+    review_id: UUID,
+    data: AdminReviewResponse,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Post an official response to a review."""
+    service = ReviewService(db)
+    try:
+        return await service.admin_respond(
+            review_id=review_id,
+            response_text=data.response_text,
+            admin_id=current_user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete(
+    "/reviews/{review_id}",
+    response_model=MessageResponse,
+    dependencies=[RequireAdmin],
+)
+async def delete_review_admin(
+    review_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Delete a review (admin)."""
+    service = ReviewService(db)
+    try:
+        await service.admin_delete(review_id=review_id, admin_id=current_user.id)
+        return MessageResponse(message="Review deleted successfully")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
