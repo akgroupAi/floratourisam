@@ -17,6 +17,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import CurrentUser, DatabaseSession
+from app.core.logging import get_logger
 from app.schemas.booking import (
     ApartmentBookingCreate,
     BookingCancelRequest,
@@ -28,6 +29,8 @@ from app.schemas.booking import (
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.services.booking_service import BookingService
 from app.services.patient_service import PatientService
+
+logger = get_logger(__name__)
 from app.utils.enums import BookingType
 
 router = APIRouter()
@@ -111,14 +114,22 @@ async def create_apartment_booking(
 
     service = BookingService(db)
     try:
-        return await service.create_apartment_booking(
+        booking = await service.create_apartment_booking(
             patient_id=patient.id,
             data=data,
             created_by=current_user.id,
             user=current_user,
         )
+        return booking
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error("apartment_booking_error", error=str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create apartment booking. Please try again.",
+        )
+
 
 
 @router.post(

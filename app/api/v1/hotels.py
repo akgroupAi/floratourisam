@@ -26,6 +26,7 @@ async def list_hotels(
     db: DatabaseSession,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None, description="Search by hotel name, description, or city"),
     city: Optional[str] = Query(None),
     min_price: Optional[float] = Query(None, ge=0, description="Minimum price per night"),
     max_price: Optional[float] = Query(None, ge=0, description="Maximum price per night"),
@@ -37,6 +38,7 @@ async def list_hotels(
     service = HotelService(db)
     hotels, total = await service.get_list(
         PaginationParams(page=page, page_size=page_size),
+        search=search,
         city=city,
         min_price=min_price,
         max_price=max_price,

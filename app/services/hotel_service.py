@@ -3,7 +3,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import Float, cast, func, select
+from sqlalchemy import Float, cast, func, select, or_
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ class HotelService:
     async def get_list(
         self,
         pagination: PaginationParams,
+        search: Optional[str] = None,
         city: Optional[str] = None,
         min_price: Optional[float] = None,
         max_price: Optional[float] = None,
@@ -40,6 +41,17 @@ class HotelService:
     ) -> tuple[List[Hotel], int]:
         """Get paginated list of hotels."""
         query = select(Hotel).where(Hotel.is_active == True)
+
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.where(
+                or_(
+                    func.lower(Hotel.name).ilike(search_pattern),
+                    func.lower(Hotel.description).ilike(search_pattern),
+                    func.lower(Hotel.short_description).ilike(search_pattern),
+                    func.lower(Hotel.city).ilike(search_pattern),
+                )
+            )
 
         if city:
             query = query.where(func.lower(Hotel.city) == city.lower())

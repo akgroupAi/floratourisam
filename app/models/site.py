@@ -365,3 +365,36 @@ class Navigation(BaseModel):
     name: Mapped[str] = mapped_column(String(100), nullable=False)  # main, footer, mobile
     structure: Mapped[dict] = mapped_column(JSONB, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class HeroSlider(BaseModel):
+    """Hero section slider slide — managed by admin, rendered on homepage."""
+
+    __tablename__ = "hero_sliders"
+
+    # Slide content
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    subtitle: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Media
+    background_image: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    badge_text: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g. "Featured Service"
+
+    # Primary CTA button
+    primary_cta_text: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    primary_cta_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Secondary CTA button
+    secondary_cta_text: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    secondary_cta_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Optional whole-slide link
+    link_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Display control
+    display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"HeroSlider(id={self.id}, title={self.title!r}, order={self.display_order})"

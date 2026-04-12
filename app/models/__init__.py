@@ -19,7 +19,7 @@ from app.models.ai_log import AILog, AIConversation
 from app.models.cms import CMSPage, CMSBlock
 from app.models.site import (
     Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ,
-    TeamMember, LeadSubmission, SiteSettings, Navigation
+    TeamMember, LeadSubmission, SiteSettings, Navigation, HeroSlider
 )
 from app.models.rbac import Role, Permission
 from app.models.forex import Currency, ForexRequest
@@ -59,6 +59,7 @@ __all__ = [
     "AIConversation",
     "CMSPage",
     "CMSBlock",
+    "HeroSlider",
     "Role",
     "Permission",
     "Review",

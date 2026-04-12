@@ -141,6 +141,7 @@ class BookingService:
             taxes=taxes,
             discount=0.0,
             total_price=base_price + taxes,
+            currency=hotel.currency if hotel else "USD",
             special_requests=data.special_requests,
             notes=data.notes,
             status=BookingStatus.CONFIRMED.value,

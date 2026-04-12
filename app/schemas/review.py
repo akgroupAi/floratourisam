@@ -1,7 +1,7 @@
 """Pydantic schemas for Reviews & Ratings."""
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -170,6 +170,7 @@ class ReviewListItem(BaseSchema):
     entity_id: UUID
     rating: int
     title: Optional[str] = None
+    body: Optional[str] = None
     is_verified: bool
     is_approved: bool
     helpful_count: int
@@ -187,3 +188,18 @@ class ReviewSummary(BaseModel):
     rating_breakdown: dict  # {1: N, 2: N, 3: N, 4: N, 5: N}
     verified_count: int
     has_response_count: int
+
+class AdminReviewListResponse(BaseModel):
+    """Admin list reviews with summary stats."""
+    
+    # Summary stats
+    average_rating: float
+    total_reviews: int
+    rating_breakdown: dict  # {1: N, 2: N, 3: N, 4: N, 5: N}
+    verified_count: int
+    
+    # Paginated items
+    items: List[ReviewListItem]
+    total: int
+    page: int
+    page_size: int

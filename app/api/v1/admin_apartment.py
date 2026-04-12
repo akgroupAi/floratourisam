@@ -12,6 +12,7 @@ from app.models.apartment import Apartment
 from app.schemas.common import MessageResponse, PaginatedResponse
 from app.schemas.review import (
     AdminReviewApprove,
+    AdminReviewListResponse,
     AdminReviewResponse,
     ReviewListItem,
     ReviewResponse,
@@ -361,7 +362,7 @@ async def delete_apartment(
 
 @router.get(
     "/{apartment_id}/reviews",
-    response_model=PaginatedResponse[ReviewListItem],
+    response_model=AdminReviewListResponse,
     dependencies=[RequireAdmin],
 )
 async def list_apartment_reviews_admin(
@@ -371,8 +372,10 @@ async def list_apartment_reviews_admin(
     page_size: int = Query(20, ge=1, le=100),
     is_approved: Optional[bool] = None,
 ):
-    """List all reviews for an apartment (admin)."""
+    """List all reviews for an apartment (admin) with summary stats."""
     service = ReviewService(db)
+    
+    # Get paginated reviews
     reviews, total = await service.admin_list(
         page=page,
         page_size=page_size,
@@ -380,7 +383,21 @@ async def list_apartment_reviews_admin(
         entity_id=apartment_id,
         is_approved=is_approved,
     )
-    return PaginatedResponse.create(reviews, total, page, page_size)
+    
+    # Get summary stats
+    summary = await service.get_entity_summary(entity_type="apartment", entity_id=apartment_id)
+    
+    return AdminReviewListResponse(
+        average_rating=summary.average_rating,
+        total_reviews=summary.total_reviews,
+        rating_breakdown=summary.rating_breakdown,
+        verified_count=summary.verified_count,
+        items=reviews,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
 
 
 @router.patch(

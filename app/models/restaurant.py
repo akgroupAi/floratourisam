@@ -614,6 +614,10 @@ class DiningPass(BaseModel):
         Date,
         nullable=True,
     )
+    meals_per_day: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+    )
 
     # Relationships
     restaurant: Mapped["Restaurant"] = relationship(

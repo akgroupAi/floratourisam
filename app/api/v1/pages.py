@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 
 from app.api.deps import DatabaseSession, CurrentUser
-from app.models.site import Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember
+from app.models.site import Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember, HeroSlider
 from app.schemas.common import PaginatedResponse
 from app.schemas.site import (
     DestinationListResponse, DestinationResponse,
@@ -20,7 +20,7 @@ from app.schemas.site import (
     BlogPostListResponse, BlogPostResponse,
     BlogCommentCreate, BlogCommentResponse,
     TestimonialListResponse, FAQResponse, TeamMemberResponse,
-    DoctorPublicListResponse, DoctorPublicDetailResponse,
+    DoctorPublicListResponse, DoctorPublicDetailResponse, HeroSliderResponse
 )
 from app.services.blog_comment_service import BlogCommentService
 
@@ -60,12 +60,21 @@ async def get_home_page(db: DatabaseSession):
     )
     testimonials = testimonials_result.scalars().all()
     
+    # Hero Sliders
+    hero_sliders_result = await db.execute(
+        select(HeroSlider)
+        .where(HeroSlider.is_active == True, HeroSlider.is_deleted == False)
+        .order_by(HeroSlider.display_order)
+    )
+    hero_sliders = hero_sliders_result.scalars().all()
+    
     # Stats
     patient_count = 5000  # Calculate from bookings
     doctor_count = await db.scalar(select(func.count()).select_from(Treatment))
     hospital_count = 100  # Calculate from hospitals
     
     return {
+        "hero_sliders": [HeroSliderResponse.model_validate(h) for h in hero_sliders],
         "hero": {
             "title": "AI-Powered Healthcare Journey",
             "subtitle": "World-class medical care, personalized for you",
@@ -103,6 +112,20 @@ async def get_home_page(db: DatabaseSession):
             ],
         },
     }
+
+
+# ============== HERO SLIDERS ==============
+
+@router.get("/hero-sliders", response_model=List[HeroSliderResponse])
+async def list_hero_sliders(db: DatabaseSession):
+    """List all active hero sliders."""
+    query = select(HeroSlider).where(
+        HeroSlider.is_active == True,
+        HeroSlider.is_deleted == False
+    ).order_by(HeroSlider.display_order)
+    
+    result = await db.execute(query)
+    return result.scalars().all()
 
 
 # ============== SERVICES/TREATMENTS ==============

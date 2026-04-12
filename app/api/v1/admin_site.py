@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.models.site import (
-    Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember, LeadSubmission
+    Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember, LeadSubmission, HeroSlider
 )
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.schemas.site import (
@@ -22,10 +22,99 @@ from app.schemas.site import (
     FAQCreate, FAQUpdate, FAQResponse,
     TeamMemberCreate, TeamMemberUpdate, TeamMemberResponse,
     LeadSubmissionResponse,
+    HeroSliderCreate, HeroSliderUpdate, HeroSliderResponse, HeroSliderReorder,
 )
 from app.services.blog_comment_service import BlogCommentService
 
 router = APIRouter()
+
+
+# ============== HERO SLIDERS ADMIN ==============
+
+@router.get("/hero-sliders", response_model=List[HeroSliderResponse], dependencies=[RequireAdmin])
+async def admin_list_hero_sliders(db: DatabaseSession, is_active: Optional[bool] = None):
+    """List all hero slides (admin)."""
+    query = select(HeroSlider).where(HeroSlider.is_deleted == False)
+    if is_active is not None:
+        query = query.where(HeroSlider.is_active == is_active)
+    
+    query = query.order_by(HeroSlider.display_order)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.post("/hero-sliders", response_model=HeroSliderResponse, dependencies=[RequireAdmin], status_code=201)
+async def create_hero_slider(data: HeroSliderCreate, current_user: CurrentUser, db: DatabaseSession):
+    """Create a new hero slide."""
+    slider = HeroSlider(**data.model_dump(), created_by=current_user.id)
+    db.add(slider)
+    await db.commit()
+    await db.refresh(slider)
+    return slider
+
+
+@router.get("/hero-sliders/{slider_id}", response_model=HeroSliderResponse, dependencies=[RequireAdmin])
+async def get_hero_slider(slider_id: UUID, db: DatabaseSession):
+    """Get hero slide by ID."""
+    result = await db.execute(select(HeroSlider).where(HeroSlider.id == slider_id))
+    slider = result.scalar_one_or_none()
+    if not slider:
+        raise HTTPException(status_code=404, detail="Hero slider not found")
+    return slider
+
+
+@router.put("/hero-sliders/{slider_id}", response_model=HeroSliderResponse, dependencies=[RequireAdmin])
+async def update_hero_slider(slider_id: UUID, data: HeroSliderUpdate, current_user: CurrentUser, db: DatabaseSession):
+    """Update a hero slide."""
+    result = await db.execute(select(HeroSlider).where(HeroSlider.id == slider_id))
+    slider = result.scalar_one_or_none()
+    if not slider:
+        raise HTTPException(status_code=404, detail="Hero slider not found")
+    
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(slider, field, value)
+    slider.updated_by = current_user.id
+    await db.commit()
+    return slider
+
+
+@router.put("/hero-sliders/{slider_id}/toggle", response_model=HeroSliderResponse, dependencies=[RequireAdmin])
+async def toggle_hero_slider_active(slider_id: UUID, current_user: CurrentUser, db: DatabaseSession):
+    """Toggle the active status of a hero slide."""
+    result = await db.execute(select(HeroSlider).where(HeroSlider.id == slider_id))
+    slider = result.scalar_one_or_none()
+    if not slider:
+        raise HTTPException(status_code=404, detail="Hero slider not found")
+    
+    slider.is_active = not slider.is_active
+    slider.updated_by = current_user.id
+    await db.commit()
+    return slider
+
+
+@router.post("/hero-sliders/reorder", dependencies=[RequireAdmin])
+async def reorder_hero_sliders(data: List[HeroSliderReorder], current_user: CurrentUser, db: DatabaseSession):
+    """Reorder hero slides."""
+    for item in data:
+        result = await db.execute(select(HeroSlider).where(HeroSlider.id == item.id))
+        slider = result.scalar_one_or_none()
+        if slider:
+            slider.display_order = item.display_order
+            slider.updated_by = current_user.id
+    await db.commit()
+    return {"message": "Sliders reordered successfully"}
+
+
+@router.delete("/hero-sliders/{slider_id}", dependencies=[RequireAdmin])
+async def delete_hero_slider(slider_id: UUID, current_user: CurrentUser, db: DatabaseSession):
+    """Soft-delete a hero slide."""
+    result = await db.execute(select(HeroSlider).where(HeroSlider.id == slider_id))
+    slider = result.scalar_one_or_none()
+    if not slider:
+        raise HTTPException(status_code=404, detail="Hero slider not found")
+    slider.soft_delete(current_user.id)
+    await db.commit()
+    return {"message": "Hero slider deleted"}
 
 
 # ============== DESTINATIONS ADMIN ==============

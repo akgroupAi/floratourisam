@@ -27,7 +27,7 @@ def upgrade() -> None:
     # Create dining_passes table
     op.create_table(
         'dining_passes',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
+        sa.Column('id', UUID(as_uuid=True), primary_key=True),
         sa.Column('restaurant_id', UUID(as_uuid=True), sa.ForeignKey('restaurants.id', ondelete='CASCADE'), nullable=False, index=True),
         sa.Column('name', sa.String(255), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
@@ -48,7 +48,7 @@ def upgrade() -> None:
     # Create dining_pass_purchases table
     op.create_table(
         'dining_pass_purchases',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
+        sa.Column('id', UUID(as_uuid=True), primary_key=True),
         sa.Column('dining_pass_id', UUID(as_uuid=True), sa.ForeignKey('dining_passes.id', ondelete='CASCADE'), nullable=False, index=True),
         sa.Column('user_id', UUID(as_uuid=True), sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True),
         sa.Column('restaurant_id', UUID(as_uuid=True), sa.ForeignKey('restaurants.id', ondelete='CASCADE'), nullable=False, index=True),

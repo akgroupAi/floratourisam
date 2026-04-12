@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.schemas.common import BaseSchema
 from app.utils.enums import BookingStatus, BookingType, MealType
@@ -134,7 +134,6 @@ class BookingResponse(BaseSchema):
     check_in_date: Optional[date] = None
     check_out_date: Optional[date] = None
     scheduled_time: Optional[datetime] = None
-    nights: Optional[int] = None
 
     # Guest info
     guest_count: int
@@ -176,6 +175,14 @@ class BookingResponse(BaseSchema):
     # Related entity info
     entity_name: Optional[str] = None
     entity_address: Optional[str] = None
+
+    @computed_field
+    @property
+    def nights(self) -> Optional[int]:
+        """Calculate number of nights for hotel/apartment bookings."""
+        if self.check_in_date and self.check_out_date:
+            return (self.check_out_date - self.check_in_date).days
+        return None
 
 
 class BookingStatsResponse(BaseModel):

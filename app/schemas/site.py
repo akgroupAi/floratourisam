@@ -440,3 +440,59 @@ class ContactSubmission(BaseModel):
     phone: Optional[str] = None
     subject: str = Field(..., max_length=255)
     message: str
+
+
+# ============== Hero Slider Schemas ==============
+
+class HeroSliderCreate(BaseModel):
+    title: str = Field(..., max_length=255)
+    subtitle: Optional[str] = Field(None, max_length=500)
+    description: Optional[str] = None
+    background_image: Optional[str] = Field(None, max_length=500)
+    badge_text: Optional[str] = Field(None, max_length=100)
+    primary_cta_text: Optional[str] = Field(None, max_length=100)
+    primary_cta_url: Optional[str] = Field(None, max_length=500)
+    secondary_cta_text: Optional[str] = Field(None, max_length=100)
+    secondary_cta_url: Optional[str] = Field(None, max_length=500)
+    link_url: Optional[str] = Field(None, max_length=500)
+    display_order: int = 0
+    is_active: bool = True
+
+
+class HeroSliderUpdate(BaseModel):
+    title: Optional[str] = Field(None, max_length=255)
+    subtitle: Optional[str] = Field(None, max_length=500)
+    description: Optional[str] = None
+    background_image: Optional[str] = Field(None, max_length=500)
+    badge_text: Optional[str] = Field(None, max_length=100)
+    primary_cta_text: Optional[str] = Field(None, max_length=100)
+    primary_cta_url: Optional[str] = Field(None, max_length=500)
+    secondary_cta_text: Optional[str] = Field(None, max_length=100)
+    secondary_cta_url: Optional[str] = Field(None, max_length=500)
+    link_url: Optional[str] = Field(None, max_length=500)
+    display_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class HeroSliderResponse(BaseSchema):
+    id: UUID
+    title: str
+    subtitle: Optional[str] = None
+    description: Optional[str] = None
+    background_image: Optional[str] = None
+    badge_text: Optional[str] = None
+    primary_cta_text: Optional[str] = None
+    primary_cta_url: Optional[str] = None
+    secondary_cta_text: Optional[str] = None
+    secondary_cta_url: Optional[str] = None
+    link_url: Optional[str] = None
+    display_order: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class HeroSliderReorder(BaseModel):
+    id: UUID
+    display_order: int
+

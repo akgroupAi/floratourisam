@@ -910,6 +910,7 @@ class DiningPassCreate(BaseModel):
     is_active: bool = True
     available_from: Optional[date] = None
     available_until: Optional[date] = None
+    meals_per_day: Optional[int] = Field(None, ge=1)
 
 
 class DiningPassUpdate(BaseModel):
@@ -922,6 +923,7 @@ class DiningPassUpdate(BaseModel):
     is_active: Optional[bool] = None
     available_from: Optional[date] = None
     available_until: Optional[date] = None
+    meals_per_day: Optional[int] = Field(None, ge=1)
 
 
 class DiningPassResponse(BaseModel):
@@ -936,6 +938,7 @@ class DiningPassResponse(BaseModel):
     is_active: bool
     available_from: Optional[date] = None
     available_until: Optional[date] = None
+    meals_per_day: Optional[int] = None
 
     class Config:
         from_attributes = True
