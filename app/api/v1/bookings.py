@@ -55,6 +55,25 @@ async def check_room_availability(
     return {"room_id": room_id, "check_in": check_in, "check_out": check_out, "nights": nights, "available": available}
 
 
+@router.get(
+    "/apartments/{apartment_id}/availability",
+    summary="Check apartment availability",
+    description="Returns whether an apartment is available for the given date range.",
+)
+async def check_apartment_availability(
+    apartment_id: UUID,
+    db: DatabaseSession,
+    check_in: date = Query(..., description="Check-in date (YYYY-MM-DD)"),
+    check_out: date = Query(..., description="Check-out date (YYYY-MM-DD)"),
+):
+    if check_out <= check_in:
+        raise HTTPException(status_code=400, detail="check_out must be after check_in")
+    service = BookingService(db)
+    available = await service.check_apartment_availability(apartment_id, check_in, check_out)
+    nights = (check_out - check_in).days
+    return {"apartment_id": apartment_id, "check_in": check_in, "check_out": check_out, "nights": nights, "available": available}
+
+
 @router.post(
     "/hotel",
     response_model=BookingResponse,

@@ -199,6 +199,23 @@ class BookingService:
     # Apartment booking
     # ------------------------------------------------------------------
 
+    async def check_apartment_availability(
+        self, apartment_id: UUID, check_in: date, check_out: date
+    ) -> bool:
+        """Return True if the apartment has no overlapping bookings."""
+        conflict = await self.db.execute(
+            select(Booking.id).where(
+                and_(
+                    Booking.apartment_id == apartment_id,
+                    Booking.is_deleted == False,
+                    Booking.status.notin_([BookingStatus.CANCELLED.value]),
+                    Booking.check_in_date < check_out,
+                    Booking.check_out_date > check_in,
+                )
+            )
+        )
+        return conflict.scalar_one_or_none() is None
+
     async def create_apartment_booking(
         self,
         patient_id: UUID,
@@ -217,6 +234,21 @@ class BookingService:
         apartment: Optional[Apartment] = apt_result.scalar_one_or_none()
         if not apartment:
             raise ValueError("Apartment not found or not available")
+
+        # Check for overlapping confirmed bookings on this apartment
+        conflict = await self.db.execute(
+            select(Booking.id).where(
+                and_(
+                    Booking.apartment_id == data.apartment_id,
+                    Booking.is_deleted == False,
+                    Booking.status.notin_([BookingStatus.CANCELLED.value]),
+                    Booking.check_in_date < data.check_out_date,
+                    Booking.check_out_date > data.check_in_date,
+                )
+            )
+        )
+        if conflict.scalar_one_or_none():
+            raise ValueError("The apartment is already booked for the selected dates")
 
         nights = max((data.check_out_date - data.check_in_date).days, 1)
 
