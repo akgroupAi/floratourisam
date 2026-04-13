@@ -702,11 +702,19 @@ class DiningPassPurchase(BaseModel):
         nullable=False,
     )
 
-    # Status: active, expired, fully_used, cancelled
+    # Status: pending, active, expired, fully_used, cancelled
     status: Mapped[str] = mapped_column(
         String(20),
-        default="active",
+        default="pending",
         nullable=False,
+    )
+
+    # Linked booking for payment tracking
+    booking_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bookings.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     # Relationships

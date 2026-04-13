@@ -433,7 +433,7 @@ class StripeService:
         logger.info("stripe_refund_webhook", payment_id=str(payment.id), amount=refund_amount)
 
     async def _mark_booking_paid(self, payment: Payment):
-        """Update the linked booking as paid."""
+        """Update the linked booking as paid and activate dining pass if applicable."""
         if not payment.booking_id:
             return
         booking = await self._get_booking(payment.booking_id)
@@ -441,3 +441,31 @@ class StripeService:
             booking.is_paid = True
             booking.paid_at = datetime.now(timezone.utc)
             booking.payment_id = payment.id
+            booking.status = "confirmed"
+
+            # Activate dining pass if this booking is for a dining pass purchase
+            metadata = booking.booking_metadata or {}
+            if metadata.get("type") == "dining_pass" and metadata.get("dining_pass_purchase_id"):
+                await self._activate_dining_pass(metadata["dining_pass_purchase_id"])
+
+    async def _activate_dining_pass(self, purchase_id_str: str):
+        """Activate a dining pass purchase after successful payment."""
+        from uuid import UUID as PyUUID
+        from app.models.restaurant import DiningPassPurchase
+
+        try:
+            purchase_id = PyUUID(purchase_id_str)
+        except ValueError:
+            logger.error("invalid_dining_pass_purchase_id", purchase_id=purchase_id_str)
+            return
+
+        result = await self.db.execute(
+            select(DiningPassPurchase).where(
+                DiningPassPurchase.id == purchase_id,
+                DiningPassPurchase.is_deleted == False,
+            )
+        )
+        purchase = result.scalar_one_or_none()
+        if purchase and purchase.status == "pending":
+            purchase.status = "active"
+            logger.info("dining_pass_activated", purchase_id=purchase_id_str, ref=purchase.reference_code)

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DatabaseSession
+from app.models.booking import Booking
 from app.models.restaurant import DiningPass, DiningPassPurchase, MenuCategory, Restaurant
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.schemas.restaurant import (
@@ -21,7 +22,9 @@ from app.schemas.restaurant import (
     RestaurantMinimalResponse,
     DiningPassResponse,
 )
+from app.services.patient_service import PatientService
 from app.services.restaurant_service import RestaurantService
+from app.utils.enums import BookingStatus, BookingType
 from app.utils.helpers import generate_reference_id
 
 router = APIRouter()
@@ -52,6 +55,7 @@ class PurchasePassResponse(BaseModel):
     amount_paid: float
     currency: str
     status: str
+    booking_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
@@ -137,7 +141,7 @@ async def list_restaurants(
 async def get_my_dining_passes(
     current_user: CurrentUser,
     db: DatabaseSession,
-    status_filter: Optional[str] = Query(None, pattern="^(active|expired|fully_used|cancelled)$", description="Filter by pass status"),
+    status_filter: Optional[str] = Query(None, pattern="^(pending|active|expired|fully_used|cancelled)$", description="Filter by pass status"),
 ):
     """Get all dining passes purchased by the current user with QR data."""
     query = (
@@ -298,7 +302,13 @@ async def purchase_dining_pass(
     current_user: CurrentUser,
     db: DatabaseSession,
 ):
-    """Purchase a dining pass for a restaurant. Optionally pick a start date."""
+    """Purchase a dining pass for a restaurant.
+
+    Creates a pending DiningPassPurchase and a Booking record.
+    The frontend should then call POST /api/v1/payments/stripe/checkout
+    with the returned booking_id and amount to initiate Stripe payment.
+    The pass activates automatically when the Stripe webhook confirms payment.
+    """
     result = await db.execute(
         select(DiningPass).where(
             DiningPass.id == data.dining_pass_id,
@@ -336,6 +346,33 @@ async def purchase_dining_pass(
 
     expires_at = start_dt + timedelta(days=dining_pass.duration_days)
 
+    # Get or create patient profile for the user
+    patient_service = PatientService(db)
+    patient = await patient_service.get_or_create(current_user.id)
+
+    # Create Booking record for payment tracking
+    booking = Booking(
+        patient_id=patient.id,
+        booking_type=BookingType.RESTAURANT.value,
+        reference_number=generate_reference_id("BKG"),
+        restaurant_id=restaurant_id,
+        status=BookingStatus.PENDING.value,
+        booking_date=now,
+        base_price=dining_pass.price,
+        total_price=dining_pass.price,
+        currency=dining_pass.currency,
+        source="website",
+        booking_metadata={
+            "type": "dining_pass",
+            "dining_pass_id": str(dining_pass.id),
+            "dining_pass_name": dining_pass.name,
+        },
+        created_by=current_user.id,
+    )
+    db.add(booking)
+    await db.flush()  # Get booking.id before creating purchase
+
+    # Create DiningPassPurchase in pending state
     purchase = DiningPassPurchase(
         dining_pass_id=dining_pass.id,
         user_id=current_user.id,
@@ -348,14 +385,21 @@ async def purchase_dining_pass(
         expires_at=expires_at,
         amount_paid=dining_pass.price,
         currency=dining_pass.currency,
-        status="active",
+        status="pending",
+        booking_id=booking.id,
         created_by=current_user.id,
     )
     db.add(purchase)
+
+    # Store purchase ID in booking metadata for webhook lookup
+    booking.booking_metadata["dining_pass_purchase_id"] = str(purchase.id)
+
     await db.commit()
     await db.refresh(purchase)
 
-    return _build_pass_response(purchase, restaurant_name=restaurant_name)
+    response = _build_pass_response(purchase, restaurant_name=restaurant_name)
+    response.booking_id = booking.id
+    return response
 
 
 @router.get(
