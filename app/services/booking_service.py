@@ -618,55 +618,6 @@ class BookingService:
 
         return list(bookings), total
 
-    async def create_hotel_booking(
-        self,
-        patient_id: UUID,
-        data: HotelBookingCreate,
-        created_by: Optional[UUID] = None,
-    ) -> Booking:
-        """Create a hotel booking."""
-        # Fetch room to get price
-        from app.models.hotel import Room
-        result = await self.db.execute(select(Room).where(Room.id == data.room_id))
-        room = result.scalar_one_or_none()
-        
-        if not room:
-            raise ValueError(f"Room with ID {data.room_id} not found")
-
-        # Calculate nights and price
-        nights = (data.check_out_date - data.check_in_date).days
-        if nights < 1:
-            nights = 1
-            
-        base_price = room.price_per_night * nights
-
-        booking = Booking(
-            patient_id=patient_id,
-            booking_type=BookingType.HOTEL.value,
-            reference_number=generate_reference_id("HTL"),
-            hotel_room_id=data.room_id,
-            check_in_date=data.check_in_date,
-            check_out_date=data.check_out_date,
-            booking_date=datetime.now(timezone.utc),
-            guest_count=data.guest_count,
-            guest_details=data.guest_details,
-            base_price=base_price,
-            taxes=base_price * 0.1,
-            total_price=base_price * 1.1,
-            special_requests=data.special_requests,
-            notes=data.notes,
-            status=BookingStatus.PENDING.value,
-            created_by=created_by,
-        )
-
-        self.db.add(booking)
-        await self.db.commit()
-        await self.db.refresh(booking)
-
-        logger.info("hotel_booking_created", booking_id=str(booking.id))
-
-        return booking
-
     async def create_restaurant_booking(
         self,
         patient_id: UUID,
