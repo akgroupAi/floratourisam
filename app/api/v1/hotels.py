@@ -9,6 +9,7 @@ from app.schemas.hotel import HotelResponse, RoomResponse
 from app.schemas.review import (
     ReviewCreate,
     ReviewListItem,
+    ReviewPaginatedResponse,
     ReviewPublicResponse,
     ReviewResponse,
     ReviewSummary,
@@ -98,7 +99,7 @@ async def check_room_availability(hotel_id: UUID, room_id: UUID, check_in: str, 
 
 
 @router.get(
-    "/{hotel_id}/reviews", response_model=PaginatedResponse[ReviewPublicResponse]
+    "/{hotel_id}/reviews", response_model=ReviewPaginatedResponse
 )
 async def list_hotel_reviews(
     hotel_id: UUID,
@@ -109,14 +110,14 @@ async def list_hotel_reviews(
 ):
     """List approved reviews for a hotel."""
     service = ReviewService(db)
-    reviews, total = await service.list_for_entity(
+    reviews, total, average_rating = await service.list_for_entity(
         entity_type="hotel",
         entity_id=hotel_id,
         page=page,
         page_size=page_size,
         sort_by=sort_by,
     )
-    return PaginatedResponse.create(reviews, total, page, page_size)
+    return ReviewPaginatedResponse.create(reviews, total, page, page_size, average_rating)
 
 
 @router.get("/{hotel_id}/reviews/summary", response_model=ReviewSummary)

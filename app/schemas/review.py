@@ -189,6 +189,37 @@ class ReviewSummary(BaseModel):
     verified_count: int
     has_response_count: int
 
+
+class ReviewPaginatedResponse(BaseModel):
+    """Paginated reviews with average rating."""
+
+    items: List[ReviewPublicResponse]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+    average_rating: float
+
+    @classmethod
+    def create(
+        cls,
+        items: list,
+        total: int,
+        page: int,
+        page_size: int,
+        average_rating: float,
+    ) -> "ReviewPaginatedResponse":
+        pages = (total + page_size - 1) // page_size if page_size > 0 else 0
+        return cls(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=pages,
+            average_rating=average_rating,
+        )
+
+
 class AdminReviewListResponse(BaseModel):
     """Admin list reviews with summary stats."""
     

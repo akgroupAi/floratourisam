@@ -277,7 +277,19 @@ class ReviewService:
 
         rows_q = base.order_by(Review.is_featured.desc(), order_col).offset((page - 1) * page_size).limit(page_size)
         reviews = list((await self.db.execute(rows_q)).scalars().all())
-        return await self._enrich(reviews), total
+
+        # Average rating for the entity (all approved reviews, ignoring filters)
+        avg_result = await self.db.execute(
+            select(func.avg(Review.rating)).where(
+                Review.entity_type == entity_type,
+                Review.entity_id == entity_id,
+                Review.is_approved == True,
+                Review.is_deleted == False,
+            )
+        )
+        average_rating = round(float(avg_result.scalar() or 0), 2)
+
+        return await self._enrich(reviews), total, average_rating
 
     async def get_entity_summary(self, entity_type: str, entity_id: UUID) -> dict:
         """Aggregate stats for the entity."""

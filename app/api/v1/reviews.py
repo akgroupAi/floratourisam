@@ -35,6 +35,7 @@ from app.schemas.review import (
     ReviewCreate,
     ReviewHelpfulRequest,
     ReviewListItem,
+    ReviewPaginatedResponse,
     ReviewPublicResponse,
     ReviewResponse,
     ReviewSummary,
@@ -181,7 +182,7 @@ async def get_review_summary(
 
 @router.get(
     "/{entity_type}/{entity_id}",
-    response_model=PaginatedResponse[ReviewPublicResponse],
+    response_model=ReviewPaginatedResponse,
     summary="List approved reviews for an entity",
     description=(
         "Returns paginated published reviews. Supports filtering by verified-only "
@@ -199,7 +200,7 @@ async def list_entity_reviews(
     sort_by: Literal["created_at", "rating", "helpful_count"] = Query("created_at"),
 ):
     service = ReviewService(db)
-    reviews, total = await service.list_for_entity(
+    reviews, total, average_rating = await service.list_for_entity(
         entity_type=entity_type,
         entity_id=entity_id,
         page=page,
@@ -208,7 +209,7 @@ async def list_entity_reviews(
         min_rating=min_rating,
         sort_by=sort_by,
     )
-    return PaginatedResponse.create(reviews, total, page, page_size)
+    return ReviewPaginatedResponse.create(reviews, total, page, page_size, average_rating)
 
 
 # ---------------------------------------------------------------------------
