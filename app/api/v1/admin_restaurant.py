@@ -670,6 +670,12 @@ async def create_menu_item(
 ):
     """Create a menu item."""
     await _get_restaurant_or_404(restaurant_id, db)
+    if data.category_id:
+        cat = await db.execute(
+            select(MenuCategory).where(MenuCategory.id == data.category_id, MenuCategory.is_deleted == False)
+        )
+        if not cat.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Menu category not found")
     item = MenuItem(
         restaurant_id=restaurant_id, **data.model_dump(), created_by=current_user.id
     )
