@@ -99,6 +99,7 @@ class StripeService:
             created_by=user_id,
         )
         self.db.add(payment)
+        await self.db.flush()  # Get payment.id before creating transaction
 
         # Log transaction
         txn = PaymentTransaction(
@@ -177,6 +178,7 @@ class StripeService:
             created_by=user_id,
         )
         self.db.add(payment)
+        await self.db.flush()  # Get payment.id before creating transaction
 
         txn = PaymentTransaction(
             payment_id=payment.id,
@@ -203,7 +205,7 @@ class StripeService:
 
     async def handle_webhook(self, payload: bytes, sig_header: str) -> dict:
         """Process Stripe webhook events."""
-        if not settings.STRIPE_WEBHOOK_SECRET:
+        if not settings.WjaSTRIPE_WEBHOOK_SECRET:
             raise ValueError("Stripe webhook secret not configured")
 
         try:
