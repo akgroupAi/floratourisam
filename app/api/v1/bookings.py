@@ -18,12 +18,16 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import CurrentUser, DatabaseSession
 from app.core.logging import get_logger
+from app.models.hotel import Hotel, Room
+from app.models.apartment import Apartment
 from app.schemas.booking import (
     ApartmentBookingCreate,
     BookingCancelRequest,
     BookingListResponse,
     BookingResponse,
     HotelBookingCreate,
+    PriceCalculationRequest,
+    PriceCalculationResponse,
     RestaurantBookingCreate,
 )
 from app.schemas.common import PaginatedResponse, PaginationParams
@@ -181,6 +185,103 @@ async def create_restaurant_booking(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post(
+    "/calculate-price",
+    response_model=PriceCalculationResponse,
+    summary="Calculate booking price",
+    description=(
+        "Returns a price breakdown for a hotel room or apartment based on "
+        "dates and guest count. No booking is created."
+    ),
+)
+async def calculate_price(
+    data: PriceCalculationRequest,
+    db: DatabaseSession,
+):
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    if data.check_out_date <= data.check_in_date:
+        raise HTTPException(status_code=400, detail="check_out_date must be after check_in_date")
+
+    nights = max((data.check_out_date - data.check_in_date).days, 1)
+
+    if data.booking_type == BookingType.HOTEL:
+        if not data.room_id:
+            raise HTTPException(status_code=400, detail="room_id is required for hotel bookings")
+        result = await db.execute(
+            select(Room).options(selectinload(Room.hotel)).where(Room.id == data.room_id, Room.is_deleted == False)
+        )
+        room = result.scalar_one_or_none()
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+
+        base_price = round(room.price_per_night * nights, 2)
+        taxes = round(base_price * 0.10, 2)
+        total_price = round(base_price + taxes, 2)
+        currency = room.hotel.currency if room.hotel else "USD"
+        entity_name = room.hotel.name if room.hotel else None
+
+        return PriceCalculationResponse(
+            booking_type="hotel",
+            nights=nights,
+            pricing_tier=None,
+            rate_used=room.price_per_night,
+            base_price=base_price,
+            taxes=taxes,
+            total_price=total_price,
+            currency=currency,
+            entity_name=entity_name,
+            guest_count=data.guest_count,
+        )
+
+    elif data.booking_type == BookingType.APARTMENT:
+        if not data.apartment_id:
+            raise HTTPException(status_code=400, detail="apartment_id is required for apartment bookings")
+        result = await db.execute(
+            select(Apartment).where(Apartment.id == data.apartment_id, Apartment.is_deleted == False)
+        )
+        apartment = result.scalar_one_or_none()
+        if not apartment:
+            raise HTTPException(status_code=404, detail="Apartment not found")
+
+        if nights >= 28 and apartment.price_per_month:
+            months = nights / 30
+            base_price = round(apartment.price_per_month * months, 2)
+            tier = "monthly"
+            rate_used = apartment.price_per_month
+        elif nights >= 7 and apartment.price_per_week:
+            weeks = nights / 7
+            base_price = round(apartment.price_per_week * weeks, 2)
+            tier = "weekly"
+            rate_used = apartment.price_per_week
+        elif apartment.price_per_night:
+            base_price = round(apartment.price_per_night * nights, 2)
+            tier = "nightly"
+            rate_used = apartment.price_per_night
+        else:
+            raise HTTPException(status_code=400, detail="Apartment has no pricing configured")
+
+        taxes = round(base_price * 0.10, 2)
+        total_price = round(base_price + taxes, 2)
+
+        return PriceCalculationResponse(
+            booking_type="apartment",
+            nights=nights,
+            pricing_tier=tier,
+            rate_used=rate_used,
+            base_price=base_price,
+            taxes=taxes,
+            total_price=total_price,
+            currency=apartment.currency,
+            entity_name=apartment.name,
+            guest_count=data.guest_count,
+        )
+
+    else:
+        raise HTTPException(status_code=400, detail="Price calculation is only supported for hotel and apartment bookings")
 
 
 @router.get(

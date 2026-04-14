@@ -185,6 +185,32 @@ class BookingResponse(BaseSchema):
         return None
 
 
+class PriceCalculationRequest(BaseModel):
+    """Request body for price calculation preview."""
+
+    booking_type: BookingType = Field(..., description="hotel or apartment")
+    room_id: Optional[UUID] = Field(default=None, description="Required for hotel bookings")
+    apartment_id: Optional[UUID] = Field(default=None, description="Required for apartment bookings")
+    check_in_date: date
+    check_out_date: date
+    guest_count: int = Field(default=1, ge=1, le=10)
+
+
+class PriceCalculationResponse(BaseModel):
+    """Price breakdown returned by the calculator."""
+
+    booking_type: str
+    nights: int
+    pricing_tier: Optional[str] = Field(default=None, description="monthly, weekly, or nightly (apartments only)")
+    rate_used: float = Field(..., description="Per-unit rate applied")
+    base_price: float
+    taxes: float
+    total_price: float
+    currency: str
+    entity_name: Optional[str] = None
+    guest_count: int
+
+
 class BookingStatsResponse(BaseModel):
     """Booking statistics."""
 
