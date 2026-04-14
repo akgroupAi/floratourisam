@@ -23,8 +23,6 @@ router = APIRouter()
 class StripeCheckoutRequest(BaseModel):
     """Request to create a Stripe Checkout Session."""
     booking_id: UUID
-    amount: float = Field(..., gt=0)
-    currency: str = Field(default="usd", max_length=3)
     description: Optional[str] = None
     success_url: Optional[str] = None
     cancel_url: Optional[str] = None
@@ -33,8 +31,6 @@ class StripeCheckoutRequest(BaseModel):
 class StripePaymentIntentRequest(BaseModel):
     """Request to create a Stripe PaymentIntent."""
     booking_id: UUID
-    amount: float = Field(..., gt=0)
-    currency: str = Field(default="usd", max_length=3)
     description: Optional[str] = None
 
 
@@ -60,8 +56,6 @@ async def create_stripe_checkout(
         result = await service.create_checkout_session(
             user_id=current_user.id,
             booking_id=data.booking_id,
-            amount=data.amount,
-            currency=data.currency,
             description=data.description,
             success_url=data.success_url,
             cancel_url=data.cancel_url,
@@ -83,8 +77,6 @@ async def create_stripe_payment_intent(
         result = await service.create_payment_intent(
             user_id=current_user.id,
             booking_id=data.booking_id,
-            amount=data.amount,
-            currency=data.currency,
             description=data.description,
         )
         return result

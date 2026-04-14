@@ -31,8 +31,6 @@ class StripeService:
         self,
         user_id: UUID,
         booking_id: UUID,
-        amount: float,
-        currency: str = "usd",
         description: Optional[str] = None,
         success_url: Optional[str] = None,
         cancel_url: Optional[str] = None,
@@ -41,14 +39,17 @@ class StripeService:
         if not settings.STRIPE_SECRET_KEY:
             raise ValueError("Stripe is not configured. Set STRIPE_SECRET_KEY.")
 
-        # Verify booking exists
+        # Verify booking exists and read amount from it
         booking = await self._get_booking(booking_id)
         if not booking:
             raise ValueError("Booking not found")
 
-        # Amount in cents for Stripe
+        if booking.is_paid:
+            raise ValueError("Booking is already paid")
+
+        amount = booking.total_price
+        currency_lower = (booking.currency or settings.STRIPE_CURRENCY).lower()
         amount_cents = int(round(amount * 100))
-        currency_lower = (currency or settings.STRIPE_CURRENCY).lower()
 
         default_success = f"{settings.FRONTEND_URL}/payments/success?session_id={{CHECKOUT_SESSION_ID}}"
         default_cancel = f"{settings.FRONTEND_URL}/payments/cancel"
@@ -130,8 +131,6 @@ class StripeService:
         self,
         user_id: UUID,
         booking_id: UUID,
-        amount: float,
-        currency: str = "usd",
         description: Optional[str] = None,
     ) -> dict:
         """Create a Stripe PaymentIntent for frontend-controlled payments."""
@@ -142,8 +141,12 @@ class StripeService:
         if not booking:
             raise ValueError("Booking not found")
 
+        if booking.is_paid:
+            raise ValueError("Booking is already paid")
+
+        amount = booking.total_price
+        currency_lower = (booking.currency or settings.STRIPE_CURRENCY).lower()
         amount_cents = int(round(amount * 100))
-        currency_lower = (currency or settings.STRIPE_CURRENCY).lower()
 
         intent = stripe.PaymentIntent.create(
             amount=amount_cents,
