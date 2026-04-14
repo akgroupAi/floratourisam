@@ -219,8 +219,7 @@ async def calculate_price(
             raise HTTPException(status_code=404, detail="Room not found")
 
         base_price = round(room.price_per_night * nights, 2)
-        taxes = round(base_price * 0.10, 2)
-        total_price = round(base_price + taxes, 2)
+        total_price = base_price
         currency = room.hotel.currency if room.hotel else "USD"
         entity_name = room.hotel.name if room.hotel else None
 
@@ -230,7 +229,7 @@ async def calculate_price(
             pricing_tier=None,
             rate_used=room.price_per_night,
             base_price=base_price,
-            taxes=taxes,
+            taxes=0,
             total_price=total_price,
             currency=currency,
             entity_name=entity_name,
@@ -264,8 +263,7 @@ async def calculate_price(
         else:
             raise HTTPException(status_code=400, detail="Apartment has no pricing configured")
 
-        taxes = round(base_price * 0.10, 2)
-        total_price = round(base_price + taxes, 2)
+        total_price = base_price
 
         return PriceCalculationResponse(
             booking_type="apartment",
@@ -273,7 +271,7 @@ async def calculate_price(
             pricing_tier=tier,
             rate_used=rate_used,
             base_price=base_price,
-            taxes=taxes,
+            taxes=0,
             total_price=total_price,
             currency=apartment.currency,
             entity_name=apartment.name,
