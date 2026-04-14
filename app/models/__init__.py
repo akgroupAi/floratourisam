@@ -25,6 +25,7 @@ from app.models.rbac import Role, Permission
 from app.models.forex import Currency, ForexRequest
 from app.models.review import Review
 from app.models.system import Notification, EmailTemplate, EmailLog, Event, AdminConfig, Document, DocumentShare
+from app.models.shared_document import SharedDocument, DocumentComment
 
 __all__ = [
     "BaseModel",
@@ -76,4 +77,6 @@ __all__ = [
     "AdminConfig",
     "Document",
     "DocumentShare",
+    "SharedDocument",
+    "DocumentComment",
 ]
