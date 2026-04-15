@@ -26,13 +26,13 @@ class RestaurantService:
     async def get_by_id(self, restaurant_id: UUID) -> Optional[Restaurant]:
         """Get restaurant by ID."""
         result = await self.db.execute(
-            select(Restaurant).where(Restaurant.id == restaurant_id, Restaurant.is_active == True)
+            select(Restaurant).where(Restaurant.id == restaurant_id, Restaurant.is_active == True, Restaurant.is_deleted == False)
         )
         return result.scalar_one_or_none()
 
     async def get_list_minimal(self) -> List[Restaurant]:
         """Get minimal list of all active restaurants."""
-        query = select(Restaurant).where(Restaurant.is_active == True).order_by(Restaurant.name.asc())
+        query = select(Restaurant).where(Restaurant.is_active == True, Restaurant.is_deleted == False).order_by(Restaurant.name.asc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
@@ -49,7 +49,7 @@ class RestaurantService:
         user_lng: Optional[float] = None,
     ) -> tuple[List[Restaurant], int]:
         """Get paginated list of restaurants with filters and sorting."""
-        query = select(Restaurant).where(Restaurant.is_active == True)
+        query = select(Restaurant).where(Restaurant.is_active == True, Restaurant.is_deleted == False)
 
         if city:
             query = query.where(func.lower(Restaurant.city) == city.lower())
@@ -107,7 +107,7 @@ class RestaurantService:
     async def get_menu(self, restaurant_id: UUID) -> List[MenuItem]:
         """Get menu for a restaurant."""
         result = await self.db.execute(
-            select(MenuItem).where(MenuItem.restaurant_id == restaurant_id, MenuItem.is_available == True)
+            select(MenuItem).where(MenuItem.restaurant_id == restaurant_id, MenuItem.is_available == True, MenuItem.is_deleted == False)
             .order_by(MenuItem.category, MenuItem.display_order)
         )
         return list(result.scalars().all())

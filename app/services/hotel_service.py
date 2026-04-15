@@ -24,7 +24,7 @@ class HotelService:
     async def get_by_id(self, hotel_id: UUID) -> Optional[Hotel]:
         """Get hotel by ID."""
         result = await self.db.execute(
-            select(Hotel).where(Hotel.id == hotel_id, Hotel.is_active == True)
+            select(Hotel).where(Hotel.id == hotel_id, Hotel.is_active == True, Hotel.is_deleted == False)
         )
         return result.scalar_one_or_none()
 
@@ -40,7 +40,7 @@ class HotelService:
         sort_by: Optional[str] = "recommended",
     ) -> tuple[List[Hotel], int]:
         """Get paginated list of hotels."""
-        query = select(Hotel).where(Hotel.is_active == True)
+        query = select(Hotel).where(Hotel.is_active == True, Hotel.is_deleted == False)
 
         if search:
             search_pattern = f"%{search}%"
