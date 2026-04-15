@@ -514,6 +514,9 @@ async def create_testimonial(
     title: Optional[str] = Form(None),
     content: str = Form(...),
     video_url: Optional[str] = Form(None),
+    video_thumbnail: Optional[str] = Form(None),
+    video_duration: Optional[str] = Form(None),
+    is_verified: bool = Form(False),
     is_featured: bool = Form(False),
     patient_avatar: Optional[UploadFile] = File(None),
 ):
@@ -553,6 +556,9 @@ async def create_testimonial(
         title=title,
         content=content,
         video_url=video_url,
+        video_thumbnail=video_thumbnail,
+        video_duration=video_duration,
+        is_verified=is_verified,
         is_featured=is_featured,
         created_by=current_user.id,
     )
@@ -575,6 +581,9 @@ async def update_testimonial(
     title: Optional[str] = Form(None),
     content: Optional[str] = Form(None),
     video_url: Optional[str] = Form(None),
+    video_thumbnail: Optional[str] = Form(None),
+    video_duration: Optional[str] = Form(None),
+    is_verified: Optional[bool] = Form(None),
     is_featured: Optional[bool] = Form(None),
     is_approved: Optional[bool] = Form(None),
     patient_avatar: Optional[UploadFile] = File(None),
@@ -605,6 +614,12 @@ async def update_testimonial(
         testimonial.content = content
     if video_url is not None:
         testimonial.video_url = video_url
+    if video_thumbnail is not None:
+        testimonial.video_thumbnail = video_thumbnail
+    if video_duration is not None:
+        testimonial.video_duration = video_duration
+    if is_verified is not None:
+        testimonial.is_verified = is_verified
     if is_featured is not None:
         testimonial.is_featured = is_featured
     if is_approved is not None:

@@ -296,6 +296,9 @@ class TestimonialCreate(BaseModel):
     title: Optional[str] = None
     content: str
     video_url: Optional[str] = None
+    video_thumbnail: Optional[str] = None
+    video_duration: Optional[str] = Field(None, max_length=20)
+    is_verified: bool = False
     is_featured: bool = False
 
 
@@ -308,6 +311,9 @@ class TestimonialListResponse(BaseSchema):
     hospital_name: Optional[str] = None
     title: Optional[str] = None
     video_url: Optional[str] = None
+    video_thumbnail: Optional[str] = None
+    video_duration: Optional[str] = None
+    is_verified: bool = False
     rating: int
     content: str
     is_featured: bool = False
@@ -328,6 +334,9 @@ class TestimonialUpdate(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
     video_url: Optional[str] = None
+    video_thumbnail: Optional[str] = None
+    video_duration: Optional[str] = None
+    is_verified: Optional[bool] = None
     is_featured: Optional[bool] = None
     is_approved: Optional[bool] = None
 

@@ -266,6 +266,9 @@ class Testimonial(BaseModel):
     
     # Media
     video_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    video_thumbnail: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    video_duration: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # e.g. "2:45"
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)  # "VERIFIED PATIENT" badge
     
     # Status
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
