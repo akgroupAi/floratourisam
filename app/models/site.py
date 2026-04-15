@@ -125,6 +125,8 @@ class BlogPost(BaseModel):
     author_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     author: Mapped[Optional["User"]] = relationship("User", foreign_keys=[author_id])
 
+    author_title: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g. "Medical Director"
+
     @property
     def author_name(self) -> Optional[str]:
         return self.author.full_name if self.author else None

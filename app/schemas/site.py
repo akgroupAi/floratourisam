@@ -196,17 +196,28 @@ class BlogPostCreate(BaseModel):
     category: str = Field(..., max_length=100)
     tags: List[str] = []
     featured_image: Optional[str] = None
+    read_time_minutes: int = 5
     status: str = Field(default="draft", pattern="^(draft|published|archived)$")
+    author_title: Optional[str] = Field(None, max_length=100)
+    related_posts: Optional[List[str]] = None
+    meta_title: Optional[str] = Field(None, max_length=255)
+    meta_description: Optional[str] = Field(None, max_length=500)
 
 
 class BlogPostUpdate(BaseModel):
     title: Optional[str] = None
+    slug: Optional[str] = None
     excerpt: Optional[str] = None
     content: Optional[str] = None
     category: Optional[str] = None
     tags: Optional[List[str]] = None
     featured_image: Optional[str] = None
+    read_time_minutes: Optional[int] = None
     status: Optional[str] = None
+    author_title: Optional[str] = None
+    related_posts: Optional[List[str]] = None
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
 
 
 class BlogPostListResponse(BaseSchema):
@@ -234,6 +245,7 @@ class BlogPostResponse(BaseSchema):
     author_id: UUID
     author_name: Optional[str] = None
     author_avatar: Optional[str] = None
+    author_title: Optional[str] = None
     status: str
     published_at: Optional[datetime] = None
     read_time_minutes: int = 5
