@@ -79,6 +79,7 @@ class Treatment(BaseModel):
     patient_count: Mapped[int] = mapped_column(Integer, default=0)
     savings_percent: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     average_rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    badge_text: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g. "Most Popular"
     
     # Pricing
     price_from: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

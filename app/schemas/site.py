@@ -75,26 +75,55 @@ class TreatmentCreate(BaseModel):
     description: Optional[str] = None
     icon: Optional[str] = None
     image_url: Optional[str] = None
+    gallery: List[str] = []
     success_rate: Optional[float] = Field(None, ge=0, le=100)
+    patient_count: int = 0
+    savings_percent: Optional[int] = Field(None, ge=0, le=100)
+    average_rating: Optional[float] = Field(None, ge=0, le=5)
+    badge_text: Optional[str] = Field(None, max_length=100)
     price_from: Optional[float] = Field(None, ge=0)
     price_to: Optional[float] = Field(None, ge=0)
+    currency: str = "USD"
+    duration_days_min: Optional[int] = Field(None, ge=0)
+    duration_days_max: Optional[int] = Field(None, ge=0)
+    recovery_days: Optional[int] = Field(None, ge=0)
     procedures: List[str] = []
+    related_treatments: List[str] = []
+    faqs: Optional[dict] = None
+    meta_title: Optional[str] = Field(None, max_length=255)
+    meta_description: Optional[str] = Field(None, max_length=500)
     is_featured: bool = False
+    display_order: int = 0
 
 
 class TreatmentUpdate(BaseModel):
     name: Optional[str] = None
+    slug: Optional[str] = None
     category: Optional[str] = None
     short_description: Optional[str] = None
     description: Optional[str] = None
     icon: Optional[str] = None
     image_url: Optional[str] = None
+    gallery: Optional[List[str]] = None
     success_rate: Optional[float] = None
+    patient_count: Optional[int] = None
+    savings_percent: Optional[int] = None
+    average_rating: Optional[float] = None
+    badge_text: Optional[str] = None
     price_from: Optional[float] = None
     price_to: Optional[float] = None
+    currency: Optional[str] = None
+    duration_days_min: Optional[int] = None
+    duration_days_max: Optional[int] = None
+    recovery_days: Optional[int] = None
     procedures: Optional[List[str]] = None
+    related_treatments: Optional[List[str]] = None
+    faqs: Optional[dict] = None
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
     is_active: Optional[bool] = None
     is_featured: Optional[bool] = None
+    display_order: Optional[int] = None
 
 
 class TreatmentListResponse(BaseSchema):
@@ -106,10 +135,13 @@ class TreatmentListResponse(BaseSchema):
     image_url: Optional[str] = None
     success_rate: Optional[float] = None
     patient_count: int = 0
-    settings_percent: Optional[int] = None
+    savings_percent: Optional[int] = None
+    average_rating: Optional[float] = None
+    badge_text: Optional[str] = None
     price_from: Optional[float] = None
     price_to: Optional[float] = None
-    average_rating: Optional[float] = None
+    duration_days_min: Optional[int] = None
+    duration_days_max: Optional[int] = None
     procedures: List[str] = []
     short_description: Optional[str] = None
     is_featured: bool = False
@@ -129,6 +161,7 @@ class TreatmentResponse(BaseSchema):
     patient_count: int = 0
     savings_percent: Optional[int] = None
     average_rating: Optional[float] = None
+    badge_text: Optional[str] = None
     price_from: Optional[float] = None
     price_to: Optional[float] = None
     currency: str = "USD"
@@ -136,7 +169,10 @@ class TreatmentResponse(BaseSchema):
     duration_days_max: Optional[int] = None
     recovery_days: Optional[int] = None
     procedures: List[str] = []
+    related_treatments: List[str] = []
     faqs: Optional[dict] = None
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
     is_active: bool = True
     is_featured: bool = False
 
