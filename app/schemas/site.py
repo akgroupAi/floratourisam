@@ -87,8 +87,11 @@ class TreatmentCreate(BaseModel):
     duration_days_min: Optional[int] = Field(None, ge=0)
     duration_days_max: Optional[int] = Field(None, ge=0)
     recovery_days: Optional[int] = Field(None, ge=0)
+    recovery_text: Optional[str] = Field(None, max_length=100)
     procedures: List[str] = []
     related_treatments: List[str] = []
+    why_choose: Optional[list] = None
+    available_treatments: Optional[list] = None
     faqs: Optional[dict] = None
     meta_title: Optional[str] = Field(None, max_length=255)
     meta_description: Optional[str] = Field(None, max_length=500)
@@ -116,8 +119,11 @@ class TreatmentUpdate(BaseModel):
     duration_days_min: Optional[int] = None
     duration_days_max: Optional[int] = None
     recovery_days: Optional[int] = None
+    recovery_text: Optional[str] = None
     procedures: Optional[List[str]] = None
     related_treatments: Optional[List[str]] = None
+    why_choose: Optional[list] = None
+    available_treatments: Optional[list] = None
     faqs: Optional[dict] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
@@ -168,8 +174,11 @@ class TreatmentResponse(BaseSchema):
     duration_days_min: Optional[int] = None
     duration_days_max: Optional[int] = None
     recovery_days: Optional[int] = None
+    recovery_text: Optional[str] = None
     procedures: List[str] = []
     related_treatments: List[str] = []
+    why_choose: Optional[list] = None
+    available_treatments: Optional[list] = None
     faqs: Optional[dict] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None

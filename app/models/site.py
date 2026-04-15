@@ -90,10 +90,15 @@ class Treatment(BaseModel):
     duration_days_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     duration_days_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     recovery_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    recovery_text: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g. "30% Faster"
     
     # Related
     procedures: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
     related_treatments: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
+    
+    # Detail page content
+    why_choose: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)  # ["Internationally trained surgeons", ...]
+    available_treatments: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)  # [{name, description, duration_text, price_min, price_max}, ...]
     
     # FAQ
     faqs: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
