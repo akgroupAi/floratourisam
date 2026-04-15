@@ -504,7 +504,9 @@ class ContactSubmission(BaseModel):
     name: str = Field(..., max_length=255)
     email: EmailStr
     phone: Optional[str] = None
-    subject: str = Field(..., max_length=255)
+    country: Optional[str] = Field(None, max_length=100)
+    treatment_interest: Optional[str] = Field(None, max_length=255)
+    subject: Optional[str] = Field(None, max_length=255)
     message: str
 
 

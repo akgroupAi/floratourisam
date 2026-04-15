@@ -755,27 +755,71 @@ async def get_contact_page(db: DatabaseSession):
     """Get contact page content."""
     return {
         "hero": {
-            "title": "Contact Us",
-            "subtitle": "We're here to help with your healthcare journey",
+            "badge": "We'd Love to Hear From You",
+            "title": "Let's Start Your Healing Journey",
+            "subtitle": "Whether you need a second opinion, treatment estimate, or travel assistance — our team is ready to help around the clock.",
         },
-        "contact_info": {
-            "email": "care@floramedical.com",
-            "phone": "+1 (888) 123-4567",
-            "address": "123 Healthcare Avenue, New Delhi, India 110001",
-            "working_hours": "24/7 Support Available",
-        },
-        "form_fields": [
-            {"name": "name", "label": "Full Name", "type": "text", "required": True},
-            {"name": "email", "label": "Email", "type": "email", "required": True},
-            {"name": "phone", "label": "Phone", "type": "tel", "required": False},
-            {"name": "subject", "label": "Subject", "type": "text", "required": True},
-            {"name": "message", "label": "Message", "type": "textarea", "required": True},
+        "contact_methods": [
+            {
+                "icon": "phone",
+                "title": "Call Us",
+                "value": "+91 1800 123 4567",
+                "description": "24/7 Patient Helpline",
+            },
+            {
+                "icon": "email",
+                "title": "Email Us",
+                "value": "hello@floramedical.com",
+                "description": "Reply within 2 hours",
+            },
+            {
+                "icon": "headset",
+                "title": "Live Support",
+                "value": "Chat with us",
+                "description": "Available 24/7",
+            },
+            {
+                "icon": "whatsapp",
+                "title": "WhatsApp",
+                "value": "+91 98765 43210",
+                "description": "Instant messaging",
+            },
         ],
-        "social_links": {
-            "facebook": "https://facebook.com/floramedical",
-            "twitter": "https://twitter.com/floramedical",
-            "instagram": "https://instagram.com/floramedical",
-            "linkedin": "https://linkedin.com/company/floramedical",
+        "form": {
+            "title": "Send a Message",
+            "subtitle": "Get a free consultation within 24 hours",
+            "fields": [
+                {"name": "name", "label": "Full Name", "type": "text", "required": True, "placeholder": "John Doe"},
+                {"name": "email", "label": "Email", "type": "email", "required": True, "placeholder": "john@example.com"},
+                {"name": "phone", "label": "Phone", "type": "tel", "required": False, "placeholder": "+1 234 567 890"},
+                {"name": "country", "label": "Country", "type": "text", "required": False, "placeholder": "United States"},
+                {"name": "treatment_interest", "label": "Treatment of Interest", "type": "text", "required": False, "placeholder": "e.g. Knee Replacement, Heart Surgery"},
+                {"name": "message", "label": "Message", "type": "textarea", "required": True, "placeholder": "Tell us about your medical needs..."},
+            ],
+            "submit_text": "Send Message",
+            "privacy_note": "By submitting, you agree to our Privacy Policy. We never share your data.",
+        },
+        "offices": [
+            {
+                "name": "Ahmedabad",
+                "badge": "HQ",
+                "address": "SG Highway, Ahmedabad",
+                "city_state": "Gujarat 380015",
+                "lat": 23.0225,
+                "lng": 72.5714,
+            },
+            {
+                "name": "New Delhi",
+                "badge": "Branch",
+                "address": "Connaught Place",
+                "city_state": "New Delhi 110001",
+                "lat": 28.6315,
+                "lng": 77.2167,
+            },
+        ],
+        "working_hours": {
+            "helpline": "24/7",
+            "office": "Mon-Sat, 9AM-6PM IST",
         },
     }
 

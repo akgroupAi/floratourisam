@@ -32,6 +32,8 @@ async def submit_contact_form(data: ContactSubmission, db: DatabaseSession):
         email=data.email,
         name=data.name,
         phone=data.phone,
+        country=data.country,
+        treatment_interest=data.treatment_interest,
         message=data.message,
         form_source="contact_page",
     )
