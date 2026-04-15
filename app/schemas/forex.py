@@ -17,7 +17,6 @@ class CurrencyCreate(BaseModel):
     code: str = Field(..., min_length=2, max_length=10)
     name: str = Field(..., min_length=2, max_length=100)
     symbol: Optional[str] = Field(None, max_length=10)
-    exchange_rate: float = Field(..., gt=0.0)
     buy_rate: float = Field(0.0, ge=0.0)
     sell_rate: float = Field(0.0, ge=0.0)
     is_active: bool = True
@@ -28,7 +27,6 @@ class CurrencyUpdate(BaseModel):
     code: Optional[str] = Field(None, min_length=2, max_length=10)
     name: Optional[str] = Field(None, min_length=2, max_length=100)
     symbol: Optional[str] = Field(None, max_length=10)
-    exchange_rate: Optional[float] = Field(None, gt=0.0)
     buy_rate: Optional[float] = Field(None, ge=0.0)
     sell_rate: Optional[float] = Field(None, ge=0.0)
     is_active: Optional[bool] = None
@@ -40,7 +38,6 @@ class CurrencyResponse(BaseSchema):
     code: str
     name: str
     symbol: Optional[str] = None
-    exchange_rate: float
     buy_rate: float
     sell_rate: float
     is_active: bool
@@ -84,6 +81,8 @@ class ForexRequestResponse(BaseSchema):
     medical_doc_url: Optional[str] = None
 
     status: str
+    admin_remarks: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -91,4 +90,5 @@ class ForexRequestResponse(BaseSchema):
 
 class ForexRequestStatusUpdate(BaseModel):
     """Schema for updating a forex request status."""
-    status: str = Field(..., pattern="^(pending|approved|rejected|completed)$")
+    status: str = Field(..., pattern="^(pending|under_review|approved|rejected|completed)$")
+    admin_remarks: Optional[str] = Field(None, max_length=1000)

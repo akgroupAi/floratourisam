@@ -54,10 +54,10 @@ async def calculate_forex(
     if not from_curr or not to_curr:
         raise HTTPException(status_code=404, detail="Currency not found or not active")
 
-    # Assuming exchange_rate is relative to base currency (e.g. 1 USD)
-    # Ex: USD to INR (from=1.0, to=83.0)
-    # rate_applied = to_curr / from_curr = 83.0 / 1.0 = 83.0
-    rate_applied = to_curr.exchange_rate / from_curr.exchange_rate
+    # Use sell_rate relative to base currency (e.g. 1 USD)
+    # Ex: USD to INR (from_sell=1.0, to_sell=83.0)
+    # rate_applied = to_sell / from_sell = 83.0 / 1.0 = 83.0
+    rate_applied = to_curr.sell_rate / from_curr.sell_rate
     calculated_amount = amount * rate_applied
 
     return {
@@ -95,7 +95,7 @@ async def create_forex_request(
         raise HTTPException(status_code=404, detail="Currency not found or not active")
 
     # 2. Calculate values
-    rate_applied = to_curr.exchange_rate / from_curr.exchange_rate
+    rate_applied = to_curr.sell_rate / from_curr.sell_rate
     calculated_amount = amount * rate_applied
 
     # 3. Handle File Uploads

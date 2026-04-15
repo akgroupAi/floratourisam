@@ -18,7 +18,6 @@ class Currency(BaseModel):
     code: Mapped[str] = mapped_column(String(10), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     symbol: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
-    exchange_rate: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     buy_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     sell_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -48,6 +47,7 @@ class ForexRequest(BaseModel):
     medical_doc_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    admin_remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])

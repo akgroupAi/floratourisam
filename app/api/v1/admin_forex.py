@@ -1,14 +1,17 @@
 """Admin endpoints for Forex Currency Exchange."""
 
+from datetime import date, datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from pydantic import BaseModel as PydanticBaseModel
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.models.forex import Currency, ForexRequest
+from app.models.user import User
 from app.schemas.common import MessageResponse, PaginatedResponse
 from app.schemas.forex import (
     CurrencyCreate,
@@ -128,15 +131,39 @@ async def list_forex_requests(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
+    search: Optional[str] = Query(None, description="Search by user name, email, purpose, or currency code"),
+    created_from: Optional[date] = Query(None, description="Filter requests created on or after this date"),
+    created_to: Optional[date] = Query(None, description="Filter requests created on or before this date"),
 ):
-    """List all forex exchange requests (admin)."""
+    """List all forex exchange requests (admin) with search and date filtering."""
     query = select(ForexRequest).options(
         selectinload(ForexRequest.from_currency),
         selectinload(ForexRequest.to_currency),
+    ).join(User, ForexRequest.user_id == User.id
+    ).outerjoin(Currency, ForexRequest.from_currency_id == Currency.id
     ).where(ForexRequest.is_deleted == False)
 
     if status:
         query = query.where(ForexRequest.status == status)
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.where(
+            or_(
+                User.full_name.ilike(search_term),
+                User.email.ilike(search_term),
+                ForexRequest.purpose.ilike(search_term),
+            )
+        )
+
+    if created_from:
+        query = query.where(
+            ForexRequest.created_at >= datetime.combine(created_from, datetime.min.time()).replace(tzinfo=timezone.utc)
+        )
+    if created_to:
+        query = query.where(
+            ForexRequest.created_at <= datetime.combine(created_to, datetime.max.time()).replace(tzinfo=timezone.utc)
+        )
 
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = count_result.scalar() or 0
@@ -171,7 +198,47 @@ async def update_request_status(
         raise HTTPException(status_code=404, detail="Forex request not found")
 
     request_obj.status = data.status
+    if data.admin_remarks is not None:
+        request_obj.admin_remarks = data.admin_remarks
     request_obj.updated_by = current_user.id
     await db.commit()
     await db.refresh(request_obj)
     return request_obj
+
+
+# ============== FOREX DASHBOARD ==============
+
+
+class ForexDashboardResponse(PydanticBaseModel):
+    """Forex dashboard KPI stats."""
+    total_requests: int = 0
+    pending: int = 0
+    under_review: int = 0
+    approved: int = 0
+    rejected: int = 0
+    completed: int = 0
+
+
+@router.get("/dashboard", response_model=ForexDashboardResponse, dependencies=[RequireAdmin])
+async def forex_dashboard(db: DatabaseSession):
+    """Get forex request statistics for admin dashboard."""
+    result = await db.execute(
+        select(
+            func.count().label("total_requests"),
+            func.count().filter(ForexRequest.status == "pending").label("pending"),
+            func.count().filter(ForexRequest.status == "under_review").label("under_review"),
+            func.count().filter(ForexRequest.status == "approved").label("approved"),
+            func.count().filter(ForexRequest.status == "rejected").label("rejected"),
+            func.count().filter(ForexRequest.status == "completed").label("completed"),
+        ).where(ForexRequest.is_deleted == False)
+    )
+    row = result.one()
+
+    return ForexDashboardResponse(
+        total_requests=row.total_requests,
+        pending=row.pending,
+        under_review=row.under_review,
+        approved=row.approved,
+        rejected=row.rejected,
+        completed=row.completed,
+    )
