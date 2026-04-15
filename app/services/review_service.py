@@ -107,7 +107,7 @@ class ReviewService:
             # join through room → hotel
             q = (
                 select(Booking.id)
-                .join(Room, Booking.room_id == Room.id)
+                .join(Room, Booking.hotel_room_id == Room.id)
                 .where(
                     Booking.patient_id == patient_id,
                     Booking.status == BookingStatus.COMPLETED.value,
