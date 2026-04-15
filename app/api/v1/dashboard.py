@@ -289,7 +289,7 @@ async def get_booking_stats(db: DatabaseSession):
     
     # Revenue by booking
     revenue_result = await db.execute(
-        select(func.sum(Booking.total_amount))
+        select(func.sum(Booking.total_price))
         .where(Booking.is_deleted == False)
     )
     total_revenue = revenue_result.scalar() or 0
@@ -365,7 +365,7 @@ async def get_revenue_stats(db: DatabaseSession):
     
     # Average booking value
     avg_result = await db.execute(
-        select(func.avg(Booking.total_amount))
+        select(func.avg(Booking.total_price))
         .where(Booking.is_deleted == False)
     )
     avg_booking_value = avg_result.scalar() or 0

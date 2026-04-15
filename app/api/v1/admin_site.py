@@ -892,8 +892,8 @@ async def get_quote_detail(quote_id: UUID, db: DatabaseSession):
 async def update_quote_status(
     quote_id: UUID,
     status: str = Query(..., pattern="^(new|contacted|qualified|converted)$"),
-    current_user: CurrentUser = None,
-    db: DatabaseSession = None
+    current_user: CurrentUser = ...,
+    db: DatabaseSession = ...
 ):
     """
     Update quote status.
@@ -927,8 +927,8 @@ async def update_quote_status(
 async def assign_quote(
     quote_id: UUID,
     assigned_to: UUID = Query(...),
-    current_user: CurrentUser = None,
-    db: DatabaseSession = None
+    current_user: CurrentUser = ...,
+    db: DatabaseSession = ...
 ):
     """Assign quote to a team member."""
     result = await db.execute(
@@ -958,8 +958,8 @@ async def assign_quote(
 async def update_quote_notes(
     quote_id: UUID,
     notes: str = Query(...),
-    current_user: CurrentUser = None,
-    db: DatabaseSession = None
+    current_user: CurrentUser = ...,
+    db: DatabaseSession = ...
 ):
     """Add/update notes on quote."""
     result = await db.execute(
