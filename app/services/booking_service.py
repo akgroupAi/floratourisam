@@ -148,6 +148,12 @@ class BookingService:
             confirmed_at=datetime.now(timezone.utc),
             confirmed_by=created_by,
             created_by=created_by,
+            booking_metadata={
+                "price_per_night": room.price_per_night,
+                "nights": nights,
+                "room_name": room.name,
+                "hotel_name": hotel.name if hotel else None,
+            },
         )
         self.db.add(booking)
         await self.db.commit()

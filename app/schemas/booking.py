@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.common import BaseSchema
 from app.utils.enums import BookingStatus, BookingType, MealType
@@ -146,6 +146,8 @@ class BookingResponse(BaseSchema):
     total_price: float
     currency: str
     discount_code: Optional[str] = None
+    price_per_night: Optional[float] = None
+    nights: Optional[int] = None
 
     # Payment
     payment_id: Optional[UUID] = None
@@ -176,13 +178,33 @@ class BookingResponse(BaseSchema):
     entity_name: Optional[str] = None
     entity_address: Optional[str] = None
 
-    @computed_field
-    @property
-    def nights(self) -> Optional[int]:
-        """Calculate number of nights for hotel/apartment bookings."""
-        if self.check_in_date and self.check_out_date:
-            return (self.check_out_date - self.check_in_date).days
-        return None
+    booking_metadata: Optional[dict] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_pricing_from_metadata(cls, data):
+        """Pull price_per_night and nights from booking_metadata if present."""
+        metadata = None
+        if hasattr(data, "booking_metadata"):
+            metadata = data.booking_metadata
+        elif isinstance(data, dict):
+            metadata = data.get("booking_metadata")
+        if metadata and isinstance(metadata, dict):
+            if isinstance(data, dict):
+                data.setdefault("price_per_night", metadata.get("price_per_night"))
+                data.setdefault("nights", metadata.get("nights"))
+            else:
+                if not getattr(data, "price_per_night", None):
+                    try:
+                        data.price_per_night = metadata.get("price_per_night")
+                    except Exception:
+                        pass
+                if not getattr(data, "nights", None):
+                    try:
+                        data.nights = metadata.get("nights")
+                    except Exception:
+                        pass
+        return data
 
 
 class PriceCalculationRequest(BaseModel):
