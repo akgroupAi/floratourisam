@@ -448,6 +448,8 @@ class HeroSliderCreate(BaseModel):
     title: str = Field(..., max_length=255)
     subtitle: Optional[str] = Field(None, max_length=500)
     description: Optional[str] = None
+    highlight_text: Optional[str] = Field(None, max_length=255)
+    features: Optional[list] = None
     background_image: Optional[str] = Field(None, max_length=500)
     badge_text: Optional[str] = Field(None, max_length=100)
     primary_cta_text: Optional[str] = Field(None, max_length=100)
@@ -455,6 +457,10 @@ class HeroSliderCreate(BaseModel):
     secondary_cta_text: Optional[str] = Field(None, max_length=100)
     secondary_cta_url: Optional[str] = Field(None, max_length=500)
     link_url: Optional[str] = Field(None, max_length=500)
+    featured_service_title: Optional[str] = Field(None, max_length=255)
+    featured_service_description: Optional[str] = Field(None, max_length=500)
+    featured_service_image: Optional[str] = Field(None, max_length=500)
+    featured_service_url: Optional[str] = Field(None, max_length=500)
     display_order: int = 0
     is_active: bool = True
 
@@ -463,6 +469,8 @@ class HeroSliderUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
     subtitle: Optional[str] = Field(None, max_length=500)
     description: Optional[str] = None
+    highlight_text: Optional[str] = Field(None, max_length=255)
+    features: Optional[list] = None
     background_image: Optional[str] = Field(None, max_length=500)
     badge_text: Optional[str] = Field(None, max_length=100)
     primary_cta_text: Optional[str] = Field(None, max_length=100)
@@ -470,6 +478,10 @@ class HeroSliderUpdate(BaseModel):
     secondary_cta_text: Optional[str] = Field(None, max_length=100)
     secondary_cta_url: Optional[str] = Field(None, max_length=500)
     link_url: Optional[str] = Field(None, max_length=500)
+    featured_service_title: Optional[str] = Field(None, max_length=255)
+    featured_service_description: Optional[str] = Field(None, max_length=500)
+    featured_service_image: Optional[str] = Field(None, max_length=500)
+    featured_service_url: Optional[str] = Field(None, max_length=500)
     display_order: Optional[int] = None
     is_active: Optional[bool] = None
 
@@ -479,6 +491,8 @@ class HeroSliderResponse(BaseSchema):
     title: str
     subtitle: Optional[str] = None
     description: Optional[str] = None
+    highlight_text: Optional[str] = None
+    features: Optional[list] = None
     background_image: Optional[str] = None
     badge_text: Optional[str] = None
     primary_cta_text: Optional[str] = None
@@ -486,6 +500,10 @@ class HeroSliderResponse(BaseSchema):
     secondary_cta_text: Optional[str] = None
     secondary_cta_url: Optional[str] = None
     link_url: Optional[str] = None
+    featured_service_title: Optional[str] = None
+    featured_service_description: Optional[str] = None
+    featured_service_image: Optional[str] = None
+    featured_service_url: Optional[str] = None
     display_order: int
     is_active: bool
     created_at: datetime

@@ -376,6 +376,8 @@ class HeroSlider(BaseModel):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     subtitle: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    highlight_text: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # e.g. "AI-Powered Healthcare Journey"
+    features: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)  # e.g. ["AI-Matched Specialists", "Transparent Pricing"]
 
     # Media
     background_image: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -391,6 +393,12 @@ class HeroSlider(BaseModel):
 
     # Optional whole-slide link
     link_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Featured service card (right-side overlay)
+    featured_service_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    featured_service_description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    featured_service_image: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    featured_service_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     # Display control
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
