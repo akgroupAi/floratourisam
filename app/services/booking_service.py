@@ -124,7 +124,7 @@ class BookingService:
         hotel = hotel_result.scalar_one_or_none()
 
         nights = max((data.check_out_date - data.check_in_date).days, 1)
-        base_price = room.price_per_night * nights
+        base_price = round(room.price_per_night * nights, 2)
         taxes = round(base_price * 0.10, 2)
 
         booking = Booking(
@@ -140,7 +140,7 @@ class BookingService:
             base_price=base_price,
             taxes=taxes,
             discount=0.0,
-            total_price=base_price + taxes,
+            total_price=round(base_price + taxes, 2),
             currency=hotel.currency if hotel else "USD",
             special_requests=data.special_requests,
             notes=data.notes,
@@ -286,7 +286,7 @@ class BookingService:
             base_price=base_price,
             taxes=taxes,
             discount=0.0,
-            total_price=base_price + taxes,
+            total_price=round(base_price + taxes, 2),
             currency=apartment.currency,
             special_requests=data.special_requests,
             notes=data.notes,
@@ -409,9 +409,9 @@ class BookingService:
                     }
             ordered_items_summary = ", ".join(summary_parts) if summary_parts else None
 
-            booking.base_price = estimated_cost or 0.0
+            booking.base_price = round(estimated_cost or 0.0, 2)
             booking.taxes = round((estimated_cost or 0.0) * 0.05, 2)
-            booking.total_price = booking.base_price + booking.taxes
+            booking.total_price = round(booking.base_price + booking.taxes, 2)
 
         meal_booking = MealBooking(
             restaurant_id=data.restaurant_id,

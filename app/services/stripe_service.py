@@ -47,7 +47,7 @@ class StripeService:
         if booking.is_paid:
             raise ValueError("Booking is already paid")
 
-        amount = booking.total_price
+        amount = round(booking.total_price, 2)
         currency_lower = (booking.currency or settings.STRIPE_CURRENCY).lower()
         amount_cents = int(round(amount * 100))
 
@@ -144,7 +144,7 @@ class StripeService:
         if booking.is_paid:
             raise ValueError("Booking is already paid")
 
-        amount = booking.total_price
+        amount = round(booking.total_price, 2)
         currency_lower = (booking.currency or settings.STRIPE_CURRENCY).lower()
         amount_cents = int(round(amount * 100))
 
