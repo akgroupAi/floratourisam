@@ -54,6 +54,16 @@ class StripeService:
         default_success = f"{settings.FRONTEND_URL}/payments/success?session_id={{CHECKOUT_SESSION_ID}}"
         default_cancel = f"{settings.FRONTEND_URL}/payments/cancel"
 
+        final_success = success_url or default_success
+        final_cancel = cancel_url or default_cancel
+
+        # Ensure URLs have a scheme — Stripe requires absolute URLs
+        for url in (final_success, final_cancel):
+            if url and not url.startswith(("http://", "https://")):
+                raise ValueError(
+                    f"Invalid URL '{url}': must start with http:// or https://"
+                )
+
         # Create Stripe Checkout Session
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -68,8 +78,8 @@ class StripeService:
                 "quantity": 1,
             }],
             mode="payment",
-            success_url=success_url or default_success,
-            cancel_url=cancel_url or default_cancel,
+            success_url=final_success,
+            cancel_url=final_cancel,
             metadata={
                 "booking_id": str(booking_id),
                 "user_id": str(user_id),
