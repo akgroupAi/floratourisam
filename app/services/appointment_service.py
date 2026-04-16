@@ -10,8 +10,9 @@ Responsibilities:
 from datetime import date, datetime, time, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -124,16 +125,28 @@ class AppointmentService:
         )
         booked_rows = booked_result.all()
 
-        # Build a set of occupied start times
+        # Build a set of occupied slot times (accounting for consultation duration)
         occupied: set[time] = set()
         for row in booked_rows:
-            occupied.add(row.scheduled_at.astimezone(timezone.utc).time().replace(second=0, microsecond=0))
+            booked_start = row.scheduled_at.astimezone(timezone.utc).time().replace(second=0, microsecond=0)
+            booked_duration = row.duration_minutes or slot_duration
+            booked_start_dt = datetime.combine(requested_date, booked_start)
+            booked_end_dt = booked_start_dt + timedelta(minutes=booked_duration)
+            for s in all_slots:
+                s_start_dt = datetime.combine(requested_date, s)
+                s_end_dt = s_start_dt + timedelta(minutes=slot_duration)
+                if s_start_dt < booked_end_dt and s_end_dt > booked_start_dt:
+                    occupied.add(s)
+
+        # Enforce max_appointments limit
+        max_appts = availability.max_appointments
+        all_unavailable = max_appts is not None and len(booked_rows) >= max_appts
 
         slots: List[TimeSlot] = [
             TimeSlot(
                 time=slot,
                 formatted=_format_time(slot),
-                is_available=slot not in occupied,
+                is_available=False if all_unavailable else slot not in occupied,
             )
             for slot in all_slots
         ]
@@ -181,12 +194,36 @@ class AppointmentService:
             raise ValueError("This doctor does not offer in-person consultations")
 
         # Build scheduled_at as timezone-aware UTC datetime
-        scheduled_at = datetime.combine(data.scheduled_date, data.scheduled_time).replace(
-            tzinfo=timezone.utc
-        )
+        tz = ZoneInfo(data.timezone) if data.timezone and data.timezone != "UTC" else timezone.utc
+        local_dt = datetime.combine(data.scheduled_date, data.scheduled_time).replace(tzinfo=tz)
+        scheduled_at = local_dt.astimezone(timezone.utc)
 
         # Confirm slot is not already taken
         await self._assert_slot_available(doctor.id, scheduled_at, data.duration_minutes)
+
+        # Enforce max_appointments limit for the day
+        day_of_week = data.scheduled_date.weekday()
+        avail = next(
+            (a for a in doctor.availability if a.day_of_week == day_of_week and a.is_available),
+            None,
+        )
+        if avail and avail.max_appointments is not None:
+            day_start = datetime.combine(data.scheduled_date, time.min).replace(tzinfo=timezone.utc)
+            day_end = datetime.combine(data.scheduled_date, time.max).replace(tzinfo=timezone.utc)
+            count_result = await self.db.execute(
+                select(func.count()).where(
+                    and_(
+                        Consultation.doctor_id == doctor.id,
+                        Consultation.scheduled_at >= day_start,
+                        Consultation.scheduled_at <= day_end,
+                        Consultation.status.in_(_ACTIVE_STATUSES),
+                        Consultation.is_deleted == False,
+                    )
+                )
+            )
+            booked_count = count_result.scalar() or 0
+            if booked_count >= avail.max_appointments:
+                raise ValueError("Maximum appointments reached for this day")
 
         # ------------------------------------------------------------------
         # Fetch user records for doctor and patient (needed for email / calendar)
@@ -557,29 +594,30 @@ class AppointmentService:
         }:
             raise ValueError(f"Cannot reschedule a {consultation.status} appointment")
 
-        # Build new datetime (naive UTC assumed for now)
-        new_dt = datetime.combine(new_date, new_time)
+        # Build new datetime as timezone-aware UTC
+        new_dt = datetime.combine(new_date, new_time).replace(tzinfo=timezone.utc)
 
         # Validate the new slot isn't in the past
-        if new_dt < datetime.now():
+        if new_dt < datetime.now(timezone.utc):
             raise ValueError("Cannot reschedule to a past date/time")
 
-        # Check conflicts (exclude this consultation itself)
+        # Check conflicts using actual duration (exclude this consultation itself)
         slot_end = new_dt + timedelta(minutes=consultation.duration_minutes or 30)
         conflict_result = await self.db.execute(
-            select(Consultation.id).where(
+            select(Consultation.scheduled_at, Consultation.duration_minutes).where(
                 and_(
                     Consultation.doctor_id == consultation.doctor_id,
                     Consultation.id != consultation_id,
                     Consultation.status.in_(_ACTIVE_STATUSES),
                     Consultation.is_deleted == False,
                     Consultation.scheduled_at < slot_end,
-                    (Consultation.scheduled_at + timedelta(minutes=30)) > new_dt,
                 )
             )
         )
-        if conflict_result.scalar_one_or_none():
-            raise ValueError("The new time slot is not available")
+        for row in conflict_result.all():
+            existing_end = row.scheduled_at + timedelta(minutes=row.duration_minutes or 30)
+            if row.scheduled_at < slot_end and existing_end > new_dt:
+                raise ValueError("The new time slot is not available")
 
         old_scheduled_at = consultation.scheduled_at
         consultation.scheduled_at = new_dt
@@ -796,19 +834,21 @@ class AppointmentService:
     ) -> None:
         """Raise ValueError if the requested slot overlaps an existing consultation."""
         slot_end = scheduled_at + timedelta(minutes=duration_minutes)
-        conflict_result = await self.db.execute(
-            select(Consultation.id).where(
+        # Fetch nearby consultations and check overlap using actual duration
+        result = await self.db.execute(
+            select(Consultation.scheduled_at, Consultation.duration_minutes).where(
                 and_(
                     Consultation.doctor_id == doctor_id,
                     Consultation.status.in_(_ACTIVE_STATUSES),
                     Consultation.is_deleted == False,
                     Consultation.scheduled_at < slot_end,
-                    (Consultation.scheduled_at + timedelta(minutes=30)) > scheduled_at,
                 )
             )
         )
-        if conflict_result.scalar_one_or_none():
-            raise ValueError("The selected time slot is no longer available")
+        for row in result.all():
+            existing_end = row.scheduled_at + timedelta(minutes=row.duration_minutes or 30)
+            if row.scheduled_at < slot_end and existing_end > scheduled_at:
+                raise ValueError("The selected time slot is no longer available")
 
 
 # ---------------------------------------------------------------------------
