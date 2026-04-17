@@ -13,11 +13,14 @@ Doctor-facing:
   POST  /consultations/{id}/start            — start consultation (set in_progress)
   POST  /consultations/{id}/complete         — mark as completed with notes
   PUT   /consultations/{id}/notes            — update diagnosis/prescription/notes
+  POST  /consultations/{id}/confirm          — confirm a pending appointment
+  POST  /consultations/{id}/reject           — reject a pending appointment
 """
 
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireDoctor, RequirePatient
 from app.schemas.common import PaginatedResponse, PaginationParams
@@ -213,6 +216,97 @@ async def update_doctor_notes(
             consultation_id=consultation_id,
             doctor_user_id=current_user.id,
             data=body,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Update consultation status (doctor: generic)
+# ---------------------------------------------------------------------------
+
+@router.patch(
+    "/{consultation_id}/status",
+    response_model=ConsultationResponse,
+    dependencies=[RequireDoctor],
+    summary="Update consultation status (doctor)",
+)
+async def update_consultation_status(
+    consultation_id: UUID,
+    body: ConsultationStatusUpdate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Generic status update for doctors.
+
+    Allowed transitions:
+    - scheduled  → waiting, in_progress, cancelled, missed
+    - waiting    → in_progress, cancelled, missed
+    - in_progress → completed, cancelled
+    """
+    service = ConsultationService(db)
+    try:
+        return await service.update_status(
+            consultation_id=consultation_id,
+            new_status=body.status,
+            updated_by=current_user.id,
+            notes=body.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Confirm appointment (doctor: pending → scheduled)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/{consultation_id}/confirm",
+    response_model=ConsultationResponse,
+    dependencies=[RequireDoctor],
+    summary="Confirm a pending appointment",
+)
+async def confirm_appointment(
+    consultation_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Doctor accepts a pending appointment. Transitions to scheduled/confirmed."""
+    service = ConsultationService(db)
+    try:
+        return await service.confirm_appointment(consultation_id, current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Reject appointment (doctor: pending → cancelled)
+# ---------------------------------------------------------------------------
+
+class RejectRequest(BaseModel):
+    """Rejection reason."""
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.post(
+    "/{consultation_id}/reject",
+    response_model=ConsultationResponse,
+    dependencies=[RequireDoctor],
+    summary="Reject a pending appointment",
+)
+async def reject_appointment(
+    consultation_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    body: Optional[RejectRequest] = None,
+):
+    """Doctor rejects a pending appointment. Transitions to cancelled."""
+    service = ConsultationService(db)
+    try:
+        return await service.reject_appointment(
+            consultation_id=consultation_id,
+            rejected_by=current_user.id,
+            reason=body.reason if body else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))

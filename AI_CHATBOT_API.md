@@ -146,7 +146,74 @@ Auth: All endpoints require `Authorization: Bearer <JWT_TOKEN>` (except `/refres
 
 ---
 
-## 3. GET `/conversations` — List Chat History (Sidebar)
+## 3. POST `/upload-report` — Upload File (Image/PDF) for AI Analysis
+
+> **Multipart/form-data** — use this when the user attaches a file via a 📎 button.
+
+### Input (Form Data)
+
+```
+POST /api/v1/ai/upload-report
+Content-Type: multipart/form-data
+```
+
+| Field        | Type           | Required | Description                                            |
+|--------------|----------------|----------|--------------------------------------------------------|
+| `file`       | file           | ✅       | Medical report image (JPG, PNG, WebP) or PDF. Max 10 MB |
+| `message`    | string (≤2000) | ❌       | Optional context message (e.g. "What does this mean?")  |
+| `session_id` | string (≤100)  | ❌       | Pass to associate with an existing conversation         |
+
+**Allowed file types:** `image/jpeg`, `image/jpg`, `image/png`, `image/webp`, `application/pdf`
+
+- **Images** — analyzed using GPT-4o-mini vision (reads the image directly)
+- **PDFs** — text is extracted with PyPDF2 then analyzed by GPT (scanned/image-only PDFs may not work)
+
+### Output (200 OK)
+
+```json
+{
+  "file_type": "image",
+  "filename": "knee-xray.jpg",
+  "report_analysis": {
+    "primary_condition": "Severe osteoarthritis of the right knee (Grade IV)",
+    "secondary_conditions": ["Mild joint effusion"],
+    "recommended_specialty": "Orthopedic Surgery",
+    "urgency": "soon",
+    "summary": "X-ray shows Grade IV osteoarthritis with complete loss of joint space in the medial compartment. Total knee replacement is recommended."
+  },
+  "recommended_doctors": [
+    {
+      "id": "d1e2f3a4-b5c6-7890-abcd-1234567890ab",
+      "name": "Dr. Pranjel Pipara",
+      "specialty": "Orthopedic Surgery",
+      "specialties": ["Joint Replacement", "Arthroscopy"],
+      "hospital": "OrthoSport Speciality Hospital",
+      "city": "Ahmedabad",
+      "rating": 4.9,
+      "fee": 750.0,
+      "experience_years": 13,
+      "profile_url": "/doctors/d1e2f3a4-b5c6-7890-abcd-1234567890ab",
+      "relevance_score": 0.8921
+    }
+  ],
+  "total_matches": 1,
+  "response_time_ms": 3200
+}
+```
+
+### Error Responses
+
+| Code | Detail                              | When                                  |
+|------|-------------------------------------|---------------------------------------|
+| 400  | Unsupported file type: ...          | File is not JPG/PNG/WebP/PDF          |
+| 400  | File too large. Maximum size is 10 MB | File exceeds 10 MB                  |
+| 400  | Empty file.                         | Uploaded file has 0 bytes             |
+| 401  | Not authenticated                   | Missing/invalid JWT                   |
+| 500  | AI service error: ...               | OpenAI or internal error              |
+
+---
+
+## 4. GET `/conversations` — List Chat History (Sidebar)
 
 ### Input (Query Parameters)
 
@@ -203,7 +270,7 @@ GET /api/v1/ai/conversations?page=1&page_size=20&search=knee
 
 ---
 
-## 4. GET `/conversations/{conversation_id}` — Full Chat Messages
+## 5. GET `/conversations/{conversation_id}` — Full Chat Messages
 
 ### Input
 
@@ -278,7 +345,7 @@ GET /api/v1/ai/conversations/f47ac10b-58cc-4372-a567-0e02b2c3d479
 
 ---
 
-## 5. PATCH `/conversations/{conversation_id}` — Rename Conversation
+## 6. PATCH `/conversations/{conversation_id}` — Rename Conversation
 
 ### Input (Query Parameter)
 
@@ -311,7 +378,7 @@ PATCH /api/v1/ai/conversations/f47ac10b-58cc-4372-a567-0e02b2c3d479?title=Knee%2
 
 ---
 
-## 6. DELETE `/conversations/{conversation_id}` — Delete One Conversation
+## 7. DELETE `/conversations/{conversation_id}` — Delete One Conversation
 
 ### Input
 
@@ -329,7 +396,7 @@ DELETE /api/v1/ai/conversations/f47ac10b-58cc-4372-a567-0e02b2c3d479
 
 ---
 
-## 7. DELETE `/conversations` — Clear All Conversations
+## 8. DELETE `/conversations` — Clear All Conversations
 
 ### Input
 
@@ -347,7 +414,7 @@ DELETE /api/v1/ai/conversations
 
 ---
 
-## 8. POST `/feedback` — Rate an AI Response
+## 9. POST `/feedback` — Rate an AI Response
 
 ### Input (Request Body)
 
@@ -375,7 +442,7 @@ DELETE /api/v1/ai/conversations
 
 ---
 
-## 9. POST `/refresh-knowledge` — Rebuild RAG Knowledge Base (Admin Only)
+## 10. POST `/refresh-knowledge` — Rebuild RAG Knowledge Base (Admin Only)
 
 ### Input
 
@@ -405,7 +472,7 @@ No request body needed.
 
 These endpoints let admins add custom documents to the RAG chatbot's knowledge base.
 
-### 10. POST `/admin/knowledge` — Create Knowledge Document (Admin)
+### 11. POST `/admin/knowledge` — Create Knowledge Document (Admin)
 
 #### Input (Request Body)
 
@@ -455,7 +522,7 @@ These endpoints let admins add custom documents to the RAG chatbot's knowledge b
 }
 ```
 
-### 11. GET `/admin/knowledge` — List Knowledge Documents (Admin)
+### 12. GET `/admin/knowledge` — List Knowledge Documents (Admin)
 
 #### Input (Query Parameters)
 
@@ -494,7 +561,7 @@ GET /api/v1/admin/knowledge?page=1&page_size=20&category=travel&active_only=true
 }
 ```
 
-### 12. GET `/admin/knowledge/categories` — List Categories (Admin)
+### 13. GET `/admin/knowledge/categories` — List Categories (Admin)
 
 ```
 GET /api/v1/admin/knowledge/categories
@@ -506,7 +573,7 @@ GET /api/v1/admin/knowledge/categories
 ["aftercare", "faq", "policy", "pricing", "travel", "treatment"]
 ```
 
-### 13. GET `/admin/knowledge/{doc_id}` — Get One Document (Admin)
+### 14. GET `/admin/knowledge/{doc_id}` — Get One Document (Admin)
 
 ```
 GET /api/v1/admin/knowledge/c1d2e3f4-a5b6-7890-cdef-1234567890ab
@@ -516,7 +583,7 @@ GET /api/v1/admin/knowledge/c1d2e3f4-a5b6-7890-cdef-1234567890ab
 
 Same as POST create response above.
 
-### 14. PUT `/admin/knowledge/{doc_id}` — Update Document (Admin)
+### 15. PUT `/admin/knowledge/{doc_id}` — Update Document (Admin)
 
 #### Input (Request Body — all fields optional)
 
@@ -531,7 +598,7 @@ Same as POST create response above.
 
 Full updated document (same shape as create response).
 
-### 15. DELETE `/admin/knowledge/{doc_id}` — Delete Document (Admin)
+### 16. DELETE `/admin/knowledge/{doc_id}` — Delete Document (Admin)
 
 ```
 DELETE /api/v1/admin/knowledge/c1d2e3f4-a5b6-7890-cdef-1234567890ab
@@ -623,6 +690,24 @@ curl -X POST http://localhost:8000/api/v1/ai/feedback \
   -d '{"log_id": "LOG_UUID", "is_helpful": true, "feedback": "Great suggestion!"}'
 ```
 
+### Upload Report (Image)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ai/upload-report \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "file=@/path/to/knee-xray.jpg" \
+  -F "message=What does this X-ray show?"
+```
+
+### Upload Report (PDF)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ai/upload-report \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "file=@/path/to/blood-report.pdf" \
+  -F "session_id=a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+```
+
 ### Rebuild Knowledge Base (Admin)
 
 ```bash
@@ -682,7 +767,12 @@ curl -X POST http://localhost:8000/api/v1/admin/knowledge \
 10. Thumbs Up/Down on AI Response
     └─ POST /ai/feedback {log_id, is_helpful}
 
-11. Upload Report (📎 button)
+11. Upload Report File (📎 button — image or PDF)
+    └─ POST /ai/upload-report (multipart/form-data: file + optional message)
+    └─ Display report_analysis + recommended_doctors cards
+    └─ Optionally feed analysis summary into /ai/chat for follow-up conversation
+
+12. Paste Report Text (no file)
     └─ POST /ai/analyze-report {report_text}
     └─ OR POST /ai/chat {message: "analyze this", report_text: "..."}
 ```

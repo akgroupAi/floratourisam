@@ -280,30 +280,15 @@ class ChatService:
             "created_at": message.created_at.isoformat() if message.created_at else now.isoformat(),
         }
 
-    async def get_messages(
-        self, room_id: UUID, page: int = 1, page_size: int = 50
-    ) -> Tuple[list, int]:
-        """Get paginated messages for a room, newest first."""
-        # Count
-        count_q = await self.db.execute(
-            select(func.count(ChatMessage.id)).where(
-                ChatMessage.room_id == room_id,
-                ChatMessage.is_deleted == False,
-            )
-        )
-        total = count_q.scalar() or 0
-
-        # Fetch messages (newest first for chat)
-        offset = (page - 1) * page_size
+    async def get_messages(self, room_id: UUID) -> list:
+        """Get all messages for a room in chronological order."""
         result = await self.db.execute(
             select(ChatMessage)
             .where(
                 ChatMessage.room_id == room_id,
                 ChatMessage.is_deleted == False,
             )
-            .order_by(ChatMessage.created_at.desc())
-            .offset(offset)
-            .limit(page_size)
+            .order_by(ChatMessage.created_at.asc())
         )
         messages = result.scalars().all()
 
@@ -320,7 +305,7 @@ class ChatService:
             avatars = {row.id: row.avatar_url for row in user_rows}
 
         items = []
-        for m in reversed(messages):  # Return in chronological order
+        for m in messages:
             items.append(
                 {
                     "id": m.id,
@@ -342,7 +327,7 @@ class ChatService:
                 }
             )
 
-        return items, total
+        return items
 
     # ── Read receipts ──────────────────────────────────────────────
 

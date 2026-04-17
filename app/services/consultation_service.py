@@ -235,6 +235,156 @@ class ConsultationService:
         return consultation
 
     # ------------------------------------------------------------------
+    # Confirm appointment (doctor: pending → scheduled)
+    # ------------------------------------------------------------------
+
+    async def confirm_appointment(
+        self, consultation_id: UUID, confirmed_by: UUID
+    ) -> Consultation:
+        """Doctor confirms a pending appointment → SCHEDULED."""
+        result = await self.db.execute(
+            select(Consultation).where(
+                Consultation.id == consultation_id,
+                Consultation.is_deleted == False,
+            )
+        )
+        consultation = result.scalar_one_or_none()
+        if not consultation:
+            raise ValueError("Consultation not found")
+
+        if consultation.status != ConsultationStatus.PENDING.value:
+            raise ValueError(
+                f"Only pending appointments can be confirmed. Current status: {consultation.status}"
+            )
+
+        consultation.status = ConsultationStatus.SCHEDULED.value
+        consultation.updated_by = confirmed_by
+
+        # Update linked booking → confirmed
+        booking_result = await self.db.execute(
+            select(Booking).where(
+                Booking.consultation_id == consultation_id,
+                Booking.is_deleted == False,
+            )
+        )
+        booking = booking_result.scalar_one_or_none()
+        if booking:
+            booking.status = BookingStatus.CONFIRMED.value
+            booking.confirmed_at = datetime.now(timezone.utc)
+            booking.confirmed_by = confirmed_by
+            booking.updated_by = confirmed_by
+
+        await self.db.commit()
+        await self.db.refresh(consultation)
+        logger.info("appointment_confirmed", consultation_id=str(consultation_id))
+
+        # Notify patient
+        try:
+            patient_result = await self.db.execute(
+                select(Patient).where(Patient.id == consultation.patient_id)
+            )
+            patient_rec = patient_result.scalar_one_or_none()
+            if patient_rec:
+                p_user_result = await self.db.execute(
+                    select(User).where(User.id == patient_rec.user_id)
+                )
+                p_user = p_user_result.scalar_one_or_none()
+                if p_user:
+                    await notify(
+                        db=self.db,
+                        user_id=p_user.id,
+                        title="Appointment Confirmed",
+                        message=f"Your appointment {consultation.reference_number} has been confirmed by the doctor.",
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        action_url=f"/consultations/{consultation.id}",
+                        created_by=confirmed_by,
+                    )
+        except Exception as exc:
+            logger.error("confirm_notification_failed", error=str(exc))
+
+        return consultation
+
+    # ------------------------------------------------------------------
+    # Reject appointment (doctor: pending → cancelled)
+    # ------------------------------------------------------------------
+
+    async def reject_appointment(
+        self, consultation_id: UUID, rejected_by: UUID, reason: Optional[str] = None
+    ) -> Consultation:
+        """Doctor rejects a pending appointment → CANCELLED."""
+        result = await self.db.execute(
+            select(Consultation).where(
+                Consultation.id == consultation_id,
+                Consultation.is_deleted == False,
+            )
+        )
+        consultation = result.scalar_one_or_none()
+        if not consultation:
+            raise ValueError("Consultation not found")
+
+        if consultation.status != ConsultationStatus.PENDING.value:
+            raise ValueError(
+                f"Only pending appointments can be rejected. Current status: {consultation.status}"
+            )
+
+        now = datetime.now(timezone.utc)
+        consultation.status = ConsultationStatus.CANCELLED.value
+        consultation.cancelled_at = now
+        consultation.cancelled_by = rejected_by
+        consultation.cancellation_reason = reason or "Rejected by doctor"
+        consultation.updated_by = rejected_by
+
+        # Cancel linked booking
+        booking_result = await self.db.execute(
+            select(Booking).where(
+                Booking.consultation_id == consultation_id,
+                Booking.is_deleted == False,
+            )
+        )
+        booking = booking_result.scalar_one_or_none()
+        if booking:
+            booking.status = BookingStatus.CANCELLED.value
+            booking.cancelled_at = now
+            booking.cancelled_by = rejected_by
+            booking.cancellation_reason = reason or "Rejected by doctor"
+            booking.updated_by = rejected_by
+
+        await self.db.commit()
+        await self.db.refresh(consultation)
+        logger.info("appointment_rejected", consultation_id=str(consultation_id))
+
+        # Notify patient
+        try:
+            patient_result = await self.db.execute(
+                select(Patient).where(Patient.id == consultation.patient_id)
+            )
+            patient_rec = patient_result.scalar_one_or_none()
+            if patient_rec:
+                p_user_result = await self.db.execute(
+                    select(User).where(User.id == patient_rec.user_id)
+                )
+                p_user = p_user_result.scalar_one_or_none()
+                if p_user:
+                    await notify(
+                        db=self.db,
+                        user_id=p_user.id,
+                        title="Appointment Rejected",
+                        message=f"Your appointment {consultation.reference_number} has been declined by the doctor."
+                        + (f" Reason: {reason}" if reason else ""),
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        action_url=f"/consultations/{consultation.id}",
+                        created_by=rejected_by,
+                    )
+        except Exception as exc:
+            logger.error("reject_notification_failed", error=str(exc))
+
+        return consultation
+
+    # ------------------------------------------------------------------
     # Complete consultation
     # ------------------------------------------------------------------
 
@@ -315,6 +465,143 @@ class ConsultationService:
                     )
         except Exception as exc:
             logger.error("complete_notification_failed", error=str(exc))
+
+        return consultation
+
+    # ------------------------------------------------------------------
+    # Generic status update (doctor)
+    # ------------------------------------------------------------------
+
+    ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+        ConsultationStatus.PENDING.value: {
+            ConsultationStatus.SCHEDULED.value,
+            ConsultationStatus.CANCELLED.value,
+        },
+        ConsultationStatus.SCHEDULED.value: {
+            ConsultationStatus.WAITING.value,
+            ConsultationStatus.IN_PROGRESS.value,
+            ConsultationStatus.CANCELLED.value,
+            ConsultationStatus.MISSED.value,
+        },
+        ConsultationStatus.WAITING.value: {
+            ConsultationStatus.IN_PROGRESS.value,
+            ConsultationStatus.CANCELLED.value,
+            ConsultationStatus.MISSED.value,
+        },
+        ConsultationStatus.IN_PROGRESS.value: {
+            ConsultationStatus.COMPLETED.value,
+            ConsultationStatus.CANCELLED.value,
+        },
+    }
+
+    STATUS_TO_BOOKING: dict[str, str] = {
+        ConsultationStatus.PENDING.value: BookingStatus.PENDING.value,
+        ConsultationStatus.SCHEDULED.value: BookingStatus.CONFIRMED.value,
+        ConsultationStatus.WAITING.value: BookingStatus.CONFIRMED.value,
+        ConsultationStatus.IN_PROGRESS.value: BookingStatus.IN_PROGRESS.value,
+        ConsultationStatus.COMPLETED.value: BookingStatus.COMPLETED.value,
+        ConsultationStatus.CANCELLED.value: BookingStatus.CANCELLED.value,
+        ConsultationStatus.MISSED.value: BookingStatus.NO_SHOW.value,
+    }
+
+    async def update_status(
+        self,
+        consultation_id: UUID,
+        new_status: ConsultationStatus,
+        updated_by: UUID,
+        notes: Optional[str] = None,
+    ) -> Consultation:
+        """Generic status transition with validation."""
+        result = await self.db.execute(
+            select(Consultation).where(
+                Consultation.id == consultation_id,
+                Consultation.is_deleted == False,
+            )
+        )
+        consultation = result.scalar_one_or_none()
+        if not consultation:
+            raise ValueError("Consultation not found")
+
+        current = consultation.status
+        target = new_status.value
+
+        # Validate transition
+        allowed = self.ALLOWED_TRANSITIONS.get(current)
+        if allowed is None:
+            raise ValueError(f"Cannot change status of a {current} consultation")
+        if target not in allowed:
+            raise ValueError(
+                f"Invalid transition: {current} → {target}. "
+                f"Allowed: {', '.join(sorted(allowed))}"
+            )
+
+        now = datetime.now(timezone.utc)
+        consultation.status = target
+        consultation.updated_by = updated_by
+
+        if target == ConsultationStatus.IN_PROGRESS.value and not consultation.started_at:
+            consultation.started_at = now
+        elif target == ConsultationStatus.COMPLETED.value:
+            consultation.ended_at = now
+            if not consultation.started_at:
+                consultation.started_at = consultation.scheduled_at
+        elif target == ConsultationStatus.CANCELLED.value:
+            consultation.cancelled_at = now
+            consultation.cancelled_by = updated_by
+            if notes:
+                consultation.cancellation_reason = notes
+
+        if notes and target != ConsultationStatus.CANCELLED.value:
+            consultation.notes = notes
+
+        # Sync linked booking
+        booking_status = self.STATUS_TO_BOOKING.get(target)
+        if booking_status:
+            booking_result = await self.db.execute(
+                select(Booking).where(
+                    Booking.consultation_id == consultation_id,
+                    Booking.is_deleted == False,
+                )
+            )
+            booking = booking_result.scalar_one_or_none()
+            if booking:
+                booking.status = booking_status
+                booking.updated_by = updated_by
+                if target == ConsultationStatus.CANCELLED.value:
+                    booking.cancelled_at = now
+                    booking.cancelled_by = updated_by
+                    if notes:
+                        booking.cancellation_reason = notes
+
+        await self.db.commit()
+        await self.db.refresh(consultation)
+        logger.info("consultation_status_updated", consultation_id=str(consultation_id), old=current, new=target)
+
+        # Notify patient
+        try:
+            patient_result = await self.db.execute(
+                select(Patient).where(Patient.id == consultation.patient_id)
+            )
+            patient_rec = patient_result.scalar_one_or_none()
+            if patient_rec:
+                p_user_result = await self.db.execute(
+                    select(User).where(User.id == patient_rec.user_id)
+                )
+                p_user = p_user_result.scalar_one_or_none()
+                if p_user:
+                    await notify(
+                        db=self.db,
+                        user_id=p_user.id,
+                        title="Consultation Status Updated",
+                        message=f"Your consultation {consultation.reference_number} status changed to {target}.",
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        action_url=f"/consultations/{consultation.id}",
+                        created_by=updated_by,
+                    )
+        except Exception as exc:
+            logger.error("status_update_notification_failed", error=str(exc))
 
         return consultation
 

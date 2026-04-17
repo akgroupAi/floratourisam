@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 
 from app.api.deps import CurrentUser, DatabaseSession
 from app.db.session import async_session_factory
@@ -13,7 +13,6 @@ from app.schemas.chat import (
     ChatRoomListResponse,
     ChatRoomResponse,
 )
-from app.schemas.common import PaginatedResponse
 from app.services.chat_service import ChatService
 from app.services.notification_service import notification_service
 
@@ -50,15 +49,13 @@ async def create_chat_room(data: ChatRoomCreate, current_user: CurrentUser, db: 
     }
 
 
-@router.get("/rooms/{room_id}/messages", response_model=PaginatedResponse[ChatMessageResponse])
+@router.get("/rooms/{room_id}/messages", response_model=list[ChatMessageResponse])
 async def get_room_messages(
     room_id: UUID,
     current_user: CurrentUser,
     db: DatabaseSession,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
 ):
-    """Get paginated messages in a chat room."""
+    """Get all messages in a chat room."""
     service = ChatService(db)
 
     # Verify room exists and user is a participant
@@ -68,8 +65,8 @@ async def get_room_messages(
     if not await service.is_participant(room_id, current_user.id):
         raise HTTPException(status_code=403, detail="Not a participant of this room")
 
-    messages, total = await service.get_messages(room_id, page, page_size)
-    return PaginatedResponse.create(messages, total, page, page_size)
+    messages = await service.get_messages(room_id)
+    return messages
 
 
 @router.post("/rooms/{room_id}/messages", response_model=ChatMessageResponse, status_code=status.HTTP_201_CREATED)

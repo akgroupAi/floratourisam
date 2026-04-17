@@ -45,6 +45,7 @@ logger = get_logger(__name__)
 
 # Statuses that count as "occupying" a slot
 _ACTIVE_STATUSES = {
+    ConsultationStatus.PENDING.value,
     ConsultationStatus.SCHEDULED.value,
     ConsultationStatus.WAITING.value,
     ConsultationStatus.IN_PROGRESS.value,
@@ -246,7 +247,7 @@ class AppointmentService:
             patient_id=patient.id,
             doctor_id=doctor.id,
             consultation_type=data.consultation_type.value,
-            status=ConsultationStatus.SCHEDULED.value,
+            status=ConsultationStatus.PENDING.value,
             scheduled_at=scheduled_at,
             duration_minutes=data.duration_minutes,
             reason=data.reason,
@@ -269,10 +270,9 @@ class AppointmentService:
             consultation_id=consultation.id,
             booking_date=datetime.now(timezone.utc),
             scheduled_time=scheduled_at,
-            status=BookingStatus.CONFIRMED.value,
+            status=BookingStatus.PENDING.value,
             base_price=consultation.fee,
             total_price=consultation.fee,
-            confirmed_at=datetime.now(timezone.utc),
             created_by=created_by,
         )
         self.db.add(booking)

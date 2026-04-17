@@ -68,6 +68,7 @@ class ConsultationType(str, Enum):
 class ConsultationStatus(str, Enum):
     """Status of consultations."""
 
+    PENDING = "pending"
     SCHEDULED = "scheduled"
     WAITING = "waiting"
     IN_PROGRESS = "in_progress"
