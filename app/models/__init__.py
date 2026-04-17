@@ -28,6 +28,7 @@ from app.models.system import Notification, EmailTemplate, EmailLog, Event, Admi
 from app.models.shared_document import SharedDocument, DocumentComment
 from app.models.treatment_proposal import TreatmentProposal
 from app.models.career import JobPosition, JobApplication
+from app.models.knowledge_document import KnowledgeDocument
 
 __all__ = [
     "BaseModel",
@@ -84,4 +85,5 @@ __all__ = [
     "TreatmentProposal",
     "JobPosition",
     "JobApplication",
+    "KnowledgeDocument",
 ]

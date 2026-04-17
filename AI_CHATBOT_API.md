@@ -1,0 +1,688 @@
+# Flora AI Chatbot — API Reference (Input / Output)
+
+Base URL: `http://localhost:8000/api/v1/ai`  
+Auth: All endpoints require `Authorization: Bearer <JWT_TOKEN>` (except `/refresh-knowledge` which requires Admin role)
+
+---
+
+## 1. POST `/chat` — Send Message to AI
+
+### Input (Request Body)
+
+```json
+{
+  "message": "Hello",
+  "session_id": null,
+  "context_type": null,
+  "context_data": null,
+  "report_text": null
+}
+```
+
+| Field          | Type           | Required | Description                                                  |
+|----------------|----------------|----------|--------------------------------------------------------------|
+| `message`      | string (≤5000) | ✅       | User's message to the AI assistant                           |
+| `session_id`   | string (≤100)  | ❌       | Pass to continue an existing conversation. `null` = new chat |
+| `context_type` | string (≤50)   | ❌       | Hint: `"general"`, `"booking"`, `"medical"`, `"support"`     |
+| `context_data` | object         | ❌       | Any extra context (e.g. `{"doctor_id": "..."}`)              |
+| `report_text`  | string (≤20k)  | ❌       | Paste a medical report inline for context                    |
+
+### Output (200 OK)
+
+```json
+{
+  "response": "Hello Abc@gmail.com, it is a pleasure to meet you. I'm Flora, and I am here to help guide you through your healthcare journey with empathy and care.\n\nTo ensure I provide you with the most helpful guidance and connect you with the right specialist, could you tell me a little bit about what is bringing you here today?\n\nSpecifically, are you experiencing any particular **symptoms or pain**, and is there a specific **treatment or surgery** you are already considering?",
+  "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "conversation_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "doctor_suggestions": [
+    {
+      "id": "d1e2f3a4-b5c6-7890-abcd-1234567890ab",
+      "name": "Dr. Pranjel Pipara",
+      "specialty": "Orthopedic Surgery",
+      "specialties": ["Joint Replacement", "Arthroscopy", "ACL Surgery"],
+      "hospital": "OrthoSport Speciality Hospital",
+      "city": "Ahmedabad",
+      "country": "India",
+      "rating": 4.9,
+      "fee": 750.0,
+      "experience_years": 13,
+      "languages": ["English", "Hindi", "Gujarati"],
+      "photo_url": "/uploads/avatars/dr-pranjel.jpg",
+      "profile_url": "/doctors/d1e2f3a4-b5c6-7890-abcd-1234567890ab",
+      "recommendation": "Highly recommended specialist with 13+ years experience and great reviews."
+    },
+    {
+      "id": "a2b3c4d5-e6f7-8901-bcde-234567890abc",
+      "name": "Dr. Manish Dhawan",
+      "specialty": "Urology & Kidney Transplant",
+      "specialties": ["Kidney Transplant", "Minimally Invasive Urology", "Renal Surgery"],
+      "hospital": "Fusion Kidney Institute",
+      "city": "Ahmedabad",
+      "country": "India",
+      "rating": 4.6,
+      "fee": null,
+      "experience_years": 10,
+      "languages": ["English", "Hindi", "Gujarati"],
+      "photo_url": "/uploads/avatars/dr-manish.jpg",
+      "profile_url": "/doctors/a2b3c4d5-e6f7-8901-bcde-234567890abc",
+      "recommendation": "Excellent alternative with 10+ years experience and great reviews."
+    }
+  ],
+  "follow_up_questions": [
+    "What treatment options are available for knee replacement?",
+    "How do I book a video consultation with a doctor?",
+    "Can you help me compare doctors for my condition?"
+  ],
+  "tokens_used": 487,
+  "response_time_ms": 1243
+}
+```
+
+### Continue Conversation (pass `session_id` back)
+
+```json
+{
+  "message": "What treatment options are available for knee replacement?",
+  "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+### Error Responses
+
+| Code | Detail                        | When                        |
+|------|-------------------------------|-----------------------------|
+| 401  | Not authenticated             | Missing/invalid JWT         |
+| 503  | OPENAI_API_KEY is not configured | API key not set in `.env` |
+| 500  | AI service error: ...         | OpenAI or internal error    |
+
+---
+
+## 2. POST `/analyze-report` — Medical Report Analysis
+
+### Input (Request Body)
+
+```json
+{
+  "report_text": "Patient: John Doe, Age: 45\nDiagnosis: Severe osteoarthritis of the right knee (Grade IV)\nFindings: Complete loss of joint space in medial compartment, subchondral sclerosis, osteophyte formation.\nRecommendation: Total Knee Replacement (TKR) advised.\nAdditional: Mild hypertension controlled with medication.",
+  "session_id": null
+}
+```
+
+| Field         | Type           | Required | Description                    |
+|---------------|----------------|----------|--------------------------------|
+| `report_text` | string (≤20k)  | ✅       | Full medical report text       |
+| `session_id`  | string (≤100)  | ❌       | Optional session to associate  |
+
+### Output (200 OK)
+
+```json
+{
+  "report_analysis": {
+    "primary_condition": "Severe osteoarthritis of the right knee (Grade IV)",
+    "secondary_conditions": ["Mild hypertension"],
+    "recommended_specialty": "Orthopedic Surgery",
+    "urgency": "soon",
+    "summary": "The patient has advanced knee osteoarthritis requiring total knee replacement surgery. The condition is Grade IV with complete joint space loss. Hypertension is controlled and should not affect surgical planning."
+  },
+  "recommended_doctors": [
+    {
+      "id": "d1e2f3a4-b5c6-7890-abcd-1234567890ab",
+      "name": "Dr. Pranjel Pipara",
+      "specialty": "Orthopedic Surgery",
+      "specialties": ["Joint Replacement", "Arthroscopy", "ACL Surgery"],
+      "hospital": "OrthoSport Speciality Hospital",
+      "city": "Ahmedabad",
+      "rating": 4.9,
+      "fee": 750.0,
+      "experience_years": 13,
+      "profile_url": "/doctors/d1e2f3a4-b5c6-7890-abcd-1234567890ab",
+      "relevance_score": 0.8921
+    }
+  ],
+  "total_matches": 1,
+  "response_time_ms": 2150
+}
+```
+
+---
+
+## 3. GET `/conversations` — List Chat History (Sidebar)
+
+### Input (Query Parameters)
+
+```
+GET /api/v1/ai/conversations?page=1&page_size=20&search=knee
+```
+
+| Param       | Type      | Default | Description                      |
+|-------------|-----------|---------|----------------------------------|
+| `page`      | int (≥1)  | 1       | Page number                      |
+| `page_size` | int (1-100)| 20     | Results per page                 |
+| `search`    | string    | —       | Filter by conversation title     |
+
+### Output (200 OK)
+
+```json
+{
+  "items": [
+    {
+      "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "title": "Hello",
+      "context_type": "general",
+      "is_active": true,
+      "message_count": 3,
+      "total_tokens_used": 1250,
+      "estimated_cost": 0.00045,
+      "rating": null,
+      "feedback": null,
+      "created_at": "2026-04-17T10:30:00Z",
+      "ended_at": null
+    },
+    {
+      "id": "b23dc10b-48cc-4372-a567-0e02b2c3d123",
+      "session_id": "x9y8z7w6-v5u4-3210-fedc-ba9876543210",
+      "title": "What treatment options are available for knee repl...",
+      "context_type": "general",
+      "is_active": true,
+      "message_count": 5,
+      "total_tokens_used": 2100,
+      "estimated_cost": 0.00078,
+      "rating": null,
+      "feedback": null,
+      "created_at": "2026-04-16T14:20:00Z",
+      "ended_at": null
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "page_size": 20,
+  "total_pages": 1
+}
+```
+
+---
+
+## 4. GET `/conversations/{conversation_id}` — Full Chat Messages
+
+### Input
+
+```
+GET /api/v1/ai/conversations/f47ac10b-58cc-4372-a567-0e02b2c3d479
+```
+
+### Output (200 OK)
+
+```json
+{
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "title": "Hello",
+  "context_type": "general",
+  "is_active": true,
+  "message_count": 3,
+  "total_tokens_used": 1250,
+  "estimated_cost": 0.00045,
+  "rating": null,
+  "feedback": null,
+  "created_at": "2026-04-17T10:30:00Z",
+  "ended_at": null,
+  "messages": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "conversation_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "user_message": "Hello",
+      "ai_response": "Hello! I'm Flora, your medical health assistant...",
+      "model_name": "gpt-4o-mini",
+      "model_version": null,
+      "prompt_tokens": 320,
+      "completion_tokens": 167,
+      "total_tokens": 487,
+      "response_time_ms": 1243,
+      "cost": 0.00015,
+      "detected_intent": null,
+      "detected_entities": null,
+      "confidence_score": null,
+      "actions_triggered": null,
+      "is_error": false,
+      "error_message": null,
+      "is_helpful": null,
+      "feedback": null,
+      "created_at": "2026-04-17T10:30:01Z"
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "conversation_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "user_message": "I need a knee replacement doctor",
+      "ai_response": "I understand you're looking for a knee replacement specialist...",
+      "model_name": "gpt-4o-mini",
+      "model_version": null,
+      "prompt_tokens": 450,
+      "completion_tokens": 230,
+      "total_tokens": 680,
+      "response_time_ms": 1580,
+      "cost": 0.00021,
+      "detected_intent": null,
+      "detected_entities": null,
+      "confidence_score": null,
+      "actions_triggered": null,
+      "is_error": false,
+      "error_message": null,
+      "is_helpful": true,
+      "feedback": "Very helpful!",
+      "created_at": "2026-04-17T10:31:15Z"
+    }
+  ]
+}
+```
+
+---
+
+## 5. PATCH `/conversations/{conversation_id}` — Rename Conversation
+
+### Input (Query Parameter)
+
+```
+PATCH /api/v1/ai/conversations/f47ac10b-58cc-4372-a567-0e02b2c3d479?title=Knee%20Replacement%20Inquiry
+```
+
+| Param  | Type           | Required | Description       |
+|--------|----------------|----------|-------------------|
+| `title`| string (≤255)  | ✅       | New title         |
+
+### Output (200 OK)
+
+```json
+{
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "title": "Knee Replacement Inquiry",
+  "context_type": "general",
+  "is_active": true,
+  "message_count": 3,
+  "total_tokens_used": 1250,
+  "estimated_cost": 0.00045,
+  "rating": null,
+  "feedback": null,
+  "created_at": "2026-04-17T10:30:00Z",
+  "ended_at": null
+}
+```
+
+---
+
+## 6. DELETE `/conversations/{conversation_id}` — Delete One Conversation
+
+### Input
+
+```
+DELETE /api/v1/ai/conversations/f47ac10b-58cc-4372-a567-0e02b2c3d479
+```
+
+### Output (200 OK)
+
+```json
+{
+  "message": "Conversation deleted"
+}
+```
+
+---
+
+## 7. DELETE `/conversations` — Clear All Conversations
+
+### Input
+
+```
+DELETE /api/v1/ai/conversations
+```
+
+### Output (200 OK)
+
+```json
+{
+  "message": "All conversations cleared"
+}
+```
+
+---
+
+## 8. POST `/feedback` — Rate an AI Response
+
+### Input (Request Body)
+
+```json
+{
+  "log_id": "11111111-1111-1111-1111-111111111111",
+  "is_helpful": true,
+  "feedback": "Very accurate doctor recommendation!"
+}
+```
+
+| Field       | Type           | Required | Description                        |
+|-------------|----------------|----------|------------------------------------|
+| `log_id`    | UUID           | ✅       | The `id` from a message in history |
+| `is_helpful`| boolean        | ✅       | Thumbs up / down                   |
+| `feedback`  | string (≤1000) | ❌       | Optional text feedback             |
+
+### Output (200 OK)
+
+```json
+{
+  "message": "Feedback submitted successfully"
+}
+```
+
+---
+
+## 9. POST `/refresh-knowledge` — Rebuild RAG Knowledge Base (Admin Only)
+
+### Input
+
+```
+POST /api/v1/ai/refresh-knowledge
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+```
+
+No request body needed.
+
+### Output (200 OK)
+
+```json
+{
+  "message": "Knowledge base rebuilt with 47 documents"
+}
+```
+
+| Code | Detail              | When                     |
+|------|---------------------|--------------------------|
+| 401  | Not authenticated   | Missing JWT              |
+| 403  | Forbidden           | Non-admin user           |
+
+---
+
+## Admin Knowledge Documents — `/api/v1/admin/knowledge`
+
+These endpoints let admins add custom documents to the RAG chatbot's knowledge base.
+
+### 10. POST `/admin/knowledge` — Create Knowledge Document (Admin)
+
+#### Input (Request Body)
+
+```json
+{
+  "title": "Visa Requirements for Medical Tourism in India",
+  "category": "travel",
+  "content": "International patients traveling to India for medical treatment can apply for a Medical Visa (M-Visa). Requirements: 1) Passport valid for at least 6 months, 2) Letter from the Indian hospital confirming treatment, 3) Medical records supporting the need for treatment, 4) Proof of sufficient funds. Processing time: 5-7 business days. The M-Visa allows multiple entries for up to 1 year and can be extended.",
+  "summary": "Guide to obtaining an Indian Medical Visa for treatment",
+  "tags": ["visa", "travel", "india", "medical tourism"],
+  "source_url": "https://indianvisaonline.gov.in/medical",
+  "is_active": true,
+  "sort_order": 0,
+  "metadata_extra": null
+}
+```
+
+| Field           | Type           | Required | Description                                              |
+|-----------------|----------------|----------|----------------------------------------------------------|
+| `title`         | string (≤300)  | ✅       | Document title                                           |
+| `category`      | string (≤50)   | ❌       | `general`, `treatment`, `policy`, `faq`, `procedure`, `pricing`, `travel`, `aftercare` |
+| `content`       | string (≥10)   | ✅       | Full document content — fed to the RAG chatbot           |
+| `summary`       | string         | ❌       | Short summary for admin list view                        |
+| `tags`          | string[]       | ❌       | Searchable tags                                          |
+| `source_url`    | string (≤500)  | ❌       | Reference URL                                            |
+| `is_active`     | boolean        | ❌       | Default `true`. Set `false` to exclude from RAG          |
+| `sort_order`    | integer        | ❌       | Display ordering (lower = first)                         |
+| `metadata_extra`| object         | ❌       | Any extra metadata                                       |
+
+#### Output (201 Created)
+
+```json
+{
+  "id": "c1d2e3f4-a5b6-7890-cdef-1234567890ab",
+  "title": "Visa Requirements for Medical Tourism in India",
+  "category": "travel",
+  "content": "International patients traveling to India for medical treatment...",
+  "summary": "Guide to obtaining an Indian Medical Visa for treatment",
+  "tags": ["visa", "travel", "india", "medical tourism"],
+  "source_url": "https://indianvisaonline.gov.in/medical",
+  "is_active": true,
+  "sort_order": 0,
+  "metadata_extra": null,
+  "created_at": "2026-04-17T12:00:00Z",
+  "updated_at": "2026-04-17T12:00:00Z",
+  "created_by": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+}
+```
+
+### 11. GET `/admin/knowledge` — List Knowledge Documents (Admin)
+
+#### Input (Query Parameters)
+
+```
+GET /api/v1/admin/knowledge?page=1&page_size=20&category=travel&active_only=true&search=visa
+```
+
+| Param        | Type       | Default | Description                  |
+|--------------|------------|---------|------------------------------|
+| `page`       | int (≥1)   | 1       | Page number                  |
+| `page_size`  | int (1-100)| 20      | Results per page             |
+| `category`   | string     | —       | Filter by category           |
+| `active_only`| boolean    | false   | Only active documents        |
+| `search`     | string     | —       | Search in title and content  |
+
+#### Output (200 OK)
+
+```json
+{
+  "items": [
+    {
+      "id": "c1d2e3f4-a5b6-7890-cdef-1234567890ab",
+      "title": "Visa Requirements for Medical Tourism in India",
+      "category": "travel",
+      "summary": "Guide to obtaining an Indian Medical Visa for treatment",
+      "tags": ["visa", "travel", "india", "medical tourism"],
+      "is_active": true,
+      "sort_order": 0,
+      "created_at": "2026-04-17T12:00:00Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20,
+  "total_pages": 1
+}
+```
+
+### 12. GET `/admin/knowledge/categories` — List Categories (Admin)
+
+```
+GET /api/v1/admin/knowledge/categories
+```
+
+#### Output (200 OK)
+
+```json
+["aftercare", "faq", "policy", "pricing", "travel", "treatment"]
+```
+
+### 13. GET `/admin/knowledge/{doc_id}` — Get One Document (Admin)
+
+```
+GET /api/v1/admin/knowledge/c1d2e3f4-a5b6-7890-cdef-1234567890ab
+```
+
+#### Output (200 OK)
+
+Same as POST create response above.
+
+### 14. PUT `/admin/knowledge/{doc_id}` — Update Document (Admin)
+
+#### Input (Request Body — all fields optional)
+
+```json
+{
+  "title": "Updated: Visa Requirements for Medical Tourism",
+  "is_active": false
+}
+```
+
+#### Output (200 OK)
+
+Full updated document (same shape as create response).
+
+### 15. DELETE `/admin/knowledge/{doc_id}` — Delete Document (Admin)
+
+```
+DELETE /api/v1/admin/knowledge/c1d2e3f4-a5b6-7890-cdef-1234567890ab
+```
+
+#### Output (204 No Content)
+
+No response body.
+
+---
+
+## cURL Examples
+
+### Chat (New Conversation)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ai/chat \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello"}'
+```
+
+### Chat (Continue Conversation)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ai/chat \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "I need a knee replacement", "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"}'
+```
+
+### Analyze Report
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ai/analyze-report \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"report_text": "Diagnosis: Grade IV osteoarthritis right knee..."}'
+```
+
+### List Conversations (Sidebar)
+
+```bash
+curl http://localhost:8000/api/v1/ai/conversations?page=1&page_size=20 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Search Conversations
+
+```bash
+curl "http://localhost:8000/api/v1/ai/conversations?search=knee" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Get Conversation Messages
+
+```bash
+curl http://localhost:8000/api/v1/ai/conversations/CONVERSATION_UUID \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Rename Conversation
+
+```bash
+curl -X PATCH "http://localhost:8000/api/v1/ai/conversations/CONVERSATION_UUID?title=My%20Knee%20Chat" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Delete One Conversation
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/ai/conversations/CONVERSATION_UUID \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Clear All Conversations
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/ai/conversations \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Submit Feedback
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ai/feedback \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"log_id": "LOG_UUID", "is_helpful": true, "feedback": "Great suggestion!"}'
+```
+
+### Rebuild Knowledge Base (Admin)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ai/refresh-knowledge \
+  -H "Authorization: Bearer ADMIN_TOKEN"
+```
+
+### Create Knowledge Document (Admin)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/knowledge \
+  -H "Authorization: Bearer ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Post-Surgery Care Guide",
+    "category": "aftercare",
+    "content": "After your surgery at Flora Medical partner hospitals...",
+    "tags": ["aftercare", "recovery", "post-surgery"]
+  }'
+```
+
+---
+
+## Frontend Integration Flow
+
+```
+1. Page Load
+   └─ GET /ai/conversations              → populate sidebar chat list
+
+2. Click "New Chat"
+   └─ POST /ai/chat {message, session_id: null}
+      └─ Returns: response, session_id, doctor_suggestions, follow_up_questions
+      └─ Store session_id for subsequent messages
+
+3. Send Follow-up Message
+   └─ POST /ai/chat {message, session_id: "stored_id"}
+      └─ Returns: response + updated suggestions + follow_up_questions
+
+4. Click Follow-up Question Chip
+   └─ POST /ai/chat {message: "clicked question text", session_id: "stored_id"}
+
+5. Click "View Profile" on Doctor Card
+   └─ Navigate to /doctors/{doctor_id}
+
+6. Click "Book →" on Doctor Card
+   └─ Navigate to /doctors/{doctor_id}/book or /appointments/new?doctor_id={id}
+
+7. Search Chats (sidebar search)
+   └─ GET /ai/conversations?search=query
+
+8. Delete Chat
+   └─ DELETE /ai/conversations/{id}
+
+9. Clear All Chats
+   └─ DELETE /ai/conversations
+
+10. Thumbs Up/Down on AI Response
+    └─ POST /ai/feedback {log_id, is_helpful}
+
+11. Upload Report (📎 button)
+    └─ POST /ai/analyze-report {report_text}
+    └─ OR POST /ai/chat {message: "analyze this", report_text: "..."}
+```

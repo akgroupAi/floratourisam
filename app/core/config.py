@@ -84,9 +84,14 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
     STRIPE_CURRENCY: str = "usd"
 
-    # AI Service
+    # AI / RAG Chatbot
     AI_SERVICE_URL: Optional[str] = None
     AI_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    RAG_TOP_K: int = 5
+    RAG_SIMILARITY_THRESHOLD: float = 0.3
 
     # SMTP Email
     SMTP_HOST: str = "smtp.gmail.com"

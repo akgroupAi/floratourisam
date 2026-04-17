@@ -16,6 +16,26 @@ class AIChatRequest(BaseModel):
     session_id: Optional[str] = Field(default=None, max_length=100)
     context_type: Optional[str] = Field(default=None, max_length=50)
     context_data: Optional[dict] = None
+    report_text: Optional[str] = Field(default=None, max_length=20000, description="Medical report text for context")
+
+
+class DoctorSuggestion(BaseModel):
+    """Doctor suggestion returned by AI."""
+
+    id: str
+    name: str
+    specialty: Optional[str] = None
+    specialties: List[str] = []
+    hospital: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    rating: Optional[float] = None
+    fee: Optional[float] = None
+    experience_years: Optional[int] = None
+    languages: List[str] = []
+    photo_url: Optional[str] = None
+    profile_url: str
+    recommendation: Optional[str] = None
 
 
 class AIChatResponse(BaseModel):
@@ -23,11 +43,43 @@ class AIChatResponse(BaseModel):
 
     response: str
     session_id: str
-    intent: Optional[str] = None
-    entities: Optional[dict] = None
-    confidence: Optional[float] = None
-    actions: Optional[List[dict]] = None
-    suggestions: Optional[List[str]] = None
+    conversation_id: Optional[str] = None
+    doctor_suggestions: List[DoctorSuggestion] = []
+    follow_up_questions: List[str] = []
+    tokens_used: int = 0
+    response_time_ms: int = 0
+
+
+class AIReportAnalysisRequest(BaseModel):
+    """Request to analyze a medical report."""
+
+    report_text: str = Field(..., max_length=20000)
+    session_id: Optional[str] = Field(default=None, max_length=100)
+
+
+class RecommendedDoctor(BaseModel):
+    """Doctor recommendation from report analysis."""
+
+    id: str
+    name: str
+    specialty: Optional[str] = None
+    specialties: List[str] = []
+    hospital: Optional[str] = None
+    city: Optional[str] = None
+    rating: Optional[float] = None
+    fee: Optional[float] = None
+    experience_years: Optional[int] = None
+    profile_url: str
+    relevance_score: Optional[float] = None
+
+
+class AIReportAnalysisResponse(BaseModel):
+    """Response from medical report analysis."""
+
+    report_analysis: dict
+    recommended_doctors: List[RecommendedDoctor] = []
+    total_matches: int = 0
+    response_time_ms: int = 0
 
 
 class AIConversationResponse(BaseSchema):

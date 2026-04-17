@@ -14,6 +14,7 @@ from app.api.v1 import (
     packages, favorites, images,
     shared_documents, treatment_proposals,
     careers, admin_career,
+    admin_knowledge,
 )
 
 api_router = APIRouter()
@@ -113,6 +114,9 @@ api_router.include_router(treatment_proposals.router, prefix="/treatment-proposa
 # Careers
 api_router.include_router(careers.router, prefix="/careers", tags=["Careers"])
 api_router.include_router(admin_career.router, prefix="/admin/careers", tags=["Admin - Careers"])
+
+# Admin - Knowledge Documents (RAG)
+api_router.include_router(admin_knowledge.router, prefix="/admin/knowledge", tags=["Admin - Knowledge Documents"])
 
 # Image Management
 api_router.include_router(images.admin_router, prefix="/admin/images", tags=["Admin - Image Upload"])
