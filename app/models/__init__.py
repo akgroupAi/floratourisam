@@ -26,6 +26,7 @@ from app.models.forex import Currency, ForexRequest
 from app.models.review import Review
 from app.models.system import Notification, EmailTemplate, EmailLog, Event, AdminConfig, Document, DocumentShare
 from app.models.shared_document import SharedDocument, DocumentComment
+from app.models.treatment_proposal import TreatmentProposal
 
 __all__ = [
     "BaseModel",

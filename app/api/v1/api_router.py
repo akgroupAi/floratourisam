@@ -12,7 +12,7 @@ from app.api.v1 import (
     admin_forex, admin_package, forex,
     hospitals, departments, reviews,
     packages, favorites, images,
-    shared_documents,
+    shared_documents, treatment_proposals,
 )
 
 api_router = APIRouter()
@@ -105,6 +105,9 @@ api_router.include_router(events.router, prefix="/events", tags=["Events & Calen
 api_router.include_router(config.router, prefix="/config", tags=["Configuration"])
 api_router.include_router(documents.router, prefix="/documents", tags=["Document Management"])
 api_router.include_router(shared_documents.router, prefix="/shared-documents", tags=["Shared Documents"])
+
+# Treatment Proposals
+api_router.include_router(treatment_proposals.router, prefix="/treatment-proposals", tags=["Treatment Proposals"])
 
 # Image Management
 api_router.include_router(images.admin_router, prefix="/admin/images", tags=["Admin - Image Upload"])
