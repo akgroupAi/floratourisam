@@ -27,6 +27,7 @@ from app.models.review import Review
 from app.models.system import Notification, EmailTemplate, EmailLog, Event, AdminConfig, Document, DocumentShare
 from app.models.shared_document import SharedDocument, DocumentComment
 from app.models.treatment_proposal import TreatmentProposal
+from app.models.career import JobPosition, JobApplication
 
 __all__ = [
     "BaseModel",
@@ -80,4 +81,7 @@ __all__ = [
     "DocumentShare",
     "SharedDocument",
     "DocumentComment",
+    "TreatmentProposal",
+    "JobPosition",
+    "JobApplication",
 ]
