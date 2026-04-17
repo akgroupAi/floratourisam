@@ -19,6 +19,7 @@ from app.schemas.treatment_proposal import (
     TreatmentProposalUpdate,
 )
 from app.utils.helpers import generate_reference_id
+from app.utils.notifications import notify
 
 logger = get_logger(__name__)
 
@@ -104,6 +105,39 @@ class TreatmentProposalService:
             proposal_id=str(proposal.id),
             ref=proposal.reference_number,
         )
+
+        # Notify patient about new proposal
+        try:
+            patient_result = await self.db.execute(
+                select(Patient).where(Patient.id == data.patient_id)
+            )
+            patient_rec = patient_result.scalar_one_or_none()
+            if patient_rec:
+                p_user_result = await self.db.execute(
+                    select(User).where(User.id == patient_rec.user_id)
+                )
+                p_user = p_user_result.scalar_one_or_none()
+                if p_user:
+                    # Get doctor display name
+                    d_user_result = await self.db.execute(
+                        select(User).where(User.id == doctor.user_id)
+                    )
+                    d_user = d_user_result.scalar_one_or_none()
+                    doctor_display = f"{doctor.title or 'Dr.'} {d_user.full_name if d_user else 'your doctor'}".strip()
+                    await notify(
+                        db=self.db,
+                        user_id=p_user.id,
+                        title="New Treatment Proposal",
+                        message=f"{doctor_display} has sent you a treatment proposal: {data.treatment_name}. Ref: {proposal.reference_number}",
+                        notification_type="treatment_proposal",
+                        entity_type="treatment_proposal",
+                        entity_id=proposal.id,
+                        action_url=f"/treatment-proposals/{proposal.id}",
+                        created_by=created_by,
+                    )
+        except Exception as exc:
+            logger.error("proposal_create_notification_failed", error=str(exc))
+
         return proposal
 
     # ------------------------------------------------------------------
@@ -155,6 +189,33 @@ class TreatmentProposalService:
         await self.db.commit()
         await self.db.refresh(proposal)
         logger.info("treatment_proposal_updated", proposal_id=str(proposal_id))
+
+        # Notify patient about updated proposal
+        try:
+            patient_result = await self.db.execute(
+                select(Patient).where(Patient.id == proposal.patient_id)
+            )
+            patient_rec = patient_result.scalar_one_or_none()
+            if patient_rec:
+                p_user_result = await self.db.execute(
+                    select(User).where(User.id == patient_rec.user_id)
+                )
+                p_user = p_user_result.scalar_one_or_none()
+                if p_user:
+                    await notify(
+                        db=self.db,
+                        user_id=p_user.id,
+                        title="Treatment Proposal Updated",
+                        message=f"Your treatment proposal {proposal.reference_number} has been updated. Please review the changes.",
+                        notification_type="treatment_proposal",
+                        entity_type="treatment_proposal",
+                        entity_id=proposal.id,
+                        action_url=f"/treatment-proposals/{proposal.id}",
+                        created_by=doctor_user_id,
+                    )
+        except Exception as exc:
+            logger.error("proposal_update_notification_failed", error=str(exc))
+
         return proposal
 
     # ------------------------------------------------------------------
@@ -208,6 +269,40 @@ class TreatmentProposalService:
             proposal_id=str(proposal_id),
             action=action,
         )
+
+        # Notify doctor about patient's response
+        try:
+            doctor_result = await self.db.execute(
+                select(Doctor).where(Doctor.id == proposal.doctor_id)
+            )
+            doctor_rec = doctor_result.scalar_one_or_none()
+            if doctor_rec:
+                d_user_result = await self.db.execute(
+                    select(User).where(User.id == doctor_rec.user_id)
+                )
+                d_user = d_user_result.scalar_one_or_none()
+                if d_user:
+                    action_label = {"approve": "approved", "reject": "rejected", "request_revision": "requested a revision for"}.get(action, action)
+                    # Get patient name
+                    p_user_result = await self.db.execute(
+                        select(User).where(User.id == patient.user_id)
+                    )
+                    p_user = p_user_result.scalar_one_or_none()
+                    patient_name = p_user.full_name if p_user else "A patient"
+                    await notify(
+                        db=self.db,
+                        user_id=d_user.id,
+                        title="Treatment Proposal Response",
+                        message=f"{patient_name} has {action_label} your treatment proposal {proposal.reference_number}.",
+                        notification_type="treatment_proposal",
+                        entity_type="treatment_proposal",
+                        entity_id=proposal.id,
+                        action_url=f"/treatment-proposals/{proposal.id}",
+                        created_by=patient_user_id,
+                    )
+        except Exception as exc:
+            logger.error("proposal_respond_notification_failed", error=str(exc))
+
         return proposal
 
     # ------------------------------------------------------------------

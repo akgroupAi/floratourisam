@@ -11,6 +11,7 @@ from app.core.logging import get_logger
 from app.models.booking import Booking
 from app.models.consultation import Consultation
 from app.models.doctor import Doctor
+from app.models.patient import Patient
 from app.models.user import User
 from app.schemas.consultation import (
     ConsultationCreate,
@@ -23,6 +24,7 @@ from app.services.booking_service import BookingService
 from app.services.doctor_service import DoctorService
 from app.utils.enums import BookingStatus, BookingType, ConsultationStatus
 from app.utils.helpers import generate_reference_id
+from app.utils.notifications import notify
 
 logger = get_logger(__name__)
 
@@ -203,6 +205,33 @@ class ConsultationService:
         await self.db.commit()
         await self.db.refresh(consultation)
         logger.info("consultation_started", consultation_id=str(consultation_id))
+
+        # Notify patient that consultation has started
+        try:
+            patient_result = await self.db.execute(
+                select(Patient).where(Patient.id == consultation.patient_id)
+            )
+            patient_rec = patient_result.scalar_one_or_none()
+            if patient_rec:
+                p_user_result = await self.db.execute(
+                    select(User).where(User.id == patient_rec.user_id)
+                )
+                p_user = p_user_result.scalar_one_or_none()
+                if p_user:
+                    await notify(
+                        db=self.db,
+                        user_id=p_user.id,
+                        title="Consultation Started",
+                        message=f"Your consultation {consultation.reference_number} has started. Please join now.",
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        action_url=f"/consultations/{consultation.id}/join",
+                        created_by=started_by,
+                    )
+        except Exception as exc:
+            logger.error("start_notification_failed", error=str(exc))
+
         return consultation
 
     # ------------------------------------------------------------------
@@ -260,6 +289,33 @@ class ConsultationService:
         await self.db.commit()
         await self.db.refresh(consultation)
         logger.info("consultation_completed", consultation_id=str(consultation_id))
+
+        # Notify patient that consultation is completed
+        try:
+            patient_result = await self.db.execute(
+                select(Patient).where(Patient.id == consultation.patient_id)
+            )
+            patient_rec = patient_result.scalar_one_or_none()
+            if patient_rec:
+                p_user_result = await self.db.execute(
+                    select(User).where(User.id == patient_rec.user_id)
+                )
+                p_user = p_user_result.scalar_one_or_none()
+                if p_user:
+                    await notify(
+                        db=self.db,
+                        user_id=p_user.id,
+                        title="Consultation Completed",
+                        message=f"Your consultation {consultation.reference_number} has been completed. You can now view notes and leave a rating.",
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        action_url=f"/consultations/{consultation.id}",
+                        created_by=completed_by,
+                    )
+        except Exception as exc:
+            logger.error("complete_notification_failed", error=str(exc))
+
         return consultation
 
     # ------------------------------------------------------------------
@@ -301,6 +357,33 @@ class ConsultationService:
         await self.db.commit()
         await self.db.refresh(consultation)
         logger.info("consultation_notes_updated", consultation_id=str(consultation_id))
+
+        # Notify patient that doctor has updated notes
+        try:
+            patient_result = await self.db.execute(
+                select(Patient).where(Patient.id == consultation.patient_id)
+            )
+            patient_rec = patient_result.scalar_one_or_none()
+            if patient_rec:
+                p_user_result = await self.db.execute(
+                    select(User).where(User.id == patient_rec.user_id)
+                )
+                p_user = p_user_result.scalar_one_or_none()
+                if p_user:
+                    await notify(
+                        db=self.db,
+                        user_id=p_user.id,
+                        title="Doctor Notes Updated",
+                        message=f"Your doctor has updated notes for consultation {consultation.reference_number}.",
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        action_url=f"/consultations/{consultation.id}",
+                        created_by=doctor_user_id,
+                    )
+        except Exception as exc:
+            logger.error("notes_notification_failed", error=str(exc))
+
         return consultation
 
     # ------------------------------------------------------------------
@@ -381,4 +464,33 @@ class ConsultationService:
         await self.db.commit()
         await self.db.refresh(consultation)
         logger.info("consultation_rated", consultation_id=str(consultation_id), rating=rating)
+
+        # Notify doctor about the rating
+        try:
+            doctor_result = await self.db.execute(
+                select(Doctor).where(
+                    Doctor.id == consultation.doctor_id,
+                    Doctor.is_deleted == False,
+                )
+            )
+            doctor_rec = doctor_result.scalar_one_or_none()
+            if doctor_rec:
+                d_user_result = await self.db.execute(
+                    select(User).where(User.id == doctor_rec.user_id)
+                )
+                d_user = d_user_result.scalar_one_or_none()
+                if d_user:
+                    await notify(
+                        db=self.db,
+                        user_id=d_user.id,
+                        title="Consultation Rated",
+                        message=f"A patient rated consultation {consultation.reference_number}: {rating}/5.",
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        created_by=patient_user_id,
+                    )
+        except Exception as exc:
+            logger.error("rating_notification_failed", error=str(exc))
+
         return consultation

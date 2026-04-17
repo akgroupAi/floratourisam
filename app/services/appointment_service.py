@@ -38,6 +38,7 @@ from app.utils.email_sender import (
 )
 from app.utils.enums import BookingStatus, BookingType, ConsultationStatus, ConsultationType
 from app.utils.google_meet import add_to_user_calendar, create_meet_event
+from app.utils.notifications import notify
 from app.utils.helpers import generate_reference_id
 
 logger = get_logger(__name__)
@@ -395,9 +396,48 @@ class AppointmentService:
         )
 
         # ------------------------------------------------------------------
-        # Send confirmation emails (best-effort — don't fail the request)
+        # Send notifications (best-effort)
         # ------------------------------------------------------------------
         patient_name = patient_user.full_name if patient_user else "Patient"
+        doctor_name_tmp = doctor_user.full_name if doctor_user else "Doctor"
+        doctor_title_tmp = doctor.title or "Dr."
+        doctor_display_tmp = f"{doctor_title_tmp} {doctor_name_tmp}".strip()
+
+        if patient_user:
+            try:
+                await notify(
+                    db=self.db,
+                    user_id=patient_user.id,
+                    title="Appointment Confirmed",
+                    message=f"Your appointment with {doctor_display_tmp} on {data.scheduled_date} is confirmed. Ref: {consultation.reference_number}",
+                    notification_type="consultation",
+                    entity_type="consultation",
+                    entity_id=consultation.id,
+                    action_url=f"/consultations/{consultation.id}",
+                    created_by=created_by,
+                )
+            except Exception:
+                pass
+
+        if doctor_user:
+            try:
+                await notify(
+                    db=self.db,
+                    user_id=doctor_user.id,
+                    title="New Appointment",
+                    message=f"New appointment from {patient_name} on {data.scheduled_date}. Ref: {consultation.reference_number}",
+                    notification_type="consultation",
+                    entity_type="consultation",
+                    entity_id=consultation.id,
+                    action_url=f"/consultations/{consultation.id}",
+                    created_by=created_by,
+                )
+            except Exception:
+                pass
+
+        # ------------------------------------------------------------------
+        # Send confirmation emails (best-effort — don't fail the request)
+        # ------------------------------------------------------------------
         doctor_name = (
             f"{doctor_user.full_name}" if doctor_user else "Doctor"
         )
@@ -529,6 +569,55 @@ class AppointmentService:
         await self.db.commit()
         await self.db.refresh(consultation)
         logger.info("appointment_cancelled", consultation_id=str(consultation_id))
+
+        # Notify both parties (best-effort)
+        try:
+            # Resolve patient user
+            patient_result = await self.db.execute(
+                select(Patient).where(Patient.id == consultation.patient_id)
+            )
+            patient_rec = patient_result.scalar_one_or_none()
+            if patient_rec:
+                p_user_result = await self.db.execute(
+                    select(User).where(User.id == patient_rec.user_id)
+                )
+                p_user = p_user_result.scalar_one_or_none()
+                if p_user:
+                    await notify(
+                        db=self.db,
+                        user_id=p_user.id,
+                        title="Appointment Cancelled",
+                        message=f"Your appointment {consultation.reference_number} has been cancelled.",
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        created_by=cancelled_by,
+                    )
+
+            # Resolve doctor user
+            doctor_result = await self.db.execute(
+                select(Doctor).where(Doctor.id == consultation.doctor_id)
+            )
+            doctor_rec = doctor_result.scalar_one_or_none()
+            if doctor_rec:
+                d_user_result = await self.db.execute(
+                    select(User).where(User.id == doctor_rec.user_id)
+                )
+                d_user = d_user_result.scalar_one_or_none()
+                if d_user:
+                    await notify(
+                        db=self.db,
+                        user_id=d_user.id,
+                        title="Appointment Cancelled",
+                        message=f"Appointment {consultation.reference_number} has been cancelled.",
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        created_by=cancelled_by,
+                    )
+        except Exception as exc:
+            logger.error("cancel_notification_failed", error=str(exc))
+
         return consultation
 
     # ------------------------------------------------------------------
@@ -668,6 +757,52 @@ class AppointmentService:
             old=str(old_scheduled_at),
             new=str(new_dt),
         )
+
+        # Notify both parties about reschedule (best-effort)
+        try:
+            patient_rec_r = await self.db.execute(
+                select(Patient).where(Patient.id == consultation.patient_id)
+            )
+            patient_r = patient_rec_r.scalar_one_or_none()
+            if patient_r:
+                p_user_r = await self.db.execute(
+                    select(User).where(User.id == patient_r.user_id)
+                )
+                p_usr = p_user_r.scalar_one_or_none()
+                if p_usr:
+                    await notify(
+                        db=self.db,
+                        user_id=p_usr.id,
+                        title="Appointment Rescheduled",
+                        message=f"Your appointment {consultation.reference_number} has been rescheduled to {new_date} at {new_time.strftime('%H:%M')}.",
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        created_by=rescheduled_by,
+                    )
+
+            doctor_rec_r = await self.db.execute(
+                select(Doctor).where(Doctor.id == consultation.doctor_id)
+            )
+            doc_r = doctor_rec_r.scalar_one_or_none()
+            if doc_r:
+                d_user_r = await self.db.execute(
+                    select(User).where(User.id == doc_r.user_id)
+                )
+                d_usr = d_user_r.scalar_one_or_none()
+                if d_usr:
+                    await notify(
+                        db=self.db,
+                        user_id=d_usr.id,
+                        title="Appointment Rescheduled",
+                        message=f"Appointment {consultation.reference_number} has been rescheduled to {new_date} at {new_time.strftime('%H:%M')}.",
+                        notification_type="consultation",
+                        entity_type="consultation",
+                        entity_id=consultation.id,
+                        created_by=rescheduled_by,
+                    )
+        except Exception as exc:
+            logger.error("reschedule_notification_failed", error=str(exc))
 
         # Send rescheduled emails (best-effort)
         try:
