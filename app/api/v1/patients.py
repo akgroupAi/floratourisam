@@ -7,11 +7,27 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequirePatient
+
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.schemas.patient import PatientCreate, PatientDetailResponse, PatientResponse, PatientUpdate
+from app.schemas.dashboard import PatientDashboardSummary
 from app.services.patient_service import PatientService
+from app.services.dashboard_service import DashboardService
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Patient Dashboard Summary Endpoint
+# ---------------------------------------------------------------------------
+@router.get("/me/dashboard", response_model=PatientDashboardSummary)
+async def get_my_dashboard_summary(db: DatabaseSession, current_user = RequirePatient):
+    """Get a summary of the patient's dashboard (documents, appointments, messages, etc)."""
+    # Get patient profile to resolve patient_id
+    patient_service = PatientService(db)
+    patient = await patient_service.get_or_create(current_user.id)
+    dashboard_service = DashboardService(db)
+    return await dashboard_service.get_patient_dashboard_summary(patient.id, current_user.id)
 
 
 @router.get("/me", response_model=PatientDetailResponse)
