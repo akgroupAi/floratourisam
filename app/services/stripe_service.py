@@ -14,6 +14,7 @@ from app.models.booking import Booking
 from app.models.payment import Payment, PaymentTransaction
 from app.utils.enums import PaymentStatus
 from app.utils.helpers import generate_reference_id
+from app.utils.notifications import notify
 
 logger = get_logger(__name__)
 
@@ -362,6 +363,21 @@ class StripeService:
         )
         self.db.add(txn)
         await self.db.commit()
+
+        # Notify patient about successful payment
+        try:
+            await notify(
+                db=self.db,
+                user_id=payment.user_id,
+                title="Payment Successful",
+                message=f"Your payment of {payment.amount} {payment.currency} has been processed successfully.",
+                notification_type="payment",
+                entity_type="payment",
+                entity_id=payment.id,
+                action_url=f"/payments/{payment.id}",
+            )
+        except Exception as exc:
+            logger.error("stripe_payment_notification_failed", error=str(exc))
 
         logger.info("stripe_checkout_completed", payment_id=str(payment.id))
 

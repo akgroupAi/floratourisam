@@ -12,6 +12,7 @@ from app.models.payment import Payment, PaymentTransaction
 from app.schemas.common import PaginationParams
 from app.utils.enums import PaymentStatus
 from app.utils.helpers import generate_reference_id
+from app.utils.notifications import notify
 
 logger = get_logger(__name__)
 
@@ -64,6 +65,23 @@ class PaymentService:
         payment.completed_at = datetime.now(timezone.utc)
         payment.gateway_transaction_id = txn_id
         await self.db.commit()
+
+        # Notify patient about successful payment
+        try:
+            await notify(
+                db=self.db,
+                user_id=payment.user_id,
+                title="Payment Received",
+                message=f"Your payment of {payment.amount} {payment.currency} has been processed successfully.",
+                notification_type="payment",
+                entity_type="payment",
+                entity_id=payment.id,
+                action_url=f"/payments/{payment.id}",
+            )
+        except Exception as exc:
+            from app.core.logging import get_logger as _gl
+            _gl(__name__).error("payment_notification_failed", error=str(exc))
+
         return payment
 
     async def refund(self, payment: Payment, amount: Optional[float] = None) -> Payment:

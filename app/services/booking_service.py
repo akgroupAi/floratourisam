@@ -36,6 +36,7 @@ from app.utils.email_sender import (
 )
 from app.utils.enums import BookingStatus, BookingType
 from app.utils.helpers import generate_reference_id
+from app.utils.notifications import notify
 
 logger = get_logger(__name__)
 
@@ -499,6 +500,30 @@ class BookingService:
         await self.db.commit()
         await self.db.refresh(booking)
         logger.info("booking_status_updated", booking_id=str(booking.id), status=data.status.value)
+
+        # Notify patient when booking is confirmed
+        if data.status == BookingStatus.CONFIRMED and booking.patient_id:
+            try:
+                from app.models.patient import Patient
+                patient_result = await self.db.execute(
+                    select(Patient).where(Patient.id == booking.patient_id)
+                )
+                patient_rec = patient_result.scalar_one_or_none()
+                if patient_rec:
+                    await notify(
+                        db=self.db,
+                        user_id=patient_rec.user_id,
+                        title="Booking Confirmed",
+                        message=f"Your booking {booking.reference_number} has been confirmed.",
+                        notification_type="booking",
+                        entity_type="booking",
+                        entity_id=booking.id,
+                        action_url=f"/bookings/{booking.id}",
+                        created_by=updated_by,
+                    )
+            except Exception as exc:
+                logger.error("booking_confirm_notification_failed", error=str(exc))
+
         return booking
 
     async def cancel(

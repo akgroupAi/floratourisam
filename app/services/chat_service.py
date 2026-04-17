@@ -13,6 +13,7 @@ from app.models.chat import ChatMessage, ChatParticipant, ChatRoom
 from app.models.user import User
 from app.schemas.chat import ChatMessageCreate, ChatRoomCreate
 from app.schemas.common import PaginationParams
+from app.utils.notifications import notify
 
 logger = get_logger(__name__)
 
@@ -236,6 +237,30 @@ class ChatService:
         sender_avatar = sender_row.avatar_url if sender_row else None
 
         logger.info("chat_message_sent", room_id=str(room_id), sender=str(sender_id))
+
+        # Notify all other participants in the room (best-effort)
+        try:
+            participants_result = await self.db.execute(
+                select(ChatParticipant.user_id).where(
+                    ChatParticipant.room_id == room_id,
+                    ChatParticipant.user_id != sender_id,
+                    ChatParticipant.is_active == True,
+                )
+            )
+            for row in participants_result.all():
+                await notify(
+                    db=self.db,
+                    user_id=row.user_id,
+                    title="New Message",
+                    message=f"{sender_name}: {(data.content or 'sent a file')[:80]}",
+                    notification_type="info",
+                    entity_type="chat_room",
+                    entity_id=room_id,
+                    action_url=f"/chat/{room_id}",
+                    created_by=sender_id,
+                )
+        except Exception as exc:
+            logger.error("chat_notification_failed", error=str(exc))
 
         return {
             "id": str(message.id),

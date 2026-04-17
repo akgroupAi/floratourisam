@@ -11,6 +11,7 @@ from app.core.logging import get_logger
 from app.models.shared_document import DocumentComment, SharedDocument
 from app.models.user import User
 from app.schemas.shared_document import DocumentCommentCreate, SendDocumentRequest
+from app.utils.notifications import notify
 
 logger = get_logger(__name__)
 
@@ -48,6 +49,28 @@ class SharedDocumentService:
             sender=str(sender_id),
             receiver=str(data.receiver_id),
         )
+
+        # Notify receiver about the shared document
+        try:
+            sender_result = await self.db.execute(
+                select(User.full_name).where(User.id == sender_id)
+            )
+            sender_row = sender_result.scalar_one_or_none()
+            sender_name = sender_row or "Someone"
+            await notify(
+                db=self.db,
+                user_id=data.receiver_id,
+                title="Document Shared",
+                message=f"{sender_name} shared a document: {data.title or data.file_name}",
+                notification_type="info",
+                entity_type="shared_document",
+                entity_id=doc.id,
+                action_url=f"/documents/shared/{doc.id}",
+                created_by=sender_id,
+            )
+        except Exception as exc:
+            logger.error("document_share_notification_failed", error=str(exc))
+
         return doc
 
     # ── List sent ──────────────────────────────────────────────
