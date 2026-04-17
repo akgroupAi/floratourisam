@@ -82,6 +82,17 @@ class AIReportAnalysisResponse(BaseModel):
     response_time_ms: int = 0
 
 
+class AIFileAnalysisResponse(BaseModel):
+    """Response from file (image/PDF) analysis."""
+
+    file_type: str  # "image" or "pdf"
+    filename: str
+    report_analysis: dict
+    recommended_doctors: List[RecommendedDoctor] = []
+    total_matches: int = 0
+    response_time_ms: int = 0
+
+
 class AIConversationResponse(BaseSchema):
     """AI conversation response."""
 

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy import func, select, update
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
@@ -15,6 +15,7 @@ from app.schemas.ai import (
     AIConversationDetailResponse,
     AIConversationResponse,
     AIFeedbackRequest,
+    AIFileAnalysisResponse,
     AIReportAnalysisRequest,
     AIReportAnalysisResponse,
     DoctorSuggestion,
@@ -93,6 +94,70 @@ async def analyze_report(
         )
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
+
+
+ALLOWED_UPLOAD_TYPES = {
+    "image/jpeg", "image/jpg", "image/png", "image/webp",
+    "application/pdf",
+}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+@router.post("/upload-report", response_model=AIFileAnalysisResponse)
+async def upload_and_analyze_report(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    file: UploadFile = File(..., description="Medical report image (JPG/PNG) or PDF"),
+    message: Optional[str] = Form(None, max_length=2000, description="Optional context message"),
+    session_id: Optional[str] = Form(None, max_length=100),
+):
+    """Upload a medical report (image or PDF) for AI analysis.
+
+    - **Images** (JPG, PNG, WebP): Analyzed using GPT-4o-mini vision — reads the image directly.
+    - **PDFs**: Text is extracted then analyzed by GPT. Scanned/image PDFs may not work.
+
+    Returns structured analysis (condition, specialty, urgency) + matching doctor recommendations.
+    """
+    # Validate file type
+    content_type = file.content_type or ""
+    filename = file.filename or "unknown"
+    if content_type not in ALLOWED_UPLOAD_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: {content_type}. Accepted: JPG, PNG, WebP, PDF.",
+        )
+
+    # Read and validate size
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 10 MB.")
+    if len(file_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty file.")
+
+    try:
+        service = RAGChatService(db)
+        result = await service.analyze_file(
+            user_id=current_user.id,
+            file_bytes=file_bytes,
+            filename=filename,
+            content_type=content_type,
+            session_id=session_id,
+            user_message=message,
+        )
+        return AIFileAnalysisResponse(
+            file_type=result["file_type"],
+            filename=result["filename"],
+            report_analysis=result["report_analysis"],
+            recommended_doctors=[
+                RecommendedDoctor(**d) for d in result["recommended_doctors"]
+            ],
+            total_matches=result["total_matches"],
+            response_time_ms=result["response_time_ms"],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
 

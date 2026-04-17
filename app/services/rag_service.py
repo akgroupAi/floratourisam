@@ -8,6 +8,8 @@ Architecture:
   5. Responses include clickable doctor/hospital links
 """
 
+import base64
+import io
 import json
 import time
 from datetime import datetime, timezone
@@ -16,6 +18,7 @@ from uuid import UUID, uuid4
 
 import numpy as np
 from openai import AsyncOpenAI
+from PyPDF2 import PdfReader
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -586,6 +589,163 @@ class RAGChatService:
             "total_matches": len(doctors),
             "response_time_ms": elapsed_ms,
         }
+
+    async def analyze_file(
+        self,
+        user_id: UUID,
+        file_bytes: bytes,
+        filename: str,
+        content_type: str,
+        session_id: Optional[str] = None,
+        user_message: Optional[str] = None,
+    ) -> dict:
+        """Analyze an uploaded image (via GPT vision) or PDF (text extraction) and suggest doctors."""
+        start_time = time.time()
+
+        is_image = content_type.startswith("image/")
+        is_pdf = content_type == "application/pdf" or filename.lower().endswith(".pdf")
+
+        if not is_image and not is_pdf:
+            raise ValueError("Unsupported file type. Upload an image (JPG/PNG) or PDF.")
+
+        # ── Extract medical info from file ──
+        if is_image:
+            parsed = await self._analyze_image(file_bytes, content_type, user_message)
+        else:
+            pdf_text = self._extract_pdf_text(file_bytes)
+            if not pdf_text or len(pdf_text.strip()) < 10:
+                raise ValueError("Could not extract text from PDF. The file may be scanned/image-based.")
+            parsed = await self._analyze_text_report(pdf_text)
+
+        # ── Find matching doctors via RAG ──
+        kb = await get_knowledge_base(self.db)
+        search_text = (
+            f"{parsed.get('primary_condition', '')} "
+            f"{parsed.get('recommended_specialty', '')} "
+            f"{' '.join(parsed.get('secondary_conditions', []))}"
+        )
+        query_vec = await kb.embed_single(search_text)
+        relevant_docs = kb.search(query_vec, top_k=8, threshold=0.25)
+
+        doctors = [
+            {
+                "id": doc["id"],
+                "name": doc["name"],
+                "specialty": doc.get("specialty"),
+                "specialties": doc.get("specialties", []),
+                "hospital": doc.get("hospital"),
+                "city": doc.get("city"),
+                "rating": doc.get("rating"),
+                "fee": doc.get("fee"),
+                "experience_years": doc.get("experience_years"),
+                "profile_url": doc["profile_url"],
+                "relevance_score": doc.get("relevance_score"),
+            }
+            for doc in relevant_docs
+            if doc["type"] == "doctor"
+        ]
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        return {
+            "file_type": "image" if is_image else "pdf",
+            "filename": filename,
+            "report_analysis": parsed,
+            "recommended_doctors": doctors,
+            "total_matches": len(doctors),
+            "response_time_ms": elapsed_ms,
+        }
+
+    async def _analyze_image(
+        self, image_bytes: bytes, content_type: str, user_message: Optional[str] = None
+    ) -> dict:
+        """Use GPT-4o-mini vision to analyze a medical image/report."""
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        data_url = f"data:{content_type};base64,{b64}"
+
+        prompt = (
+            "You are a medical report/image analyzer. Analyze this medical document image and extract:\n"
+            "1. Primary diagnosis/condition\n"
+            "2. Secondary conditions\n"
+            "3. Recommended medical specialty (e.g., Cardiology, Orthopedics)\n"
+            "4. Urgency level (routine, soon, urgent)\n"
+            "5. Brief summary for the patient\n\n"
+            "Respond ONLY in JSON format:\n"
+            '{"primary_condition": "...", "secondary_conditions": [...], '
+            '"recommended_specialty": "...", "urgency": "...", "summary": "..."}'
+        )
+        if user_message:
+            prompt += f"\n\nAdditional context from patient: {user_message}"
+
+        response = await self.client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
+                    ],
+                }
+            ],
+            temperature=0.3,
+            max_tokens=600,
+        )
+
+        parsed_text = response.choices[0].message.content
+        return self._parse_json_response(parsed_text)
+
+    async def _analyze_text_report(self, report_text: str) -> dict:
+        """Analyze extracted PDF text using GPT."""
+        response = await self.client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a medical report parser. Extract the following from the report:\n"
+                        "1. Primary diagnosis/condition\n"
+                        "2. Secondary conditions\n"
+                        "3. Recommended specialty (e.g., Cardiology, Orthopedics)\n"
+                        "4. Urgency level (routine, soon, urgent)\n"
+                        "5. Brief summary for patient\n\n"
+                        "Respond ONLY in JSON format:\n"
+                        '{"primary_condition": "...", "secondary_conditions": [...], '
+                        '"recommended_specialty": "...", "urgency": "...", "summary": "..."}'
+                    ),
+                },
+                {"role": "user", "content": report_text[:8000]},
+            ],
+            temperature=0.3,
+            max_tokens=500,
+        )
+        parsed_text = response.choices[0].message.content
+        return self._parse_json_response(parsed_text)
+
+    def _extract_pdf_text(self, pdf_bytes: bytes) -> str:
+        """Extract text from PDF bytes using PyPDF2."""
+        try:
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            pages_text = []
+            for page in reader.pages[:20]:  # limit to 20 pages
+                text = page.extract_text()
+                if text:
+                    pages_text.append(text)
+            return "\n".join(pages_text)
+        except Exception as exc:
+            logger.error("pdf_extraction_failed", error=str(exc))
+            return ""
+
+    def _parse_json_response(self, text: str) -> dict:
+        """Parse JSON from GPT response, with fallback."""
+        try:
+            json_start = text.find("{")
+            json_end = text.rfind("}") + 1
+            if json_start >= 0 and json_end > json_start:
+                return json.loads(text[json_start:json_end])
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return {"summary": text, "recommended_specialty": "General Medicine"}
 
     # ── Internal helpers ──────────────────────────────────────
 
