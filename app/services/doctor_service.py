@@ -50,6 +50,7 @@ class DoctorService:
                 selectinload(Doctor.user),
                 selectinload(Doctor.specializations),
                 selectinload(Doctor.availability),
+                selectinload(Doctor.hospital),
             )
             .where(Doctor.user_id == user_id, Doctor.is_deleted == False)
         )
@@ -69,6 +70,7 @@ class DoctorService:
             .options(
                 selectinload(Doctor.user),
                 selectinload(Doctor.specializations),
+                selectinload(Doctor.hospital),
             )
             .where(Doctor.is_deleted == False)
         )
@@ -174,7 +176,19 @@ class DoctorService:
         doctor.updated_at = datetime.now(timezone.utc)
 
         await self.db.commit()
-        await self.db.refresh(doctor)
+
+        # Re-fetch with eager loading so response serialization doesn't lazy-load
+        result = await self.db.execute(
+            select(Doctor)
+            .options(
+                selectinload(Doctor.user),
+                selectinload(Doctor.specializations),
+                selectinload(Doctor.availability),
+                selectinload(Doctor.hospital),
+            )
+            .where(Doctor.id == doctor.id)
+        )
+        doctor = result.scalar_one()
 
         logger.info("doctor_updated", doctor_id=str(doctor.id))
 
@@ -241,7 +255,18 @@ class DoctorService:
 
         logger.info("doctor_verified", doctor_id=str(doctor.id))
 
-        return doctor
+        # Re-fetch with eager loading for response serialization
+        result = await self.db.execute(
+            select(Doctor)
+            .options(
+                selectinload(Doctor.user),
+                selectinload(Doctor.specializations),
+                selectinload(Doctor.availability),
+                selectinload(Doctor.hospital),
+            )
+            .where(Doctor.id == doctor.id)
+        )
+        return result.scalar_one()
 
     async def delete(self, doctor: Doctor, deleted_by: UUID) -> bool:
         """Soft delete doctor profile."""

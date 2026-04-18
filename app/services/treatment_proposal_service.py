@@ -138,11 +138,8 @@ class TreatmentProposalService:
         except Exception as exc:
             logger.error("proposal_create_notification_failed", error=str(exc))
 
-        return proposal
-
-    # ------------------------------------------------------------------
-    # Update proposal (doctor only, while pending)
-    # ------------------------------------------------------------------
+        # Re-fetch with eager loading for response serialization
+        return await self._get_proposal(proposal.id)
 
     async def update_proposal(
         self,
@@ -216,11 +213,8 @@ class TreatmentProposalService:
         except Exception as exc:
             logger.error("proposal_update_notification_failed", error=str(exc))
 
-        return proposal
-
-    # ------------------------------------------------------------------
-    # Patient responds (approve / reject / request_revision)
-    # ------------------------------------------------------------------
+        # Re-fetch with eager loading for response serialization
+        return await self._get_proposal(proposal.id)
 
     async def patient_respond(
         self,
@@ -303,11 +297,8 @@ class TreatmentProposalService:
         except Exception as exc:
             logger.error("proposal_respond_notification_failed", error=str(exc))
 
-        return proposal
-
-    # ------------------------------------------------------------------
-    # Admin review
-    # ------------------------------------------------------------------
+        # Re-fetch with eager loading for response serialization
+        return await self._get_proposal(proposal.id)
 
     async def admin_review(
         self,
@@ -328,13 +319,13 @@ class TreatmentProposalService:
         proposal.updated_by = admin_user_id
 
         await self.db.commit()
-        await self.db.refresh(proposal)
         logger.info(
             "treatment_proposal_admin_reviewed",
             proposal_id=str(proposal_id),
             approved=approved,
         )
-        return proposal
+        # Re-fetch with eager loading for response serialization
+        return await self._get_proposal(proposal.id)
 
     # ------------------------------------------------------------------
     # Get single proposal
@@ -366,7 +357,11 @@ class TreatmentProposalService:
         if not patient:
             return [], 0
 
-        query = select(TreatmentProposal).where(
+        query = select(TreatmentProposal).options(
+            selectinload(TreatmentProposal.doctor).selectinload(Doctor.user),
+            selectinload(TreatmentProposal.patient).selectinload(Patient.user),
+            selectinload(TreatmentProposal.hospital),
+        ).where(
             TreatmentProposal.patient_id == patient.id,
             TreatmentProposal.is_deleted == False,
         )
@@ -408,7 +403,11 @@ class TreatmentProposalService:
         if not doctor:
             return [], 0
 
-        query = select(TreatmentProposal).where(
+        query = select(TreatmentProposal).options(
+            selectinload(TreatmentProposal.doctor).selectinload(Doctor.user),
+            selectinload(TreatmentProposal.patient).selectinload(Patient.user),
+            selectinload(TreatmentProposal.hospital),
+        ).where(
             TreatmentProposal.doctor_id == doctor.id,
             TreatmentProposal.is_deleted == False,
         )
@@ -439,7 +438,11 @@ class TreatmentProposalService:
         status: Optional[str] = None,
     ) -> tuple[List[TreatmentProposal], int]:
         """Admin: list all proposals."""
-        query = select(TreatmentProposal).where(
+        query = select(TreatmentProposal).options(
+            selectinload(TreatmentProposal.doctor).selectinload(Doctor.user),
+            selectinload(TreatmentProposal.patient).selectinload(Patient.user),
+            selectinload(TreatmentProposal.hospital),
+        ).where(
             TreatmentProposal.is_deleted == False,
         )
         if status:
@@ -467,7 +470,13 @@ class TreatmentProposalService:
     ) -> List[TreatmentProposal]:
         """Get all proposals linked to a specific consultation."""
         result = await self.db.execute(
-            select(TreatmentProposal).where(
+            select(TreatmentProposal)
+            .options(
+                selectinload(TreatmentProposal.doctor).selectinload(Doctor.user),
+                selectinload(TreatmentProposal.patient).selectinload(Patient.user),
+                selectinload(TreatmentProposal.hospital),
+            )
+            .where(
                 TreatmentProposal.consultation_id == consultation_id,
                 TreatmentProposal.is_deleted == False,
             ).order_by(TreatmentProposal.created_at.desc())
@@ -480,7 +489,13 @@ class TreatmentProposalService:
 
     async def _get_proposal(self, proposal_id: UUID) -> Optional[TreatmentProposal]:
         result = await self.db.execute(
-            select(TreatmentProposal).where(
+            select(TreatmentProposal)
+            .options(
+                selectinload(TreatmentProposal.doctor).selectinload(Doctor.user),
+                selectinload(TreatmentProposal.patient).selectinload(Patient.user),
+                selectinload(TreatmentProposal.hospital),
+            )
+            .where(
                 TreatmentProposal.id == proposal_id,
                 TreatmentProposal.is_deleted == False,
             )

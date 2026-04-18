@@ -375,12 +375,18 @@ async def create_doctor(data: DoctorCreate, current_user: CurrentUser, db: Datab
             db.add(specialization)
     
     await db.commit()
-    await db.refresh(doctor)
+    
+    # Re-fetch with eager loading for response serialization
+    result = await db.execute(
+        select(Doctor).options(
+            joinedload(Doctor.user),
+            joinedload(Doctor.hospital),
+            selectinload(Doctor.specializations),
+        ).where(Doctor.id == doctor.id)
+    )
+    doctor = result.scalar_one()
     
     return doctor
-
-
-@router.get("/{doctor_id}", response_model=DoctorResponse, dependencies=[RequireAdmin])
 async def get_doctor(doctor_id: UUID, db: DatabaseSession):
     """Get doctor details."""
     
