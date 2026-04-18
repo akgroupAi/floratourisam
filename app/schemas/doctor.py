@@ -251,8 +251,12 @@ class DoctorResponse(BaseSchema):
                 'is_verified': obj.is_verified,
                 'verification_date': obj.verification_date,
                 'created_at': obj.created_at,
-                'specializations': obj.specializations,
-                'availability': obj.availability,
+                'specializations': [
+                    DoctorSpecializationResponse.model_validate(s) for s in (obj.specializations or [])
+                ],
+                'availability': [
+                    DoctorAvailabilityResponse.model_validate(a) for a in (obj.availability or [])
+                ],
                 'full_name': obj.user.full_name,
                 'email': obj.user.email,
                 'phone': obj.user.phone,
