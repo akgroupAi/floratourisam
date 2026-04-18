@@ -13,6 +13,7 @@ from app.models.user import User
 from app.schemas.common import BasicResponse, PaginatedResponse, PaginationParams
 from app.schemas.doctor import (
     DoctorAvailabilityCreate,
+    DoctorAvailabilityResponse,
     DoctorCreate,
     DoctorHospitalCreate,
     DoctorHospitalResponse,
@@ -110,7 +111,7 @@ async def update_my_doctor_profile(data: DoctorUpdate, current_user: CurrentUser
     return await service.update(doctor, data, current_user.id)
 
 
-@router.put("/me/availability", response_model=list)
+@router.put("/me/availability", response_model=list[DoctorAvailabilityResponse])
 async def set_my_availability(data: list[DoctorAvailabilityCreate], current_user: CurrentUser, db: DatabaseSession):
     """Set doctor availability schedule."""
     service = DoctorService(db)
