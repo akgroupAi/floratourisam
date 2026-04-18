@@ -283,7 +283,8 @@ async def list_doctors(
     query = select(Doctor).options(
         joinedload(Doctor.user),
         joinedload(Doctor.hospital),
-        selectinload(Doctor.specializations)
+        selectinload(Doctor.specializations),
+        selectinload(Doctor.availability),
     ).where(Doctor.is_deleted == False)
     
     if search:
@@ -382,6 +383,7 @@ async def create_doctor(data: DoctorCreate, current_user: CurrentUser, db: Datab
             joinedload(Doctor.user),
             joinedload(Doctor.hospital),
             selectinload(Doctor.specializations),
+            selectinload(Doctor.availability),
         ).where(Doctor.id == doctor.id)
     )
     doctor = result.scalar_one()
@@ -394,7 +396,8 @@ async def get_doctor(doctor_id: UUID, db: DatabaseSession):
         select(Doctor).options(
             joinedload(Doctor.user),
             joinedload(Doctor.hospital),
-            selectinload(Doctor.specializations)
+            selectinload(Doctor.specializations),
+            selectinload(Doctor.availability),
         ).where(Doctor.id == doctor_id, Doctor.is_deleted == False)
     )
     doctor = result.scalar_one_or_none()
@@ -418,7 +421,8 @@ async def update_doctor(
         select(Doctor).options(
             joinedload(Doctor.user),
             joinedload(Doctor.hospital),
-            selectinload(Doctor.specializations)
+            selectinload(Doctor.specializations),
+            selectinload(Doctor.availability),
         ).where(Doctor.id == doctor_id, Doctor.is_deleted == False)
     )
     doctor = result.scalar_one_or_none()
