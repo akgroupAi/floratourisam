@@ -807,7 +807,9 @@ class AppointmentService:
         # Send rescheduled emails (best-effort)
         try:
             patient_user_q = await self.db.execute(
-                select(User).where(User.id == consultation.patient.user_id)
+                select(User)
+                .join(Patient, Patient.user_id == User.id)
+                .where(Patient.id == consultation.patient_id)
             )
         except Exception:
             patient_user_q = None
