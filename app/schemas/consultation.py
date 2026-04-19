@@ -1,10 +1,10 @@
 """Consultation schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.common import BaseSchema
 from app.utils.enums import ConsultationStatus, ConsultationType
@@ -75,11 +75,42 @@ class ConsultationListResponse(BaseSchema):
     fee: float
     is_paid: bool
 
+    # Session
+    meet_link: Optional[str] = None
+
     # Summary info
     patient_name: Optional[str] = None
     doctor_name: Optional[str] = None
     doctor_specialization: Optional[str] = None
     created_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            obj = data
+            data = {}
+            for field in cls.model_fields:
+                val = getattr(obj, field, None)
+                if val is not None:
+                    data[field] = val
+            # Extract meet_link from session_data
+            session_data = getattr(obj, "session_data", None)
+            if session_data and isinstance(session_data, dict):
+                data.setdefault("meet_link", session_data.get("meet_link"))
+            # Extract names from relationships
+            doctor = getattr(obj, "doctor", None)
+            if doctor:
+                user = getattr(doctor, "user", None)
+                if user:
+                    data.setdefault("doctor_name", getattr(user, "full_name", None))
+                data.setdefault("doctor_specialization", getattr(doctor, "primary_specialty", None))
+            patient = getattr(obj, "patient", None)
+            if patient:
+                user = getattr(patient, "user", None)
+                if user:
+                    data.setdefault("patient_name", getattr(user, "full_name", None))
+        return data
 
 
 class ConsultationResponse(BaseSchema):
@@ -110,6 +141,7 @@ class ConsultationResponse(BaseSchema):
     follow_up_date: Optional[datetime] = None
 
     # Session
+    meet_link: Optional[str] = None
     session_id: Optional[str] = None
     recording_url: Optional[str] = None
 
@@ -137,6 +169,39 @@ class ConsultationResponse(BaseSchema):
     doctor_email: Optional[str] = None
     doctor_specialization: Optional[str] = None
     hospital_name: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            obj = data
+            data = {}
+            for field in cls.model_fields:
+                val = getattr(obj, field, None)
+                if val is not None:
+                    data[field] = val
+            # Extract meet_link from session_data
+            session_data = getattr(obj, "session_data", None)
+            if session_data and isinstance(session_data, dict):
+                data.setdefault("meet_link", session_data.get("meet_link"))
+            # Extract from relationships
+            doctor = getattr(obj, "doctor", None)
+            if doctor:
+                user = getattr(doctor, "user", None)
+                if user:
+                    data.setdefault("doctor_name", getattr(user, "full_name", None))
+                    data.setdefault("doctor_email", getattr(user, "email", None))
+                data.setdefault("doctor_specialization", getattr(doctor, "primary_specialty", None))
+                hospital = getattr(doctor, "hospital", None)
+                if hospital:
+                    data.setdefault("hospital_name", getattr(hospital, "name", None))
+            patient = getattr(obj, "patient", None)
+            if patient:
+                user = getattr(patient, "user", None)
+                if user:
+                    data.setdefault("patient_name", getattr(user, "full_name", None))
+                    data.setdefault("patient_email", getattr(user, "email", None))
+        return data
 
 
 class ConsultationSessionResponse(BaseModel):

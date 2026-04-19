@@ -60,21 +60,34 @@ class ConsultationService:
         doctor_id: Optional[UUID] = None,
     ) -> tuple[List[Consultation], int]:
         """Get paginated list of consultations."""
-        query = select(Consultation)
+        from sqlalchemy.orm import selectinload
 
+        filters = []
         if patient_id:
-            query = query.where(Consultation.patient_id == patient_id)
+            filters.append(Consultation.patient_id == patient_id)
         if doctor_id:
-            query = query.where(Consultation.doctor_id == doctor_id)
+            filters.append(Consultation.doctor_id == doctor_id)
 
         # Get count
-        count_query = select(func.count()).select_from(query.subquery())
+        count_query = select(func.count()).select_from(
+            select(Consultation.id).where(*filters).subquery()
+        )
         total_result = await self.db.execute(count_query)
         total = total_result.scalar() or 0
 
-        # Apply pagination
-        query = query.order_by(Consultation.scheduled_at.desc())
-        query = query.offset(pagination.offset).limit(pagination.page_size)
+        # Fetch with eager loading
+        query = (
+            select(Consultation)
+            .options(
+                selectinload(Consultation.doctor).selectinload(Doctor.user),
+                selectinload(Consultation.doctor).selectinload(Doctor.hospital),
+                selectinload(Consultation.patient).selectinload(Patient.user),
+            )
+            .where(*filters)
+            .order_by(Consultation.scheduled_at.desc())
+            .offset(pagination.offset)
+            .limit(pagination.page_size)
+        )
 
         result = await self.db.execute(query)
         consultations = result.scalars().all()
@@ -129,7 +142,7 @@ class ConsultationService:
         await self.db.refresh(consultation)
 
         logger.info("consultation_created", consultation_id=str(consultation.id))
-        return consultation
+        return await self.get_by_id(consultation.id)
 
     # ------------------------------------------------------------------
     # Join consultation (return session/meet details)
@@ -243,7 +256,7 @@ class ConsultationService:
         except Exception as exc:
             logger.error("start_notification_failed", error=str(exc))
 
-        return consultation
+        return await self.get_by_id(consultation.id)
 
     # ------------------------------------------------------------------
     # Confirm appointment (doctor: pending → scheduled)
@@ -315,7 +328,7 @@ class ConsultationService:
         except Exception as exc:
             logger.error("confirm_notification_failed", error=str(exc))
 
-        return consultation
+        return await self.get_by_id(consultation.id)
 
     # ------------------------------------------------------------------
     # Reject appointment (doctor: pending → cancelled)
@@ -393,7 +406,7 @@ class ConsultationService:
         except Exception as exc:
             logger.error("reject_notification_failed", error=str(exc))
 
-        return consultation
+        return await self.get_by_id(consultation.id)
 
     # ------------------------------------------------------------------
     # Complete consultation
@@ -477,7 +490,7 @@ class ConsultationService:
         except Exception as exc:
             logger.error("complete_notification_failed", error=str(exc))
 
-        return consultation
+        return await self.get_by_id(consultation.id)
 
     # ------------------------------------------------------------------
     # Generic status update (doctor)
@@ -614,7 +627,7 @@ class ConsultationService:
         except Exception as exc:
             logger.error("status_update_notification_failed", error=str(exc))
 
-        return consultation
+        return await self.get_by_id(consultation.id)
 
     # ------------------------------------------------------------------
     # Update doctor notes (post-consultation)
@@ -682,7 +695,7 @@ class ConsultationService:
         except Exception as exc:
             logger.error("notes_notification_failed", error=str(exc))
 
-        return consultation
+        return await self.get_by_id(consultation.id)
 
     # ------------------------------------------------------------------
     # List doctor consultations
@@ -707,20 +720,28 @@ class ConsultationService:
         if not doctor:
             raise ValueError("Doctor profile not found")
 
-        query = select(Consultation).where(
-            Consultation.doctor_id == doctor.id,
-            Consultation.is_deleted == False,
-        )
+        from sqlalchemy.orm import selectinload
+
+        base_where = [Consultation.doctor_id == doctor.id, Consultation.is_deleted == False]
         if status:
-            query = query.where(Consultation.status == status)
+            base_where.append(Consultation.status == status)
 
         count_result = await self.db.execute(
-            select(func.count()).select_from(query.subquery())
+            select(func.count()).select_from(
+                select(Consultation.id).where(*base_where).subquery()
+            )
         )
         total = count_result.scalar() or 0
 
         query = (
-            query.order_by(Consultation.scheduled_at.desc())
+            select(Consultation)
+            .options(
+                selectinload(Consultation.doctor).selectinload(Doctor.user),
+                selectinload(Consultation.doctor).selectinload(Doctor.hospital),
+                selectinload(Consultation.patient).selectinload(Patient.user),
+            )
+            .where(*base_where)
+            .order_by(Consultation.scheduled_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -791,4 +812,4 @@ class ConsultationService:
         except Exception as exc:
             logger.error("rating_notification_failed", error=str(exc))
 
-        return consultation
+        return await self.get_by_id(consultation.id)
