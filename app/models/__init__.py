@@ -24,6 +24,7 @@ from app.models.site import (
 from app.models.rbac import Role, Permission
 from app.models.forex import Currency, ForexRequest
 from app.models.review import Review
+from app.models.hospitality import HospitalityService, HospitalityPage
 from app.models.system import Notification, EmailTemplate, EmailLog, Event, AdminConfig, Document, DocumentShare
 from app.models.shared_document import SharedDocument, DocumentComment
 from app.models.treatment_proposal import TreatmentProposal
@@ -67,6 +68,8 @@ __all__ = [
     "Role",
     "Permission",
     "Review",
+    "HospitalityService",
+    "HospitalityPage",
     "MedicalPackage",
     "PackageItem",
     "PatientFavorite",

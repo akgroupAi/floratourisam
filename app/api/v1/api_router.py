@@ -15,6 +15,7 @@ from app.api.v1 import (
     shared_documents, treatment_proposals,
     careers, admin_career,
     admin_knowledge,
+    admin_hospitality,
 )
 
 api_router = APIRouter()
@@ -83,6 +84,9 @@ api_router.include_router(admin_apartment.router, prefix="/admin/apartments", ta
 
 # Admin - Restaurant Management
 api_router.include_router(admin_restaurant.router, prefix="/admin/restaurants", tags=["Admin - Restaurants"])
+
+# Admin - Hospitality (Beyond Medical Care)
+api_router.include_router(admin_hospitality.router, prefix="/admin/hospitality", tags=["Admin - Hospitality"])
 
 # Admin - Forex Management
 api_router.include_router(admin_forex.router, prefix="/admin/forex", tags=["Admin - Forex Exchange"])

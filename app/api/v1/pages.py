@@ -16,6 +16,8 @@ from app.models.site import Destination, Treatment, BlogPost, BlogComment, Testi
 from app.models.apartment import Apartment
 from app.models.restaurant import Restaurant
 from app.models.hotel import Hotel
+from app.models.hospitality import HospitalityService, HospitalityPage
+from app.services.hospitality_service import HospitalityServiceManager
 from app.schemas.common import PaginatedResponse
 from app.schemas.apartment import ApartmentResponse
 from app.schemas.site import (
@@ -976,141 +978,204 @@ async def submit_quote_form(
 async def get_hospitality_section(db: DatabaseSession):
     """Get the 'Beyond Medical Care' section for the home page.
 
-    Returns the complete care-package grid with counts pulled from the database.
+    Returns the service grid. Cards come from the DB (hospitality_services table).
+    If no rows exist yet, returns the original hardcoded defaults so the frontend
+    keeps working while the admin seeds the data.
     """
 
-    apartment_count = await db.scalar(
-        select(func.count()).select_from(
-            select(Apartment.id).where(Apartment.is_deleted == False, Apartment.is_available == True).subquery()
-        )
-    ) or 0
+    mgr = HospitalityServiceManager(db)
+    services = await mgr.list_services(active_only=True)
 
-    restaurant_count = await db.scalar(
-        select(func.count()).select_from(
-            select(Restaurant.id).where(Restaurant.is_deleted == False, Restaurant.is_active == True).subquery()
-        )
-    ) or 0
-
-    hotel_count = await db.scalar(
-        select(func.count()).select_from(
-            select(Hotel.id).where(Hotel.is_deleted == False, Hotel.is_active == True).subquery()
-        )
-    ) or 0
+    if services:
+        cards = [
+            {
+                "key": s.key,
+                "title": s.title,
+                "description": s.description,
+                "image_url": s.image_url,
+                "icon": s.icon,
+                "highlight": s.highlight,
+                "url": s.url,
+            }
+            for s in services
+        ]
+    else:
+        # ── Fallback: hardcoded defaults (used until admin seeds data) ──
+        apartment_count = await db.scalar(
+            select(func.count()).select_from(
+                select(Apartment.id).where(Apartment.is_deleted == False, Apartment.is_available == True).subquery()
+            )
+        ) or 0
+        restaurant_count = await db.scalar(
+            select(func.count()).select_from(
+                select(Restaurant.id).where(Restaurant.is_deleted == False, Restaurant.is_active == True).subquery()
+            )
+        ) or 0
+        hotel_count = await db.scalar(
+            select(func.count()).select_from(
+                select(Hotel.id).where(Hotel.is_deleted == False, Hotel.is_active == True).subquery()
+            )
+        ) or 0
+        cards = [
+            {"key": "apartments_stays", "title": "Apartments & Stays", "description": "Recovery apartments near top hospitals", "image_url": "/images/hospitality/apartments.jpg", "icon": "building", "highlight": f"{apartment_count + hotel_count}+ Stays", "url": "/hospitality/apartments-stays"},
+            {"key": "restaurants_dining", "title": "Restaurants & Dining", "description": "Healthy dining with medical dietary menus", "image_url": "/images/hospitality/restaurants.jpg", "icon": "utensils", "highlight": f"{restaurant_count}+ Partners", "url": "/hospitality/restaurants-dining"},
+            {"key": "forex_exchange", "title": "Forex Exchange", "description": "RBI-authorized, best rates, zero hidden fees", "image_url": "/images/hospitality/forex.jpg", "icon": "currency-exchange", "highlight": "30+ Currencies", "url": "/forex"},
+            {"key": "airport_pickup", "title": "Airport Pickup & Drop", "description": "24/7 meet-and-greet airport transfers", "image_url": "/images/hospitality/airport.jpg", "icon": "plane-arrival", "highlight": "24/7 Available", "url": "/hospitality/airport-transfer"},
+            {"key": "patient_management", "title": "Daily Patient Management", "description": "Dedicated coordinators & recovery tracking", "image_url": "/images/hospitality/patient-care.jpg", "icon": "user-nurse", "highlight": "1:5 Ratio", "url": "/hospitality/patient-management"},
+            {"key": "home_made_food", "title": "Home Made Food", "description": "Fresh home-cooked meals for patients", "image_url": "/images/hospitality/homefood.jpg", "icon": "bowl-food", "highlight": "3x Daily", "url": "/hospitality/home-food"},
+            {"key": "visa_assistance", "title": "Visa Assistance", "description": "Medical visa processing & extensions", "image_url": "/images/hospitality/visa.jpg", "icon": "passport", "highlight": "98% Approval", "url": "/hospitality/visa-assistance"},
+            {"key": "travel_insurance", "title": "Travel Insurance", "description": "Comprehensive medical travel coverage", "image_url": "/images/hospitality/insurance.jpg", "icon": "shield-check", "highlight": "100% Claims", "url": "/hospitality/travel-insurance"},
+            {"key": "travel_planning", "title": "Travel Planning", "description": "Flights, itinerary & sightseeing planned", "image_url": "/images/hospitality/travel.jpg", "icon": "map", "highlight": "50+ Countries", "url": "/hospitality/travel-planning"},
+        ]
 
     return {
         "section_tag": "Complete Care Package",
         "title": "Beyond Medical Care",
         "subtitle": "We take care of everything — from comfortable stays to healthy meals, travel, and trusted forex exchange",
-        "services": [
-            {
-                "key": "apartments_stays",
-                "title": "Apartments & Stays",
-                "description": "Recovery apartments near top hospitals",
-                "image_url": "/images/hospitality/apartments.jpg",
-                "icon": "building",
-                "highlight": f"{apartment_count + hotel_count}+ Stays",
-                "url": "/hospitality/apartments-stays",
-            },
-            {
-                "key": "restaurants_dining",
-                "title": "Restaurants & Dining",
-                "description": "Healthy dining with medical dietary menus",
-                "image_url": "/images/hospitality/restaurants.jpg",
-                "icon": "utensils",
-                "highlight": f"{restaurant_count}+ Partners",
-                "url": "/hospitality/restaurants-dining",
-            },
-            {
-                "key": "forex_exchange",
-                "title": "Forex Exchange",
-                "description": "RBI-authorized, best rates, zero hidden fees",
-                "image_url": "/images/hospitality/forex.jpg",
-                "icon": "currency-exchange",
-                "highlight": "30+ Currencies",
-                "url": "/forex",
-            },
-            {
-                "key": "airport_pickup",
-                "title": "Airport Pickup & Drop",
-                "description": "24/7 meet-and-greet airport transfers",
-                "image_url": "/images/hospitality/airport.jpg",
-                "icon": "plane-arrival",
-                "highlight": "24/7 Available",
-                "url": "/hospitality/airport-transfer",
-            },
-            {
-                "key": "patient_management",
-                "title": "Daily Patient Management",
-                "description": "Dedicated coordinators & recovery tracking",
-                "image_url": "/images/hospitality/patient-care.jpg",
-                "icon": "user-nurse",
-                "highlight": "1:5 Ratio",
-                "url": "/hospitality/patient-management",
-            },
-            {
-                "key": "home_made_food",
-                "title": "Home Made Food",
-                "description": "Fresh home-cooked meals for patients",
-                "image_url": "/images/hospitality/homefood.jpg",
-                "icon": "bowl-food",
-                "highlight": "3x Daily",
-                "url": "/hospitality/home-food",
-            },
-            {
-                "key": "visa_assistance",
-                "title": "Visa Assistance",
-                "description": "Medical visa processing & extensions",
-                "image_url": "/images/hospitality/visa.jpg",
-                "icon": "passport",
-                "highlight": "98% Approval",
-                "url": "/hospitality/visa-assistance",
-            },
-            {
-                "key": "travel_insurance",
-                "title": "Travel Insurance",
-                "description": "Comprehensive medical travel coverage",
-                "image_url": "/images/hospitality/insurance.jpg",
-                "icon": "shield-check",
-                "highlight": "100% Claims",
-                "url": "/hospitality/travel-insurance",
-            },
-            {
-                "key": "travel_planning",
-                "title": "Travel Planning",
-                "description": "Flights, itinerary & sightseeing planned",
-                "image_url": "/images/hospitality/travel.jpg",
-                "icon": "map",
-                "highlight": "50+ Countries",
-                "url": "/hospitality/travel-planning",
-            },
-        ],
+        "services": cards,
     }
 
 
-# ============== HOSPITALITY — APARTMENTS & STAYS PAGE ==============
+# ============== HOSPITALITY — DYNAMIC INTERNAL PAGE ==============
 
-@router.get("/hospitality/apartments-stays")
-async def get_apartments_stays_page(db: DatabaseSession):
-    """Full 'Apartments & Stays' page content.
+@router.get("/hospitality/{slug}")
+async def get_hospitality_page(slug: str, db: DatabaseSession):
+    """Return the full detail page for a hospitality service.
 
-    Sections: hero, stats, what's included, how it works, gallery,
-    featured apartments, testimonials, FAQs.
+    Content (hero, stats, features, steps, gallery, testimonials, FAQs)
+    is read from the DB.  If the page doesn't exist yet in the DB, a
+    hardcoded fallback is returned for *apartments-stays* only.
     """
 
-    # Counts
+    mgr = HospitalityServiceManager(db)
+    page = await mgr.get_page_by_slug(slug)
+
+    if page:
+        # ── Dynamic content from DB ──
+        faq_cat = page.faq_category or "general"
+        faq_result = await db.execute(
+            select(FAQ)
+            .where(FAQ.is_active == True, FAQ.is_deleted == False, FAQ.category == faq_cat)
+            .order_by(FAQ.display_order)
+            .limit(10)
+        )
+        faqs = faq_result.scalars().all()
+        if not faqs:
+            faq_result = await db.execute(
+                select(FAQ).where(FAQ.is_active == True, FAQ.is_deleted == False).order_by(FAQ.display_order).limit(10)
+            )
+            faqs = faq_result.scalars().all()
+
+        testimonials_result = await db.execute(
+            select(Testimonial)
+            .where(Testimonial.is_approved == True, Testimonial.is_deleted == False)
+            .order_by(Testimonial.display_order)
+            .limit(6)
+        )
+        testimonials = testimonials_result.scalars().all()
+
+        # Gallery: use page-level images if set, else auto-collect from apartments
+        gallery_images = page.gallery_images or []
+        if not gallery_images and slug == "apartments-stays":
+            all_apt_result = await db.execute(
+                select(Apartment.gallery, Apartment.cover_image_url)
+                .where(Apartment.is_deleted == False, Apartment.is_available == True)
+                .limit(20)
+            )
+            for row in all_apt_result.all():
+                if row.cover_image_url:
+                    gallery_images.append(row.cover_image_url)
+                if row.gallery:
+                    gallery_images.extend(row.gallery[:3])
+            gallery_images = gallery_images[:12]
+
+        # Featured apartments (only for apartments-stays page)
+        featured_apartments_data = []
+        if slug == "apartments-stays":
+            featured_result = await db.execute(
+                select(Apartment)
+                .where(Apartment.is_deleted == False, Apartment.is_available == True, Apartment.is_featured == True)
+                .order_by(Apartment.rating.desc().nullslast())
+                .limit(6)
+            )
+            featured_apartments_data = [ApartmentResponse.model_validate(a) for a in featured_result.scalars().all()]
+
+        return {
+            "hero": {
+                "title": page.hero_title,
+                "subtitle": page.hero_subtitle,
+                "background_image": page.hero_background_image,
+                "breadcrumb": page.hero_breadcrumb or [
+                    {"label": "Home", "url": "/"},
+                    {"label": page.hero_title, "url": f"/hospitality/{slug}"},
+                ],
+                "ctas": page.hero_ctas or [],
+            },
+            "stats": page.stats or [],
+            "whats_included": {
+                "title": page.features_title or "What's Included",
+                "subtitle": page.features_subtitle or "",
+                "features": page.features or [],
+            },
+            "how_it_works": {
+                "title": page.steps_title or "How It Works",
+                "subtitle": page.steps_subtitle or "",
+                "steps": page.steps or [],
+            },
+            "gallery": {
+                "title": page.gallery_title or "Gallery",
+                "subtitle": page.gallery_subtitle or "",
+                "images": gallery_images,
+            },
+            "featured_apartments": featured_apartments_data,
+            "testimonials": {
+                "title": page.testimonials_title or "What Patients Say",
+                "subtitle": page.testimonials_subtitle or "",
+                "items": [
+                    {
+                        "id": str(t.id),
+                        "patient_name": t.patient_name,
+                        "country": t.patient_country,
+                        "avatar": t.patient_avatar,
+                        "rating": t.rating,
+                        "content": t.content,
+                        "treatment": t.treatment_name,
+                    }
+                    for t in testimonials
+                ],
+            },
+            "faqs": {
+                "title": page.faq_title or "Frequently Asked Questions",
+                "items": [{"question": f.question, "answer": f.answer} for f in faqs],
+            },
+            "extra_sections": page.extra_sections or {},
+            "meta": {
+                "title": page.meta_title or page.hero_title,
+                "description": page.meta_description or page.hero_subtitle,
+            },
+        }
+
+    # ── Fallback for apartments-stays (hardcoded) ──
+    if slug == "apartments-stays":
+        return await _fallback_apartments_stays_page(db)
+
+    raise HTTPException(404, f"Hospitality page '{slug}' not found")
+
+
+async def _fallback_apartments_stays_page(db: AsyncSession):
+    """Hardcoded apartments-stays page — used until admin creates the page in the DB."""
+
     apartment_count = await db.scalar(
         select(func.count()).select_from(
             select(Apartment.id).where(Apartment.is_deleted == False, Apartment.is_available == True).subquery()
         )
     ) or 0
-
     hotel_count = await db.scalar(
         select(func.count()).select_from(
             select(Hotel.id).where(Hotel.is_deleted == False, Hotel.is_active == True).subquery()
         )
     ) or 0
 
-    # Featured apartments
     featured_result = await db.execute(
         select(Apartment)
         .where(Apartment.is_deleted == False, Apartment.is_available == True, Apartment.is_featured == True)
@@ -1119,7 +1184,6 @@ async def get_apartments_stays_page(db: DatabaseSession):
     )
     featured_apartments = featured_result.scalars().all()
 
-    # Collect gallery images from apartments
     gallery_images = []
     all_apt_result = await db.execute(
         select(Apartment.gallery, Apartment.cover_image_url)
@@ -1131,53 +1195,30 @@ async def get_apartments_stays_page(db: DatabaseSession):
             gallery_images.append(row.cover_image_url)
         if row.gallery:
             gallery_images.extend(row.gallery[:3])
-    gallery_images = gallery_images[:12]  # Cap at 12
+    gallery_images = gallery_images[:12]
 
-    # Testimonials (accommodation-related)
     testimonials_result = await db.execute(
-        select(Testimonial)
-        .where(Testimonial.is_approved == True, Testimonial.is_deleted == False)
-        .order_by(Testimonial.display_order)
-        .limit(6)
+        select(Testimonial).where(Testimonial.is_approved == True, Testimonial.is_deleted == False).order_by(Testimonial.display_order).limit(6)
     )
     testimonials = testimonials_result.scalars().all()
 
-    # FAQs
     faq_result = await db.execute(
-        select(FAQ)
-        .where(FAQ.is_active == True, FAQ.is_deleted == False, FAQ.category == "accommodation")
-        .order_by(FAQ.display_order)
-        .limit(10)
+        select(FAQ).where(FAQ.is_active == True, FAQ.is_deleted == False, FAQ.category == "accommodation").order_by(FAQ.display_order).limit(10)
     )
     faqs = faq_result.scalars().all()
-    # Fallback: if no accommodation-specific FAQs, get general ones
     if not faqs:
         faq_result = await db.execute(
-            select(FAQ)
-            .where(FAQ.is_active == True, FAQ.is_deleted == False)
-            .order_by(FAQ.display_order)
-            .limit(10)
+            select(FAQ).where(FAQ.is_active == True, FAQ.is_deleted == False).order_by(FAQ.display_order).limit(10)
         )
         faqs = faq_result.scalars().all()
 
     return {
         "hero": {
             "title": "Apartments & Stays",
-            "subtitle": (
-                "Choose from our handpicked collection of furnished apartments and recovery "
-                "stays located near top hospitals, from cooking-capable, daily-grocery-stocked "
-                "kitchens to patient-friendly, hygiene, safety, and patient-friendly amenities "
-                "— making your recovery comfortable and stress-free."
-            ),
+            "subtitle": "Choose from our handpicked collection of furnished apartments and recovery stays located near top hospitals, from cooking-capable, daily-grocery-stocked kitchens to patient-friendly, hygiene, safety, and patient-friendly amenities — making your recovery comfortable and stress-free.",
             "background_image": "/images/hospitality/apartments-hero.jpg",
-            "breadcrumb": [
-                {"label": "Home", "url": "/"},
-                {"label": "Apartments & Stays", "url": "/hospitality/apartments-stays"},
-            ],
-            "ctas": [
-                {"text": "Get Started", "url": "/contact", "variant": "primary"},
-                {"text": "Contact Us", "url": "/contact", "variant": "secondary"},
-            ],
+            "breadcrumb": [{"label": "Home", "url": "/"}, {"label": "Apartments & Stays", "url": "/hospitality/apartments-stays"}],
+            "ctas": [{"text": "Get Started", "url": "/contact", "variant": "primary"}, {"text": "Contact Us", "url": "/contact", "variant": "secondary"}],
         },
         "stats": [
             {"value": f"{apartment_count + hotel_count}+", "label": "Available Stays"},
@@ -1207,38 +1248,22 @@ async def get_apartments_stays_page(db: DatabaseSession):
                 {"number": 4, "title": "Move In", "description": "Check in, relax, and focus on your recovery"},
             ],
         },
-        "gallery": {
-            "title": "Gallery",
-            "subtitle": "A glimpse of what to expect",
-            "images": gallery_images,
-        },
+        "gallery": {"title": "Gallery", "subtitle": "A glimpse of what to expect", "images": gallery_images},
         "featured_apartments": [ApartmentResponse.model_validate(a) for a in featured_apartments],
         "testimonials": {
             "title": "What Patients Say",
             "subtitle": "Real experiences from families who stayed with us",
             "items": [
-                {
-                    "id": str(t.id),
-                    "patient_name": t.patient_name,
-                    "country": t.country,
-                    "avatar": t.avatar_url,
-                    "rating": t.rating,
-                    "content": t.content,
-                    "treatment": t.treatment_name,
-                }
+                {"id": str(t.id), "patient_name": t.patient_name, "country": t.patient_country, "avatar": t.patient_avatar, "rating": t.rating, "content": t.content, "treatment": t.treatment_name}
                 for t in testimonials
             ],
         },
         "faqs": {
             "title": "Frequently Asked Questions",
-            "items": [
-                {
-                    "question": f.question,
-                    "answer": f.answer,
-                }
-                for f in faqs
-            ],
+            "items": [{"question": f.question, "answer": f.answer} for f in faqs],
         },
+        "extra_sections": {},
+        "meta": {"title": "Apartments & Stays", "description": "Recovery apartments near top hospitals"},
     }
 
 
