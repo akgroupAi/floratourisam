@@ -313,7 +313,7 @@ class AppointmentService:
             consultation.session_data = {
                 "meet_link": meet_link,
                 "google_event_id": google_event_id,
-                "platform": "google_meet",
+                "platform": meet_result.get("platform", "google_meet"),
             }
 
         await self.db.flush()

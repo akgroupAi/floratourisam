@@ -38,6 +38,18 @@ def _build_calendar_service(calendar_owner_email: str):
         return None
 
 
+def _generate_jitsi_link(title: str) -> dict:
+    """Generate a Jitsi Meet link as fallback when Google Calendar is disabled."""
+    room_id = str(_uuid.uuid4()).replace("-", "")[:16]
+    safe_title = "".join(c for c in title if c.isalnum() or c in (" ", "-")).strip().replace(" ", "-")[:40]
+    room_name = f"{safe_title}-{room_id}" if safe_title else room_id
+    return {
+        "meet_link": f"https://meet.jit.si/{room_name}",
+        "google_event_id": None,
+        "platform": "jitsi",
+    }
+
+
 def _create_meet_event_sync(
     *,
     title: str,
@@ -51,14 +63,14 @@ def _create_meet_event_sync(
     """Synchronous Google Calendar event creation (runs in a thread pool).
 
     Returns a dict with keys: ``meet_link``, ``google_event_id``.
-    Returns empty dict if Google Calendar is disabled or credentials are missing.
+    Falls back to Jitsi Meet if Google Calendar is disabled or credentials are missing.
     """
     if not settings.GOOGLE_CALENDAR_ENABLED:
-        return {}
+        return _generate_jitsi_link(title)
 
     service = _build_calendar_service(organizer_email)
     if service is None:
-        return {}
+        return _generate_jitsi_link(title)
 
     request_id = str(_uuid.uuid4())
     event_body = {
@@ -99,7 +111,7 @@ def _create_meet_event_sync(
         }
     except Exception as exc:
         logger.error("google_calendar_event_creation_failed", error=str(exc))
-        return {}
+        return _generate_jitsi_link(title)
 
 
 async def create_meet_event(
