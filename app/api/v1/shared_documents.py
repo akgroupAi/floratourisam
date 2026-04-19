@@ -9,12 +9,16 @@ Supports:
   - Stats (sent count, received count, unviewed)
 """
 
+import os
+import uuid as uuid_mod
+from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Form, HTTPException, Query, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 
 from app.api.deps import CurrentUser, DatabaseSession
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas.common import PaginatedResponse
 from app.schemas.shared_document import (
@@ -31,23 +35,22 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
+ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".dicom", ".dcm"}
+
 
 @router.post(
     "/send",
     response_model=SharedDocumentResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Send a document to another user",
-    description="Patient sends to doctor or doctor sends to patient. Upload the file first, then pass the URL here.",
+    description="Upload a file/image and send it to another user (patient→doctor or doctor→patient).",
 )
 async def send_document(
     current_user: CurrentUser,
     db: DatabaseSession,
+    file: UploadFile = File(..., description="The file or image to upload"),
     receiver_id: UUID = Form(..., description="User ID of the recipient"),
     title: str = Form(..., max_length=255),
-    file_url: str = Form(..., max_length=500, description="URL of the uploaded file"),
-    file_name: str = Form(..., max_length=255),
-    file_type: Optional[str] = Form(default=None, max_length=100, description="MIME type"),
-    file_size: Optional[int] = Form(default=None, description="File size in bytes"),
     document_type: Optional[str] = Form(
         default=None,
         max_length=50,
@@ -60,13 +63,42 @@ async def send_document(
     if receiver_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot send a document to yourself")
 
+    # Validate file extension
+    original_name = file.filename or "unknown"
+    ext = Path(original_name).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type '{ext}' not allowed. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+
+    # Read file content and validate size
+    content = await file.read()
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File exceeds {settings.MAX_UPLOAD_SIZE_MB}MB limit.",
+        )
+
+    # Save to disk
+    upload_dir = Path(settings.UPLOAD_DIR) / "shared_documents"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    unique_name = f"{uuid_mod.uuid4().hex}{ext}"
+    file_path = upload_dir / unique_name
+
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    file_url = f"/static/uploads/shared_documents/{unique_name}"
+
     data = SendDocumentRequest(
         receiver_id=receiver_id,
         title=title,
         file_url=file_url,
-        file_name=file_name,
-        file_type=file_type,
-        file_size=file_size,
+        file_name=original_name,
+        file_type=file.content_type,
+        file_size=len(content),
         document_type=document_type,
         description=description,
         consultation_id=consultation_id,
