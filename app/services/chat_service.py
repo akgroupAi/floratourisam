@@ -30,6 +30,18 @@ class ChatService:
         """Create a chat room and add participants."""
         now = datetime.now(timezone.utc)
 
+        # Validate all participant user IDs exist
+        all_user_ids = set(data.participant_ids)
+        all_user_ids.add(created_by)
+
+        result = await self.db.execute(
+            select(User.id).where(User.id.in_(all_user_ids))
+        )
+        existing_ids = {row[0] for row in result.all()}
+        missing = all_user_ids - existing_ids
+        if missing:
+            raise ValueError(f"Users not found: {', '.join(str(uid) for uid in missing)}")
+
         room = ChatRoom(
             name=data.name,
             room_type=data.room_type.value,
@@ -42,9 +54,6 @@ class ChatService:
         await self.db.flush()
 
         # Add creator as admin participant
-        all_user_ids = set(data.participant_ids)
-        all_user_ids.add(created_by)
-
         for uid in all_user_ids:
             participant = ChatParticipant(
                 room_id=room.id,

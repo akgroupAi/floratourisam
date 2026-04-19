@@ -31,7 +31,10 @@ async def list_chat_rooms(current_user: CurrentUser, db: DatabaseSession):
 async def create_chat_room(data: ChatRoomCreate, current_user: CurrentUser, db: DatabaseSession):
     """Create a chat room with participants."""
     service = ChatService(db)
-    room = await service.create_room(data, created_by=current_user.id)
+    try:
+        room = await service.create_room(data, created_by=current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     # Build response
     participant_count = len(data.participant_ids) + (1 if current_user.id not in data.participant_ids else 0)
