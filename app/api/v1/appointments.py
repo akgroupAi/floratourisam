@@ -217,6 +217,8 @@ async def list_my_appointments(
             id=c.id,
             reference_number=c.reference_number,
             doctor_id=c.doctor_id,
+            doctor_name=c.doctor.user.full_name if c.doctor and c.doctor.user else None,
+            doctor_specialization=c.doctor.primary_specialty if c.doctor else None,
             consultation_type=c.consultation_type,
             status=c.status,
             scheduled_at=c.scheduled_at,
@@ -252,11 +254,19 @@ async def get_appointment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found")
 
     meet_link = (consultation.session_data or {}).get("meet_link") if consultation.session_data else None
+    doctor = consultation.doctor
+    patient = consultation.patient
     return AppointmentResponse(
         id=consultation.id,
         reference_number=consultation.reference_number,
         patient_id=consultation.patient_id,
+        patient_name=patient.user.full_name if patient and patient.user else None,
+        patient_email=patient.user.email if patient and patient.user else None,
         doctor_id=consultation.doctor_id,
+        doctor_name=doctor.user.full_name if doctor and doctor.user else None,
+        doctor_email=doctor.user.email if doctor and doctor.user else None,
+        doctor_specialization=doctor.primary_specialty if doctor else None,
+        hospital_name=doctor.hospital.name if doctor and doctor.hospital else None,
         consultation_type=consultation.consultation_type,
         status=consultation.status,
         scheduled_at=consultation.scheduled_at,
@@ -310,11 +320,19 @@ async def cancel_appointment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     meet_link = (consultation.session_data or {}).get("meet_link") if consultation.session_data else None
+    doctor = consultation.doctor
+    patient = consultation.patient
     return AppointmentResponse(
         id=consultation.id,
         reference_number=consultation.reference_number,
         patient_id=consultation.patient_id,
+        patient_name=patient.user.full_name if patient and patient.user else None,
+        patient_email=patient.user.email if patient and patient.user else None,
         doctor_id=consultation.doctor_id,
+        doctor_name=doctor.user.full_name if doctor and doctor.user else None,
+        doctor_email=doctor.user.email if doctor and doctor.user else None,
+        doctor_specialization=doctor.primary_specialty if doctor else None,
+        hospital_name=doctor.hospital.name if doctor and doctor.hospital else None,
         consultation_type=consultation.consultation_type,
         status=consultation.status,
         scheduled_at=consultation.scheduled_at,

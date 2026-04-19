@@ -531,7 +531,13 @@ class AppointmentService:
     ) -> Consultation:
         """Cancel a consultation and its linked booking."""
         result = await self.db.execute(
-            select(Consultation).where(
+            select(Consultation)
+            .options(
+                selectinload(Consultation.doctor).selectinload(Doctor.user),
+                selectinload(Consultation.doctor).selectinload(Doctor.hospital),
+                selectinload(Consultation.patient).selectinload(Patient.user),
+            )
+            .where(
                 Consultation.id == consultation_id,
                 Consultation.is_deleted == False,
             )
@@ -633,8 +639,12 @@ class AppointmentService:
     ) -> tuple[List[Consultation], int]:
         """Return paginated consultations for a patient."""
         from sqlalchemy import func
+        from sqlalchemy.orm import selectinload
 
-        query = select(Consultation).where(
+        query = select(Consultation).options(
+            selectinload(Consultation.doctor).selectinload(Doctor.user),
+            selectinload(Consultation.patient).selectinload(Patient.user),
+        ).where(
             Consultation.patient_id == patient_id,
             Consultation.is_deleted == False,
         )

@@ -37,8 +37,19 @@ class ConsultationService:
 
     async def get_by_id(self, consultation_id: UUID) -> Optional[Consultation]:
         """Get consultation by ID."""
+        from sqlalchemy.orm import selectinload
+        from app.models.doctor import Doctor
+        from app.models.patient import Patient
+        from app.models.user import User
+
         result = await self.db.execute(
-            select(Consultation).where(Consultation.id == consultation_id)
+            select(Consultation)
+            .options(
+                selectinload(Consultation.doctor).selectinload(Doctor.user),
+                selectinload(Consultation.doctor).selectinload(Doctor.hospital),
+                selectinload(Consultation.patient).selectinload(Patient.user),
+            )
+            .where(Consultation.id == consultation_id)
         )
         return result.scalar_one_or_none()
 
