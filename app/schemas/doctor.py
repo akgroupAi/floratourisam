@@ -135,18 +135,17 @@ class DoctorListResponse(BaseSchema):
     avatar_url: Optional[str] = None
     video_consultation_enabled: bool = True
     chat_consultation_enabled: bool = True
+    bio: Optional[str] = None
+    education: Optional[List[dict]] = None
+    qualifications: Optional[List[str]] = None
+    certifications: Optional[List[dict]] = None
+    languages_spoken: Optional[List[str]] = None
 
     @model_validator(mode='before')
     @classmethod
     def flatten_doctor_data(cls, obj: Any) -> Any:
         """Flatten doctor data from relationships."""
         if hasattr(obj, 'user') and obj.user:
-            # We need to return an object that has attributes matching the schema
-            # Or a dict. Since obj is likely an ORM object, let's create a proxy or modify it
-            # But simpler is to return a dict if possible, but BaseSchema handles attributes.
-            # Let's attach the missing attributes to the object or return a dict.
-            
-            # Since pydantic v2 from_attributes=True supports dicts too, let's try returning a dict
             return {
                 'id': obj.id,
                 'user_id': obj.user_id,
@@ -163,6 +162,11 @@ class DoctorListResponse(BaseSchema):
                 'avatar_url': obj.user.avatar_url,
                 'video_consultation_enabled': obj.video_consultation_enabled,
                 'chat_consultation_enabled': obj.chat_consultation_enabled,
+                'bio': obj.bio,
+                'education': obj.education,
+                'qualifications': obj.qualifications,
+                'certifications': obj.certifications,
+                'languages_spoken': obj.languages_spoken,
             }
         return obj
 
