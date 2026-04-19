@@ -11,6 +11,8 @@ from sqlalchemy.orm import selectinload
 from app.core.logging import get_logger
 from app.models.chat import ChatMessage, ChatParticipant, ChatRoom
 from app.models.user import User
+from app.models.patient import Patient
+from app.models.doctor import Doctor
 from app.schemas.chat import ChatMessageCreate, ChatRoomCreate
 from app.schemas.common import PaginationParams
 from app.utils.notifications import notify
@@ -27,20 +29,45 @@ class ChatService:
     async def create_room(
         self, data: ChatRoomCreate, created_by: UUID
     ) -> ChatRoom:
-        """Create a chat room and add participants."""
+        """Create a chat room and add participants.
+
+        participant_ids may contain user IDs, patient IDs, or doctor IDs.
+        We resolve patient/doctor IDs to user IDs automatically.
+        """
         now = datetime.now(timezone.utc)
 
-        # Validate all participant user IDs exist
-        all_user_ids = set(data.participant_ids)
-        all_user_ids.add(created_by)
+        # Resolve participant IDs — they might be user, patient, or doctor IDs
+        resolved_user_ids = set()
+        resolved_user_ids.add(created_by)
 
-        result = await self.db.execute(
-            select(User.id).where(User.id.in_(all_user_ids))
-        )
-        existing_ids = {row[0] for row in result.all()}
-        missing = all_user_ids - existing_ids
-        if missing:
-            raise ValueError(f"Users not found: {', '.join(str(uid) for uid in missing)}")
+        for pid in data.participant_ids:
+            # Check if it's a user ID
+            user_result = await self.db.execute(
+                select(User.id).where(User.id == pid)
+            )
+            if user_result.scalar_one_or_none():
+                resolved_user_ids.add(pid)
+                continue
+
+            # Check if it's a patient ID → get the user_id
+            patient_result = await self.db.execute(
+                select(Patient.user_id).where(Patient.id == pid, Patient.is_deleted == False)
+            )
+            patient_user_id = patient_result.scalar_one_or_none()
+            if patient_user_id:
+                resolved_user_ids.add(patient_user_id)
+                continue
+
+            # Check if it's a doctor ID → get the user_id
+            doctor_result = await self.db.execute(
+                select(Doctor.user_id).where(Doctor.id == pid, Doctor.is_deleted == False)
+            )
+            doctor_user_id = doctor_result.scalar_one_or_none()
+            if doctor_user_id:
+                resolved_user_ids.add(doctor_user_id)
+                continue
+
+            raise ValueError(f"ID not found as user, patient, or doctor: {pid}")
 
         room = ChatRoom(
             name=data.name,
@@ -54,7 +81,7 @@ class ChatService:
         await self.db.flush()
 
         # Add creator as admin participant
-        for uid in all_user_ids:
+        for uid in resolved_user_ids:
             participant = ChatParticipant(
                 room_id=room.id,
                 user_id=uid,
