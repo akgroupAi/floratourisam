@@ -81,36 +81,30 @@ async def send_document(
 
 @router.get(
     "/sent",
-    response_model=PaginatedResponse[SharedDocumentListItem],
+    response_model=list[SharedDocumentListItem],
     summary="List documents I sent",
-    description="Returns documents the current user has sent to others, newest first.",
+    description="Returns all documents the current user has sent to others, newest first.",
 )
 async def list_sent_documents(
     current_user: CurrentUser,
     db: DatabaseSession,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
 ):
     service = SharedDocumentService(db)
-    items, total = await service.list_sent(current_user.id, page, page_size)
-    return PaginatedResponse.create(items, total, page, page_size)
+    return await service.list_all_sent(current_user.id)
 
 
 @router.get(
     "/received",
-    response_model=PaginatedResponse[SharedDocumentListItem],
+    response_model=list[SharedDocumentListItem],
     summary="List documents I received",
-    description="Returns documents sent to the current user, newest first.",
+    description="Returns all documents sent to the current user, newest first.",
 )
 async def list_received_documents(
     current_user: CurrentUser,
     db: DatabaseSession,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
 ):
     service = SharedDocumentService(db)
-    items, total = await service.list_received(current_user.id, page, page_size)
-    return PaginatedResponse.create(items, total, page, page_size)
+    return await service.list_all_received(current_user.id)
 
 
 @router.get(

@@ -78,7 +78,7 @@ class SharedDocumentService:
     async def list_sent(
         self, user_id: UUID, page: int = 1, page_size: int = 20
     ) -> Tuple[list, int]:
-        """List documents sent by the user."""
+        """List documents sent by the user (paginated)."""
         return await self._list_documents(
             filter_col=SharedDocument.sender_id,
             user_id=user_id,
@@ -86,18 +86,93 @@ class SharedDocumentService:
             page_size=page_size,
         )
 
+    async def list_all_sent(self, user_id: UUID) -> list:
+        """Return all documents sent by the user (no pagination)."""
+        return await self._list_all_documents(SharedDocument.sender_id, user_id)
+
     # ── List received ──────────────────────────────────────────
 
     async def list_received(
         self, user_id: UUID, page: int = 1, page_size: int = 20
     ) -> Tuple[list, int]:
-        """List documents received by the user."""
+        """List documents received by the user (paginated)."""
         return await self._list_documents(
             filter_col=SharedDocument.receiver_id,
             user_id=user_id,
             page=page,
             page_size=page_size,
         )
+
+    async def list_all_received(self, user_id: UUID) -> list:
+        """Return all documents received by the user (no pagination)."""
+        return await self._list_all_documents(SharedDocument.receiver_id, user_id)
+
+    # ── Unpaginated list helper ────────────────────────────────
+
+    async def _list_all_documents(self, filter_col, user_id: UUID) -> list:
+        result = await self.db.execute(
+            select(SharedDocument)
+            .where(filter_col == user_id, SharedDocument.is_deleted == False)
+            .order_by(SharedDocument.created_at.desc())
+        )
+        docs = result.scalars().all()
+
+        all_user_ids = set()
+        for d in docs:
+            all_user_ids.add(d.sender_id)
+            all_user_ids.add(d.receiver_id)
+
+        names = {}
+        if all_user_ids:
+            name_result = await self.db.execute(
+                select(User.id, User.full_name).where(User.id.in_(all_user_ids))
+            )
+            names = {row.id: row.full_name for row in name_result.all()}
+
+        items = []
+        for d in docs:
+            comment_q = await self.db.execute(
+                select(func.count(DocumentComment.id)).where(
+                    DocumentComment.shared_document_id == d.id,
+                    DocumentComment.is_deleted == False,
+                )
+            )
+            comment_count = comment_q.scalar() or 0
+
+            latest_comment = None
+            if comment_count > 0:
+                lc = await self.db.execute(
+                    select(DocumentComment.content)
+                    .where(
+                        DocumentComment.shared_document_id == d.id,
+                        DocumentComment.is_deleted == False,
+                    )
+                    .order_by(DocumentComment.created_at.desc())
+                    .limit(1)
+                )
+                latest_comment = lc.scalar_one_or_none()
+
+            items.append(
+                {
+                    "id": d.id,
+                    "sender_id": d.sender_id,
+                    "receiver_id": d.receiver_id,
+                    "title": d.title,
+                    "file_name": d.file_name,
+                    "file_url": d.file_url,
+                    "file_type": d.file_type,
+                    "file_size": d.file_size,
+                    "document_type": d.document_type,
+                    "is_viewed": d.is_viewed,
+                    "viewed_at": d.viewed_at,
+                    "created_at": d.created_at,
+                    "sender_name": names.get(d.sender_id),
+                    "receiver_name": names.get(d.receiver_id),
+                    "comment_count": comment_count,
+                    "latest_comment": latest_comment,
+                }
+            )
+        return items
 
     # ── Shared list logic ──────────────────────────────────────
 
