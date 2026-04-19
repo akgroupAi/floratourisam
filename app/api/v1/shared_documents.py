@@ -9,9 +9,10 @@ Supports:
   - Stats (sent count, received count, unviewed)
 """
 
+from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Form, HTTPException, Query, status
 
 from app.api.deps import CurrentUser, DatabaseSession
 from app.core.logging import get_logger
@@ -39,12 +40,38 @@ router = APIRouter()
     description="Patient sends to doctor or doctor sends to patient. Upload the file first, then pass the URL here.",
 )
 async def send_document(
-    data: SendDocumentRequest,
     current_user: CurrentUser,
     db: DatabaseSession,
+    receiver_id: UUID = Form(..., description="User ID of the recipient"),
+    title: str = Form(..., max_length=255),
+    file_url: str = Form(..., max_length=500, description="URL of the uploaded file"),
+    file_name: str = Form(..., max_length=255),
+    file_type: Optional[str] = Form(default=None, max_length=100, description="MIME type"),
+    file_size: Optional[int] = Form(default=None, description="File size in bytes"),
+    document_type: Optional[str] = Form(
+        default=None,
+        max_length=50,
+        description="lab_report, prescription, xray, mri_scan, ct_scan, blood_test, medical_certificate, discharge_summary, other",
+    ),
+    description: Optional[str] = Form(default=None, max_length=2000),
+    consultation_id: Optional[UUID] = Form(default=None, description="Link to a consultation"),
+    document_id: Optional[UUID] = Form(default=None, description="Link to existing document record"),
 ):
-    if data.receiver_id == current_user.id:
+    if receiver_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot send a document to yourself")
+
+    data = SendDocumentRequest(
+        receiver_id=receiver_id,
+        title=title,
+        file_url=file_url,
+        file_name=file_name,
+        file_type=file_type,
+        file_size=file_size,
+        document_type=document_type,
+        description=description,
+        consultation_id=consultation_id,
+        document_id=document_id,
+    )
 
     service = SharedDocumentService(db)
     doc = await service.send_document(current_user.id, data)
