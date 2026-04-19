@@ -168,6 +168,7 @@ class SharedDocumentService:
                     "receiver_id": d.receiver_id,
                     "title": d.title,
                     "file_name": d.file_name,
+                    "file_url": d.file_url,
                     "file_type": d.file_type,
                     "file_size": d.file_size,
                     "document_type": d.document_type,

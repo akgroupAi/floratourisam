@@ -87,6 +87,7 @@ class SharedDocumentListItem(BaseSchema):
     receiver_id: UUID
     title: str
     file_name: str
+    file_url: str
     file_type: Optional[str] = None
     file_size: Optional[int] = None
     document_type: Optional[str] = None
