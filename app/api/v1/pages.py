@@ -13,7 +13,11 @@ from pathlib import Path
 
 from app.api.deps import DatabaseSession, CurrentUser
 from app.models.site import Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember, HeroSlider
+from app.models.apartment import Apartment
+from app.models.restaurant import Restaurant
+from app.models.hotel import Hotel
 from app.schemas.common import PaginatedResponse
+from app.schemas.apartment import ApartmentResponse
 from app.schemas.site import (
     DestinationListResponse, DestinationResponse,
     TreatmentListResponse, TreatmentResponse,
@@ -964,6 +968,278 @@ async def submit_quote_form(
             "success": False,
             "message": f"Error processing form: {str(e)}"
         }
+
+
+# ============== HOSPITALITY — BEYOND MEDICAL CARE ==============
+
+@router.get("/hospitality")
+async def get_hospitality_section(db: DatabaseSession):
+    """Get the 'Beyond Medical Care' section for the home page.
+
+    Returns the complete care-package grid with counts pulled from the database.
+    """
+
+    apartment_count = await db.scalar(
+        select(func.count()).select_from(
+            select(Apartment.id).where(Apartment.is_deleted == False, Apartment.is_available == True).subquery()
+        )
+    ) or 0
+
+    restaurant_count = await db.scalar(
+        select(func.count()).select_from(
+            select(Restaurant.id).where(Restaurant.is_deleted == False, Restaurant.is_active == True).subquery()
+        )
+    ) or 0
+
+    hotel_count = await db.scalar(
+        select(func.count()).select_from(
+            select(Hotel.id).where(Hotel.is_deleted == False, Hotel.is_active == True).subquery()
+        )
+    ) or 0
+
+    return {
+        "section_tag": "Complete Care Package",
+        "title": "Beyond Medical Care",
+        "subtitle": "We take care of everything — from comfortable stays to healthy meals, travel, and trusted forex exchange",
+        "services": [
+            {
+                "key": "apartments_stays",
+                "title": "Apartments & Stays",
+                "description": "Recovery apartments near top hospitals",
+                "image_url": "/images/hospitality/apartments.jpg",
+                "icon": "building",
+                "highlight": f"{apartment_count + hotel_count}+ Stays",
+                "url": "/hospitality/apartments-stays",
+            },
+            {
+                "key": "restaurants_dining",
+                "title": "Restaurants & Dining",
+                "description": "Healthy dining with medical dietary menus",
+                "image_url": "/images/hospitality/restaurants.jpg",
+                "icon": "utensils",
+                "highlight": f"{restaurant_count}+ Partners",
+                "url": "/hospitality/restaurants-dining",
+            },
+            {
+                "key": "forex_exchange",
+                "title": "Forex Exchange",
+                "description": "RBI-authorized, best rates, zero hidden fees",
+                "image_url": "/images/hospitality/forex.jpg",
+                "icon": "currency-exchange",
+                "highlight": "30+ Currencies",
+                "url": "/forex",
+            },
+            {
+                "key": "airport_pickup",
+                "title": "Airport Pickup & Drop",
+                "description": "24/7 meet-and-greet airport transfers",
+                "image_url": "/images/hospitality/airport.jpg",
+                "icon": "plane-arrival",
+                "highlight": "24/7 Available",
+                "url": "/hospitality/airport-transfer",
+            },
+            {
+                "key": "patient_management",
+                "title": "Daily Patient Management",
+                "description": "Dedicated coordinators & recovery tracking",
+                "image_url": "/images/hospitality/patient-care.jpg",
+                "icon": "user-nurse",
+                "highlight": "1:5 Ratio",
+                "url": "/hospitality/patient-management",
+            },
+            {
+                "key": "home_made_food",
+                "title": "Home Made Food",
+                "description": "Fresh home-cooked meals for patients",
+                "image_url": "/images/hospitality/homefood.jpg",
+                "icon": "bowl-food",
+                "highlight": "3x Daily",
+                "url": "/hospitality/home-food",
+            },
+            {
+                "key": "visa_assistance",
+                "title": "Visa Assistance",
+                "description": "Medical visa processing & extensions",
+                "image_url": "/images/hospitality/visa.jpg",
+                "icon": "passport",
+                "highlight": "98% Approval",
+                "url": "/hospitality/visa-assistance",
+            },
+            {
+                "key": "travel_insurance",
+                "title": "Travel Insurance",
+                "description": "Comprehensive medical travel coverage",
+                "image_url": "/images/hospitality/insurance.jpg",
+                "icon": "shield-check",
+                "highlight": "100% Claims",
+                "url": "/hospitality/travel-insurance",
+            },
+            {
+                "key": "travel_planning",
+                "title": "Travel Planning",
+                "description": "Flights, itinerary & sightseeing planned",
+                "image_url": "/images/hospitality/travel.jpg",
+                "icon": "map",
+                "highlight": "50+ Countries",
+                "url": "/hospitality/travel-planning",
+            },
+        ],
+    }
+
+
+# ============== HOSPITALITY — APARTMENTS & STAYS PAGE ==============
+
+@router.get("/hospitality/apartments-stays")
+async def get_apartments_stays_page(db: DatabaseSession):
+    """Full 'Apartments & Stays' page content.
+
+    Sections: hero, stats, what's included, how it works, gallery,
+    featured apartments, testimonials, FAQs.
+    """
+
+    # Counts
+    apartment_count = await db.scalar(
+        select(func.count()).select_from(
+            select(Apartment.id).where(Apartment.is_deleted == False, Apartment.is_available == True).subquery()
+        )
+    ) or 0
+
+    hotel_count = await db.scalar(
+        select(func.count()).select_from(
+            select(Hotel.id).where(Hotel.is_deleted == False, Hotel.is_active == True).subquery()
+        )
+    ) or 0
+
+    # Featured apartments
+    featured_result = await db.execute(
+        select(Apartment)
+        .where(Apartment.is_deleted == False, Apartment.is_available == True, Apartment.is_featured == True)
+        .order_by(Apartment.rating.desc().nullslast())
+        .limit(6)
+    )
+    featured_apartments = featured_result.scalars().all()
+
+    # Collect gallery images from apartments
+    gallery_images = []
+    all_apt_result = await db.execute(
+        select(Apartment.gallery, Apartment.cover_image_url)
+        .where(Apartment.is_deleted == False, Apartment.is_available == True)
+        .limit(20)
+    )
+    for row in all_apt_result.all():
+        if row.cover_image_url:
+            gallery_images.append(row.cover_image_url)
+        if row.gallery:
+            gallery_images.extend(row.gallery[:3])
+    gallery_images = gallery_images[:12]  # Cap at 12
+
+    # Testimonials (accommodation-related)
+    testimonials_result = await db.execute(
+        select(Testimonial)
+        .where(Testimonial.is_approved == True, Testimonial.is_deleted == False)
+        .order_by(Testimonial.display_order)
+        .limit(6)
+    )
+    testimonials = testimonials_result.scalars().all()
+
+    # FAQs
+    faq_result = await db.execute(
+        select(FAQ)
+        .where(FAQ.is_active == True, FAQ.is_deleted == False, FAQ.category == "accommodation")
+        .order_by(FAQ.display_order)
+        .limit(10)
+    )
+    faqs = faq_result.scalars().all()
+    # Fallback: if no accommodation-specific FAQs, get general ones
+    if not faqs:
+        faq_result = await db.execute(
+            select(FAQ)
+            .where(FAQ.is_active == True, FAQ.is_deleted == False)
+            .order_by(FAQ.display_order)
+            .limit(10)
+        )
+        faqs = faq_result.scalars().all()
+
+    return {
+        "hero": {
+            "title": "Apartments & Stays",
+            "subtitle": (
+                "Choose from our handpicked collection of furnished apartments and recovery "
+                "stays located near top hospitals, from cooking-capable, daily-grocery-stocked "
+                "kitchens to patient-friendly, hygiene, safety, and patient-friendly amenities "
+                "— making your recovery comfortable and stress-free."
+            ),
+            "background_image": "/images/hospitality/apartments-hero.jpg",
+            "breadcrumb": [
+                {"label": "Home", "url": "/"},
+                {"label": "Apartments & Stays", "url": "/hospitality/apartments-stays"},
+            ],
+            "ctas": [
+                {"text": "Get Started", "url": "/contact", "variant": "primary"},
+                {"text": "Contact Us", "url": "/contact", "variant": "secondary"},
+            ],
+        },
+        "stats": [
+            {"value": f"{apartment_count + hotel_count}+", "label": "Available Stays"},
+            {"value": "10+", "label": "Top Hospitals"},
+            {"value": "4.8+", "label": "Avg Rating"},
+            {"value": "24/7", "label": "Support"},
+        ],
+        "whats_included": {
+            "title": "What's Included",
+            "subtitle": "Everything you need for a comfortable experience",
+            "features": [
+                {"icon": "hospital", "title": "Near Hospitals", "description": "All stays within 5km of partner hospitals"},
+                {"icon": "sofa", "title": "Fully Furnished", "description": "Cozy, fully-furnished with all modern amenities"},
+                {"icon": "wifi", "title": "High-Speed WiFi", "description": "Stay connected with fast, reliable internet"},
+                {"icon": "utensils", "title": "Kitchen Access", "description": "Cook your own meals or use in-room dining"},
+                {"icon": "shield-check", "title": "Verified Properties", "description": "Every stay independently verified for safety and hygiene"},
+                {"icon": "users", "title": "Family Friendly", "description": "Spacious options for parents, aids and attendants"},
+            ],
+        },
+        "how_it_works": {
+            "title": "How It Works",
+            "subtitle": "Simple 4-step process to get started",
+            "steps": [
+                {"number": 1, "title": "Share Your Requirements", "description": "Tell us your location, dates, and any medical needs"},
+                {"number": 2, "title": "Browse Options", "description": "Explore curated apartments near your hospital"},
+                {"number": 3, "title": "Book Instantly", "description": "Reserve your stay online with a few clicks and get instant confirmation"},
+                {"number": 4, "title": "Move In", "description": "Check in, relax, and focus on your recovery"},
+            ],
+        },
+        "gallery": {
+            "title": "Gallery",
+            "subtitle": "A glimpse of what to expect",
+            "images": gallery_images,
+        },
+        "featured_apartments": [ApartmentResponse.model_validate(a) for a in featured_apartments],
+        "testimonials": {
+            "title": "What Patients Say",
+            "subtitle": "Real experiences from families who stayed with us",
+            "items": [
+                {
+                    "id": str(t.id),
+                    "patient_name": t.patient_name,
+                    "country": t.country,
+                    "avatar": t.avatar_url,
+                    "rating": t.rating,
+                    "content": t.content,
+                    "treatment": t.treatment_name,
+                }
+                for t in testimonials
+            ],
+        },
+        "faqs": {
+            "title": "Frequently Asked Questions",
+            "items": [
+                {
+                    "question": f.question,
+                    "answer": f.answer,
+                }
+                for f in faqs
+            ],
+        },
+    }
 
 
 # ============== NAVIGATION & SETTINGS ==============
