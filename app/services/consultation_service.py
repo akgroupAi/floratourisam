@@ -504,6 +504,7 @@ class ConsultationService:
         ConsultationStatus.SCHEDULED.value: {
             ConsultationStatus.WAITING.value,
             ConsultationStatus.IN_PROGRESS.value,
+            ConsultationStatus.COMPLETED.value,
             ConsultationStatus.CANCELLED.value,
             ConsultationStatus.MISSED.value,
         },
