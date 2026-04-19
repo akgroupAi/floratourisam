@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.models.consultation import Consultation
+from app.models.doctor import Doctor
 from app.models.medical_report import MedicalReport
 from app.schemas.medical_report import MedicalReportCreate, MedicalReportUpdate
 from app.utils.helpers import generate_reference_id
@@ -99,6 +101,20 @@ class MedicalReportService:
         data: MedicalReportCreate,
         created_by: UUID,
     ) -> MedicalReport:
+        # Validate foreign keys
+        if data.doctor_id:
+            doc = await self.db.execute(
+                select(Doctor.id).where(Doctor.id == data.doctor_id)
+            )
+            if not doc.scalar_one_or_none():
+                raise ValueError(f"Doctor not found: {data.doctor_id}")
+        if data.consultation_id:
+            con = await self.db.execute(
+                select(Consultation.id).where(Consultation.id == data.consultation_id)
+            )
+            if not con.scalar_one_or_none():
+                raise ValueError(f"Consultation not found: {data.consultation_id}")
+
         report = MedicalReport(
             patient_id=patient_id,
             doctor_id=data.doctor_id,
@@ -146,6 +162,20 @@ class MedicalReportService:
         doctor_id: Optional[UUID] = None,
         created_by: Optional[UUID] = None,
     ) -> MedicalReport:
+        # Validate foreign keys
+        if doctor_id:
+            doc = await self.db.execute(
+                select(Doctor.id).where(Doctor.id == doctor_id)
+            )
+            if not doc.scalar_one_or_none():
+                raise ValueError(f"Doctor not found: {doctor_id}")
+        if consultation_id:
+            con = await self.db.execute(
+                select(Consultation.id).where(Consultation.id == consultation_id)
+            )
+            if not con.scalar_one_or_none():
+                raise ValueError(f"Consultation not found: {consultation_id}")
+
         # Validate mime type
         if file.content_type and file.content_type not in _ALLOWED_MIME:
             raise ValueError(

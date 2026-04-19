@@ -121,11 +121,14 @@ async def create_medical_report(
     db: DatabaseSession,
 ):
     service = MedicalReportService(db)
-    return await service.create_report(
-        patient_id=patient.id,
-        data=data,
-        created_by=current_user.id,
-    )
+    try:
+        return await service.create_report(
+            patient_id=patient.id,
+            data=data,
+            created_by=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------
