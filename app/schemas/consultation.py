@@ -78,10 +78,19 @@ class ConsultationListResponse(BaseSchema):
     # Session
     meet_link: Optional[str] = None
 
-    # Summary info
+    # Patient info
     patient_name: Optional[str] = None
+    patient_avatar_url: Optional[str] = None
+
+    # Doctor info
     doctor_name: Optional[str] = None
+    doctor_avatar_url: Optional[str] = None
+    doctor_title: Optional[str] = None
     doctor_specialization: Optional[str] = None
+
+    # Hospital info
+    hospital_name: Optional[str] = None
+
     created_at: datetime
 
     @model_validator(mode="before")
@@ -98,18 +107,24 @@ class ConsultationListResponse(BaseSchema):
             session_data = getattr(obj, "session_data", None)
             if session_data and isinstance(session_data, dict):
                 data.setdefault("meet_link", session_data.get("meet_link"))
-            # Extract names from relationships
+            # Extract from relationships
             doctor = getattr(obj, "doctor", None)
             if doctor:
                 user = getattr(doctor, "user", None)
                 if user:
                     data.setdefault("doctor_name", getattr(user, "full_name", None))
+                    data.setdefault("doctor_avatar_url", getattr(user, "avatar_url", None))
+                data.setdefault("doctor_title", getattr(doctor, "title", None))
                 data.setdefault("doctor_specialization", getattr(doctor, "primary_specialty", None))
+                hospital = getattr(doctor, "hospital", None)
+                if hospital:
+                    data.setdefault("hospital_name", getattr(hospital, "name", None))
             patient = getattr(obj, "patient", None)
             if patient:
                 user = getattr(patient, "user", None)
                 if user:
                     data.setdefault("patient_name", getattr(user, "full_name", None))
+                    data.setdefault("patient_avatar_url", getattr(user, "avatar_url", None))
         return data
 
 
@@ -162,13 +177,31 @@ class ConsultationResponse(BaseSchema):
     created_at: datetime
     updated_at: datetime
 
-    # Related info
+    # Patient info
     patient_name: Optional[str] = None
     patient_email: Optional[str] = None
+    patient_phone: Optional[str] = None
+    patient_avatar_url: Optional[str] = None
+    patient_gender: Optional[str] = None
+    patient_blood_group: Optional[str] = None
+
+    # Doctor info
     doctor_name: Optional[str] = None
     doctor_email: Optional[str] = None
+    doctor_phone: Optional[str] = None
+    doctor_avatar_url: Optional[str] = None
+    doctor_title: Optional[str] = None
     doctor_specialization: Optional[str] = None
+    doctor_qualifications: Optional[list] = None
+    doctor_years_of_experience: Optional[int] = None
+    doctor_consultation_fee: Optional[float] = None
+    doctor_languages_spoken: Optional[list] = None
+
+    # Hospital info
     hospital_name: Optional[str] = None
+    hospital_logo_url: Optional[str] = None
+    hospital_city: Optional[str] = None
+    hospital_country: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -184,23 +217,38 @@ class ConsultationResponse(BaseSchema):
             session_data = getattr(obj, "session_data", None)
             if session_data and isinstance(session_data, dict):
                 data.setdefault("meet_link", session_data.get("meet_link"))
-            # Extract from relationships
+            # Extract from doctor relationship
             doctor = getattr(obj, "doctor", None)
             if doctor:
                 user = getattr(doctor, "user", None)
                 if user:
                     data.setdefault("doctor_name", getattr(user, "full_name", None))
                     data.setdefault("doctor_email", getattr(user, "email", None))
+                    data.setdefault("doctor_phone", getattr(user, "phone", None))
+                    data.setdefault("doctor_avatar_url", getattr(user, "avatar_url", None))
+                data.setdefault("doctor_title", getattr(doctor, "title", None))
                 data.setdefault("doctor_specialization", getattr(doctor, "primary_specialty", None))
+                data.setdefault("doctor_qualifications", getattr(doctor, "qualifications", None))
+                data.setdefault("doctor_years_of_experience", getattr(doctor, "years_of_experience", None))
+                data.setdefault("doctor_consultation_fee", getattr(doctor, "consultation_fee", None))
+                data.setdefault("doctor_languages_spoken", getattr(doctor, "languages_spoken", None))
                 hospital = getattr(doctor, "hospital", None)
                 if hospital:
                     data.setdefault("hospital_name", getattr(hospital, "name", None))
+                    data.setdefault("hospital_logo_url", getattr(hospital, "logo_url", None))
+                    data.setdefault("hospital_city", getattr(hospital, "city", None))
+                    data.setdefault("hospital_country", getattr(hospital, "country", None))
+            # Extract from patient relationship
             patient = getattr(obj, "patient", None)
             if patient:
                 user = getattr(patient, "user", None)
                 if user:
                     data.setdefault("patient_name", getattr(user, "full_name", None))
                     data.setdefault("patient_email", getattr(user, "email", None))
+                    data.setdefault("patient_phone", getattr(user, "phone", None))
+                    data.setdefault("patient_avatar_url", getattr(user, "avatar_url", None))
+                data.setdefault("patient_gender", getattr(patient, "gender", None))
+                data.setdefault("patient_blood_group", getattr(patient, "blood_group", None))
         return data
 
 
