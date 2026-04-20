@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.models.shared_document import DocumentComment, SharedDocument
 from app.models.user import User
+from app.models.patient import Patient
+from app.models.doctor import Doctor
 from app.schemas.shared_document import DocumentCommentCreate, SendDocumentRequest
 from app.utils.notifications import notify
 
@@ -26,9 +28,33 @@ class SharedDocumentService:
         self, sender_id: UUID, data: SendDocumentRequest
     ) -> SharedDocument:
         """Send a document from one user to another."""
+        # Resolve receiver_id: may be a user, patient, or doctor ID
+        receiver_id = data.receiver_id
+        user_exists = await self.db.execute(
+            select(User.id).where(User.id == receiver_id)
+        )
+        if not user_exists.scalar_one_or_none():
+            # Try patient table
+            patient_result = await self.db.execute(
+                select(Patient.user_id).where(Patient.id == receiver_id)
+            )
+            patient_user_id = patient_result.scalar_one_or_none()
+            if patient_user_id:
+                receiver_id = patient_user_id
+            else:
+                # Try doctor table
+                doctor_result = await self.db.execute(
+                    select(Doctor.user_id).where(Doctor.id == receiver_id)
+                )
+                doctor_user_id = doctor_result.scalar_one_or_none()
+                if doctor_user_id:
+                    receiver_id = doctor_user_id
+                else:
+                    raise ValueError("Receiver not found")
+
         doc = SharedDocument(
             sender_id=sender_id,
-            receiver_id=data.receiver_id,
+            receiver_id=receiver_id,
             document_id=data.document_id,
             consultation_id=data.consultation_id,
             title=data.title,
@@ -47,7 +73,7 @@ class SharedDocumentService:
             "document_sent",
             doc_id=str(doc.id),
             sender=str(sender_id),
-            receiver=str(data.receiver_id),
+            receiver=str(receiver_id),
         )
 
         # Notify receiver about the shared document
@@ -59,7 +85,7 @@ class SharedDocumentService:
             sender_name = sender_row or "Someone"
             await notify(
                 db=self.db,
-                user_id=data.receiver_id,
+                user_id=receiver_id,
                 title="Document Shared",
                 message=f"{sender_name} shared a document: {data.title or data.file_name}",
                 notification_type="info",

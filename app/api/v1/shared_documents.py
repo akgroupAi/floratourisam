@@ -103,7 +103,10 @@ async def send_document(
     )
 
     service = SharedDocumentService(db)
-    doc = await service.send_document(current_user.id, data)
+    try:
+        doc = await service.send_document(current_user.id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     detail = await service.get_detail(doc.id)
     return detail
 
