@@ -6,7 +6,7 @@ import uuid as uuid_lib
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
-from app.api.deps import RequireAdmin
+from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.logging import get_logger
 
@@ -38,14 +38,14 @@ def _ensure_images_dir() -> None:
 
 @admin_router.post(
     "/upload",
-    summary="Upload an image (admin only)",
-    dependencies=[RequireAdmin],
+    summary="Upload an image",
 )
 async def upload_image(
+    current_user: CurrentUser,
     file: UploadFile = File(..., description="Image file to upload"),
 ):
     """
-    Upload an image file. Requires **admin** or **super-admin** role.
+    Upload an image file. Requires authentication (any role).
 
     - Accepts: `jpg`, `jpeg`, `png`, `gif`, `webp`, `svg`
     - Max size: configured by `MAX_UPLOAD_SIZE_MB` (default 10 MB)

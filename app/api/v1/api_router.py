@@ -124,5 +124,6 @@ api_router.include_router(admin_knowledge.router, prefix="/admin/knowledge", tag
 
 # Image Management
 api_router.include_router(images.admin_router, prefix="/admin/images", tags=["Admin - Image Upload"])
+api_router.include_router(images.admin_router, prefix="/images", tags=["Image Upload"])
 api_router.include_router(images.public_router, prefix="/images", tags=["Images (Public)"])
 
