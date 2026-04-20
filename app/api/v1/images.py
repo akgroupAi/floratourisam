@@ -25,9 +25,23 @@ ALLOWED_IMAGE_TYPES = {
     "image/gif",
     "image/webp",
     "image/svg+xml",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/plain",
+    "text/csv",
+    "application/zip",
+    "application/x-rar-compressed",
+    "application/dicom",
 }
 
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp", "svg"}
+ALLOWED_EXTENSIONS = {
+    "jpg", "jpeg", "png", "gif", "webp", "svg",
+    "pdf", "doc", "docx", "xls", "xlsx", "txt", "csv",
+    "zip", "rar", "dicom", "dcm",
+}
 
 
 def _ensure_images_dir() -> None:
@@ -45,23 +59,16 @@ async def upload_image(
     file: UploadFile = File(..., description="Image file to upload"),
 ):
     """
-    Upload an image file. Requires authentication (any role).
+    Upload a file. Requires authentication (any role).
 
-    - Accepts: `jpg`, `jpeg`, `png`, `gif`, `webp`, `svg`
+    - Accepts: images (`jpg`, `jpeg`, `png`, `gif`, `webp`, `svg`),
+      documents (`pdf`, `doc`, `docx`, `xls`, `xlsx`, `txt`, `csv`),
+      archives (`zip`, `rar`), medical (`dicom`, `dcm`)
     - Max size: configured by `MAX_UPLOAD_SIZE_MB` (default 10 MB)
-    - Returns the public URL that anyone can use to access the image.
+    - Returns the public URL that anyone can use to access the file.
     """
-    # --- validate content-type ---
-    content_type = (file.content_type or "").lower()
-    if content_type not in ALLOWED_IMAGE_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type '{content_type}'. "
-                   f"Allowed types: {', '.join(sorted(ALLOWED_IMAGE_TYPES))}",
-        )
-
-    # --- validate extension ---
-    original_filename = file.filename or "image"
+    # --- validate extension first (more reliable than content-type) ---
+    original_filename = file.filename or "file"
     ext = original_filename.rsplit(".", 1)[-1].lower() if "." in original_filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -109,12 +116,12 @@ async def upload_image(
 
 @public_router.get(
     "/{filename}",
-    summary="Get an image (public)",
+    summary="Get a file (public)",
     response_class=FileResponse,
 )
 async def get_image(filename: str):
     """
-    Publicly accessible endpoint to retrieve an uploaded image by filename.
+    Publicly accessible endpoint to retrieve an uploaded file by filename.
 
     No authentication required.
     """
@@ -129,7 +136,7 @@ async def get_image(filename: str):
 
     file_path = os.path.join(IMAGES_DIR, safe_filename)
     if not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="Image not found.")
+        raise HTTPException(status_code=404, detail="File not found.")
 
     media_type_map = {
         "jpg": "image/jpeg",
@@ -138,6 +145,17 @@ async def get_image(filename: str):
         "gif": "image/gif",
         "webp": "image/webp",
         "svg": "image/svg+xml",
+        "pdf": "application/pdf",
+        "doc": "application/msword",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls": "application/vnd.ms-excel",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "txt": "text/plain",
+        "csv": "text/csv",
+        "zip": "application/zip",
+        "rar": "application/x-rar-compressed",
+        "dicom": "application/dicom",
+        "dcm": "application/dicom",
     }
     media_type = media_type_map.get(ext, "application/octet-stream")
 
