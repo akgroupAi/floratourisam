@@ -142,7 +142,7 @@ class PatientService:
         if patient:
             return patient
 
-        patient = Patient(user_id=user_id)
+        patient = Patient(id=user_id, user_id=user_id)
         self.db.add(patient)
         await self.db.commit()
         await self.db.refresh(patient)

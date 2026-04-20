@@ -115,6 +115,7 @@ class DoctorService:
     ) -> Doctor:
         """Create doctor profile."""
         doctor = Doctor(
+            id=user_id,
             user_id=user_id,
             hospital_id=data.hospital_id,
             title=data.title,
