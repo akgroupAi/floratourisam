@@ -68,8 +68,6 @@ class ConsultationListResponse(BaseSchema):
     reference_number: str
     patient_id: UUID
     doctor_id: UUID
-    patient_user_id: Optional[UUID] = None
-    doctor_user_id: Optional[UUID] = None
     consultation_type: str
     status: str
     scheduled_at: datetime
@@ -112,7 +110,6 @@ class ConsultationListResponse(BaseSchema):
             # Extract from relationships
             doctor = getattr(obj, "doctor", None)
             if doctor:
-                data.setdefault("doctor_user_id", getattr(doctor, "user_id", None))
                 user = getattr(doctor, "user", None)
                 if user:
                     data.setdefault("doctor_name", getattr(user, "full_name", None))
@@ -124,7 +121,6 @@ class ConsultationListResponse(BaseSchema):
                     data.setdefault("hospital_name", getattr(hospital, "name", None))
             patient = getattr(obj, "patient", None)
             if patient:
-                data.setdefault("patient_user_id", getattr(patient, "user_id", None))
                 user = getattr(patient, "user", None)
                 if user:
                     data.setdefault("patient_name", getattr(user, "full_name", None))
@@ -139,8 +135,6 @@ class ConsultationResponse(BaseSchema):
     reference_number: str
     patient_id: UUID
     doctor_id: UUID
-    patient_user_id: Optional[UUID] = None
-    doctor_user_id: Optional[UUID] = None
     consultation_type: str
     status: str
     scheduled_at: datetime
@@ -226,7 +220,6 @@ class ConsultationResponse(BaseSchema):
             # Extract from doctor relationship
             doctor = getattr(obj, "doctor", None)
             if doctor:
-                data.setdefault("doctor_user_id", getattr(doctor, "user_id", None))
                 user = getattr(doctor, "user", None)
                 if user:
                     data.setdefault("doctor_name", getattr(user, "full_name", None))
@@ -248,7 +241,6 @@ class ConsultationResponse(BaseSchema):
             # Extract from patient relationship
             patient = getattr(obj, "patient", None)
             if patient:
-                data.setdefault("patient_user_id", getattr(patient, "user_id", None))
                 user = getattr(patient, "user", None)
                 if user:
                     data.setdefault("patient_name", getattr(user, "full_name", None))

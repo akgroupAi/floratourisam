@@ -55,7 +55,6 @@ class AppointmentSummary(BaseSchema):
     reference_number: str
     booking_reference: Optional[str] = None
     doctor_id: UUID
-    doctor_user_id: Optional[UUID] = None
     doctor_name: Optional[str] = None
     doctor_specialization: Optional[str] = None
     consultation_type: str
@@ -77,11 +76,9 @@ class AppointmentResponse(BaseSchema):
 
     # Participants
     patient_id: UUID
-    patient_user_id: Optional[UUID] = None
     patient_name: Optional[str] = None
     patient_email: Optional[str] = None
     doctor_id: UUID
-    doctor_user_id: Optional[UUID] = None
     doctor_name: Optional[str] = None
     doctor_email: Optional[str] = None
     doctor_specialization: Optional[str] = None
