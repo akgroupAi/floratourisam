@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.medical_report import MedicalReport
 from app.models.consultation import Consultation
-from app.models.chat import ChatRoom, ChatParticipant, ChatMessage
+from app.models.shared_document import SharedDocument
+from app.models.shared_document import SharedDocument
 from app.services.document_service import DocumentService
 from app.services.appointment_service import AppointmentService
 from app.services.chat_service import ChatService
@@ -19,18 +20,32 @@ class DashboardService:
         self.db = db
 
     async def get_patient_dashboard_summary(self, patient_id: UUID, user_id: UUID) -> PatientDashboardSummary:
-        # Documents
+        # Documents (using SharedDocument)
         total_documents = await self.db.scalar(
-            select(func.count()).select_from(MedicalReport).where(
-                MedicalReport.patient_id == patient_id,
-                MedicalReport.is_deleted == False
+            select(func.count()).select_from(SharedDocument).where(
+                ((SharedDocument.sender_id == user_id) | (SharedDocument.receiver_id == user_id)),
+                SharedDocument.is_deleted == False
             )
         )
         recent_documents = await self.db.scalar(
-            select(func.count()).select_from(MedicalReport).where(
-                MedicalReport.patient_id == patient_id,
-                MedicalReport.is_deleted == False,
-                MedicalReport.created_at >= datetime.utcnow() - timedelta(days=30)
+            select(func.count()).select_from(SharedDocument).where(
+                ((SharedDocument.sender_id == user_id) | (SharedDocument.receiver_id == user_id)),
+                SharedDocument.is_deleted == False,
+                SharedDocument.created_at >= datetime.utcnow() - timedelta(days=30)
+            )
+        )
+        pending_review_documents = await self.db.scalar(
+            select(func.count()).select_from(SharedDocument).where(
+                SharedDocument.receiver_id == user_id,
+                SharedDocument.is_viewed == False,
+                SharedDocument.is_deleted == False
+            )
+        )
+        documents_uploaded_this_week = await self.db.scalar(
+            select(func.count()).select_from(SharedDocument).where(
+                SharedDocument.sender_id == user_id,
+                SharedDocument.is_deleted == False,
+                SharedDocument.created_at >= datetime.utcnow() - timedelta(days=7)
             )
         )
 
@@ -84,12 +99,47 @@ class DashboardService:
                 )
             ) or 0
 
+        # Last received message
+        last_received_message_at = None
+        if room_ids:
+            last_msg = await self.db.execute(
+                select(func.max(ChatMessage.created_at)).where(
+                    ChatMessage.room_id.in_(room_ids),
+                    ChatMessage.sender_id != user_id
+                )
+            )
+            last_received_message_at = last_msg.scalar_one_or_none()
+
+        # Progress
+        completed_appointments = await self.db.scalar(
+            select(func.count()).select_from(Consultation).where(
+                Consultation.patient_id == patient_id,
+                Consultation.is_deleted == False,
+                Consultation.status == "completed"
+            )
+        ) or 0
+        progress_percentage = (completed_appointments / total_appointments * 100) if total_appointments > 0 else 0.0
+
+        # Current phase
+        current_phase = None
+        if upcoming_appointments > 0:
+            current_phase = "Active Treatment"
+        elif total_appointments > 0:
+            current_phase = "Post-Treatment"
+        else:
+            current_phase = "Initial Consultation"
+
         return PatientDashboardSummary(
             total_documents=total_documents or 0,
             recent_documents=recent_documents or 0,
+            pending_review_documents=pending_review_documents or 0,
+            documents_uploaded_this_week=documents_uploaded_this_week or 0,
             total_appointments=total_appointments or 0,
             upcoming_appointments=upcoming_appointments or 0,
             next_appointment_at=next_appointment_at,
             total_messages=total_messages or 0,
             unread_messages=unread_messages or 0,
+            last_received_message_at=last_received_message_at,
+            progress_percentage=progress_percentage,
+            current_phase=current_phase,
         )
