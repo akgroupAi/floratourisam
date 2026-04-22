@@ -115,6 +115,9 @@ class DocumentService:
         # Create document record
         document_id = uuid.uuid4()
         file_path, file_size = await self._save_file(file, patient_id, document_id)
+        
+        # Generate API download URL instead of storing filesystem path
+        download_url = self._get_download_url(document_id)
 
         # Create database record
         document = MedicalReport(
@@ -123,7 +126,7 @@ class DocumentService:
             title=title,
             report_type=document_type,
             description=description,
-            file_url=file_path,
+            file_url=download_url,  # Store API endpoint, not filesystem path
             file_name=file.filename or f"document.{file_path.split('.')[-1]}",
             file_type=file.content_type or "application/octet-stream",
             file_size_bytes=file_size,
@@ -144,7 +147,7 @@ class DocumentService:
             file_size=document.file_size_bytes,
             file_type=document.file_type,
             upload_date=document.created_at,
-            download_url=self._get_download_url(document.id),
+            download_url=download_url,
         )
 
     async def get_documents(
