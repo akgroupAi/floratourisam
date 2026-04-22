@@ -250,7 +250,7 @@ class ConsultationService:
                         notification_type="consultation",
                         entity_type="consultation",
                         entity_id=consultation.id,
-                        action_url=f"/consultations/{consultation.id}/join",
+                        action_url=f"/consultation/{consultation.id}/join",
                         created_by=started_by,
                     )
         except Exception as exc:
@@ -322,7 +322,7 @@ class ConsultationService:
                         notification_type="consultation",
                         entity_type="consultation",
                         entity_id=consultation.id,
-                        action_url=f"/consultations/{consultation.id}",
+                        action_url=f"/consultation/{consultation.id}",
                         created_by=confirmed_by,
                     )
         except Exception as exc:
@@ -400,7 +400,7 @@ class ConsultationService:
                         notification_type="consultation",
                         entity_type="consultation",
                         entity_id=consultation.id,
-                        action_url=f"/consultations/{consultation.id}",
+                        action_url=f"/consultation/{consultation.id}",
                         created_by=rejected_by,
                     )
         except Exception as exc:
@@ -484,7 +484,7 @@ class ConsultationService:
                         notification_type="consultation",
                         entity_type="consultation",
                         entity_id=consultation.id,
-                        action_url=f"/consultations/{consultation.id}",
+                        action_url=f"/consultation/{consultation.id}",
                         created_by=completed_by,
                     )
         except Exception as exc:
@@ -622,7 +622,7 @@ class ConsultationService:
                         notification_type="consultation",
                         entity_type="consultation",
                         entity_id=consultation.id,
-                        action_url=f"/consultations/{consultation.id}",
+                        action_url=f"/consultation/{consultation.id}",
                         created_by=updated_by,
                     )
         except Exception as exc:
@@ -690,7 +690,7 @@ class ConsultationService:
                         notification_type="consultation",
                         entity_type="consultation",
                         entity_id=consultation.id,
-                        action_url=f"/consultations/{consultation.id}",
+                        action_url=f"/consultation/{consultation.id}",
                         created_by=doctor_user_id,
                     )
         except Exception as exc:

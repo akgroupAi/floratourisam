@@ -11,7 +11,7 @@ Usage:
         notification_type="consultation",
         entity_type="consultation",
         entity_id=consultation.id,
-        action_url=f"/consultations/{consultation.id}",
+        action_url=f"/consultation/{consultation.id}",
     )
 """
 
