@@ -197,6 +197,9 @@ class MedicalReportService:
         file_path.write_bytes(content)
         logger.info("medical_report_file_saved", path=str(file_path), size=len(content))
 
+        # Generate download URL instead of filesystem path
+        download_url = f"/api/v1/patients/me/medical-reports/{report_id}/download"
+        
         report = MedicalReport(
             id=report_id,
             patient_id=patient_id,
@@ -212,7 +215,7 @@ class MedicalReportService:
             is_abnormal=is_abnormal,
             requires_followup=requires_followup,
             is_private=is_private,
-            file_url=str(file_path),
+            file_url=download_url,
             file_name=file.filename,
             file_type=file.content_type,
             file_size_bytes=len(content),

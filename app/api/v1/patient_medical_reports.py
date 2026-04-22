@@ -215,6 +215,12 @@ async def get_medical_report(
     report = await service.get_report(report_id, patient.id)
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    
+    # Ensure file_url includes download endpoint if file exists
+    if not report.file_url or not report.file_url.startswith("/api"):
+        if report.file_name:  # Has a file attached
+            report.file_url = f"/api/v1/patients/me/medical-reports/{report.id}/download"
+    
     return report
 
 
