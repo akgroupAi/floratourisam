@@ -22,17 +22,24 @@ class HotelService:
         self.db = db
 
     async def get_by_id(self, hotel_id: UUID) -> Optional[Hotel]:
-        """Get hotel by ID."""
+        """Get hotel by ID with base price calculation."""
         result = await self.db.execute(
             select(Hotel).where(Hotel.id == hotel_id, Hotel.is_active == True, Hotel.is_deleted == False)
         )
-        return result.scalar_one_or_none()
+        hotel = result.scalar_one_or_none()
+        if hotel:
+            hotel = await self._enrich_hotel_with_base_price(hotel)
+        return hotel
 
     async def _calculate_base_price(self, hotel_id: UUID) -> Optional[float]:
         """Calculate base price per night from minimum room price."""
         result = await self.db.execute(
             select(func.min(Room.price_per_night))
-            .where(Room.hotel_id == hotel_id, Room.is_available == True, Room.is_deleted == False)
+            .where(
+                Room.hotel_id == hotel_id,
+                Room.price_per_night.isnot(None),  # Only rooms with price set
+                Room.is_deleted == False
+            )
         )
         min_price = result.scalar_one_or_none()
         return min_price
