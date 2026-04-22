@@ -1,10 +1,13 @@
 """Chat endpoints with WebSocket support."""
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 
 from app.api.deps import CurrentUser, DatabaseSession
+from app.core.security import verify_token
+from app.core.logging import get_logger
 from app.db.session import async_session_factory
 from app.schemas.chat import (
     ChatMessageCreate,
@@ -15,6 +18,8 @@ from app.schemas.chat import (
 )
 from app.services.chat_service import ChatService
 from app.services.notification_service import notification_service
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -117,10 +122,37 @@ async def mark_messages_read(
 async def websocket_chat(websocket: WebSocket, room_id: str):
     """WebSocket endpoint for real-time chat.
 
+    Requires 'token' query parameter with valid JWT.
+    User ID is extracted from token (not client-provided).
     Messages with type 'message' are persisted to the database.
     Typing indicators and read events are broadcast only (not persisted).
     """
+    # Extract and verify JWT token from query params
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing token")
+        return
+
+    sender_id = verify_token(token, token_type="access")
+    if not sender_id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+        return
+
+    # Verify user is a participant in the room
+    try:
+        async with async_session_factory() as session:
+            service = ChatService(session)
+            if not await service.is_participant(UUID(room_id), UUID(sender_id)):
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Not a participant")
+                return
+    except Exception as exc:
+        logger.error("websocket_participant_check_failed", room_id=room_id, error=str(exc))
+        await websocket.close(code=status.WS_1011_SERVER_ERROR, reason="Internal error")
+        return
+
     await notification_service.manager.connect(websocket, room_id)
+    logger.info("websocket_connected", room_id=room_id, sender_id=sender_id)
+    
     try:
         while True:
             data = await websocket.receive_json()
@@ -129,10 +161,9 @@ async def websocket_chat(websocket: WebSocket, room_id: str):
             if msg_type == "message":
                 # Persist the message to the database
                 payload = data.get("data", {})
-                sender_id = payload.get("sender_id")
                 content = payload.get("content", "")
 
-                if sender_id and content:
+                if content:
                     try:
                         async with async_session_factory() as session:
                             try:
@@ -147,6 +178,7 @@ async def websocket_chat(websocket: WebSocket, room_id: str):
                                     file_type=payload.get("file_type"),
                                     file_size_bytes=payload.get("file_size_bytes"),
                                 )
+                                # Use authenticated sender_id from token, not from payload
                                 msg_dict = await service.send_message(
                                     UUID(room_id), UUID(sender_id), msg_create
                                 )
@@ -159,7 +191,8 @@ async def websocket_chat(websocket: WebSocket, room_id: str):
                             except Exception:
                                 await session.rollback()
                                 raise
-                    except Exception:
+                    except Exception as exc:
+                        logger.error("chat_message_persist_failed", room_id=room_id, sender=sender_id, error=str(exc))
                         # If DB save fails, still broadcast the raw message
                         await notification_service.manager.broadcast(room_id, data)
                         continue
@@ -168,5 +201,6 @@ async def websocket_chat(websocket: WebSocket, room_id: str):
             await notification_service.manager.broadcast(room_id, data)
 
     except WebSocketDisconnect:
+        logger.info("websocket_disconnected", room_id=room_id, sender_id=sender_id)
         notification_service.manager.disconnect(websocket, room_id)
 
