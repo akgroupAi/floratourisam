@@ -318,6 +318,11 @@ async def list_hotels(
     result = await db.execute(query)
     hotels = result.scalars().all()
 
+    # Enrich hotels with calculated base prices
+    from app.services.hotel_service import HotelService
+    service = HotelService(db)
+    hotels = await service._enrich_hotels_with_base_prices(list(hotels))
+
     return PaginatedResponse.create(hotels, total, page, page_size)
 
 
@@ -347,6 +352,10 @@ async def get_hotel(hotel_id: UUID, db: DatabaseSession):
     hotel = result.scalar_one_or_none()
     if not hotel:
         raise HTTPException(status_code=404, detail="Hotel not found")
+    # Enrich hotel with calculated base price
+    from app.services.hotel_service import HotelService
+    service = HotelService(db)
+    hotel = await service._enrich_hotel_with_base_price(hotel)
     return hotel
 
 

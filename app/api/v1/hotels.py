@@ -57,6 +57,8 @@ async def get_hotel(hotel_id: UUID, db: DatabaseSession):
     hotel = await service.get_by_id(hotel_id)
     if not hotel:
         raise HTTPException(status_code=404, detail="Hotel not found")
+    # Enrich hotel with calculated base price
+    hotel = await service._enrich_hotel_with_base_price(hotel)
     return hotel
 
 

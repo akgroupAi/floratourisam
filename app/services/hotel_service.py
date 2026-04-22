@@ -28,6 +28,29 @@ class HotelService:
         )
         return result.scalar_one_or_none()
 
+    async def _calculate_base_price(self, hotel_id: UUID) -> Optional[float]:
+        """Calculate base price per night from minimum room price."""
+        result = await self.db.execute(
+            select(func.min(Room.price_per_night))
+            .where(Room.hotel_id == hotel_id, Room.is_available == True, Room.is_deleted == False)
+        )
+        min_price = result.scalar_one_or_none()
+        return min_price
+
+    async def _enrich_hotel_with_base_price(self, hotel: Hotel) -> Hotel:
+        """Enrich hotel with calculated base_price_per_night if null."""
+        if hotel and hotel.base_price_per_night is None:
+            calculated_price = await self._calculate_base_price(hotel.id)
+            if calculated_price:
+                hotel.base_price_per_night = calculated_price
+        return hotel
+
+    async def _enrich_hotels_with_base_prices(self, hotels: List[Hotel]) -> List[Hotel]:
+        """Enrich multiple hotels with calculated base prices."""
+        for hotel in hotels:
+            await self._enrich_hotel_with_base_price(hotel)
+        return hotels
+
     async def get_list(
         self,
         pagination: PaginationParams,
@@ -97,6 +120,9 @@ class HotelService:
 
         result = await self.db.execute(query)
         hotels = result.scalars().all()
+
+        # Enrich hotels with calculated base prices
+        hotels = await self._enrich_hotels_with_base_prices(list(hotels))
 
         return list(hotels), total
 
