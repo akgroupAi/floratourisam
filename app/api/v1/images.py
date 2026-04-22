@@ -77,6 +77,9 @@ async def upload_image(
                    f"Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
         )
 
+    # --- get content type ---
+    content_type = file.content_type or "application/octet-stream"
+
     # --- read & validate size ---
     content = await file.read()
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
