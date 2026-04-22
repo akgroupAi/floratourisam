@@ -7,8 +7,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 
-from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
+from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireApartmentManager
 from app.models.apartment import Apartment
+from app.models.user import User
 from app.schemas.common import MessageResponse, PaginatedResponse
 from app.schemas.review import (
     AdminReviewApprove,
@@ -18,6 +19,8 @@ from app.schemas.review import (
     ReviewResponse,
 )
 from app.services.review_service import ReviewService
+from app.utils.enums import UserRole
+from app.utils.resource_auth import check_resource_access, filter_resources_by_user
 
 router = APIRouter()
 
@@ -180,6 +183,19 @@ class ApartmentResponse(BaseModel):
         from_attributes = True
 
 
+class AssignApartmentManagerRequest(BaseModel):
+    """Request to assign an apartment manager."""
+    manager_id: Optional[UUID] = Field(None, description="Apartment manager ID, or None to unassign")
+
+
+class ManagerResponse(BaseModel):
+    """Response with manager info."""
+    id: UUID
+    email: str
+    full_name: str
+    role: str
+
+
 # ============== APARTMENT KPIs ==============
 
 
@@ -215,8 +231,9 @@ async def get_apartment_totals(db: DatabaseSession):
 # ============== APARTMENT CRUD ==============
 
 
-@router.get("", response_model=PaginatedResponse[ApartmentResponse], dependencies=[RequireAdmin])
+@router.get("", response_model=PaginatedResponse[ApartmentResponse], dependencies=[RequireApartmentManager])
 async def list_apartments(
+    current_user: CurrentUser,
     db: DatabaseSession,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -226,8 +243,15 @@ async def list_apartments(
     is_active: Optional[bool] = None,
     is_available: Optional[bool] = None,
 ):
-    """List all apartments with filtering."""
+    """
+    List apartments.
+    - Super Admin/Admin: See all apartments
+    - Apartment Manager: See only their assigned apartments
+    """
     query = select(Apartment).where(Apartment.is_deleted == False)
+    
+    # Filter by user access
+    query = await filter_resources_by_user(Apartment, current_user, query)
 
     if search:
         query = query.where(
@@ -461,3 +485,73 @@ async def delete_review_admin(
         return MessageResponse(message="Review deleted successfully")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# ============== MANAGER ASSIGNMENT ==============
+
+
+@router.post("/{apartment_id}/assign-manager", response_model=dict, dependencies=[RequireAdmin])
+async def assign_apartment_manager(
+    apartment_id: UUID,
+    request: AssignApartmentManagerRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Assign or unassign an apartment manager (admin only)."""
+    # Verify apartment exists
+    result = await db.execute(
+        select(Apartment).where(Apartment.id == apartment_id, Apartment.is_deleted == False)
+    )
+    apartment = result.scalar_one_or_none()
+    if not apartment:
+        raise HTTPException(status_code=404, detail="Apartment not found")
+    
+    # If assigning, verify manager exists and has apartment_manager role
+    if request.manager_id:
+        result = await db.execute(
+            select(User).where(User.id == request.manager_id)
+        )
+        manager = result.scalar_one_or_none()
+        if not manager:
+            raise HTTPException(status_code=404, detail="Manager user not found")
+        if manager.role != UserRole.APARTMENT_MANAGER.value:
+            raise HTTPException(
+                status_code=400,
+                detail="User must have apartment_manager role"
+            )
+    
+    # Update apartment manager
+    apartment.manager_id = request.manager_id
+    apartment.updated_by = current_user.id
+    await db.commit()
+    await db.refresh(apartment)
+    
+    action = "assigned" if request.manager_id else "unassigned"
+    return {
+        "message": f"Apartment manager {action}",
+        "apartment_id": str(apartment.id),
+        "manager_id": str(apartment.manager_id) if apartment.manager_id else None
+    }
+
+
+@router.get("/{apartment_id}/manager", response_model=Optional[ManagerResponse], dependencies=[RequireAdmin])
+async def get_apartment_manager(
+    apartment_id: UUID,
+    db: DatabaseSession,
+):
+    """Get the manager assigned to an apartment."""
+    result = await db.execute(
+        select(Apartment).where(Apartment.id == apartment_id, Apartment.is_deleted == False)
+    )
+    apartment = result.scalar_one_or_none()
+    if not apartment:
+        raise HTTPException(status_code=404, detail="Apartment not found")
+    
+    if not apartment.manager_id:
+        return None
+    
+    result = await db.execute(
+        select(User).where(User.id == apartment.manager_id)
+    )
+    manager = result.scalar_one_or_none()
+    return manager

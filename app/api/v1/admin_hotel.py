@@ -7,8 +7,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 
-from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
+from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireHotelManager
 from app.models.hotel import Hotel, Room
+from app.models.user import User
 from app.schemas.common import MessageResponse, PaginatedResponse
 from app.schemas.review import (
     AdminReviewApprove,
@@ -17,6 +18,8 @@ from app.schemas.review import (
     ReviewResponse,
 )
 from app.services.review_service import ReviewService
+from app.utils.enums import UserRole
+from app.utils.resource_auth import check_resource_access, filter_resources_by_user
 
 router = APIRouter()
 
@@ -44,7 +47,17 @@ class NearbyTransport(BaseModel):
     description: Optional[str] = None
 
 
-class HotelCreate(BaseModel):
+class AssignHotelManagerRequest(BaseModel):
+    """Request to assign a hotel manager."""
+    manager_id: Optional[UUID] = Field(None, description="Hotel manager ID, or None to unassign")
+
+
+class ManagerResponse(BaseModel):
+    """Response with manager info."""
+    id: UUID
+    email: str
+    full_name: str
+    role: str
     """Schema for creating a hotel."""
 
     name: str = Field(..., min_length=2, max_length=255)
@@ -281,8 +294,9 @@ async def get_hotel_totals(db: DatabaseSession):
 # ============== HOTEL CRUD ==============
 
 
-@router.get("", response_model=PaginatedResponse[HotelResponse], dependencies=[RequireAdmin])
+@router.get("", response_model=PaginatedResponse[HotelResponse], dependencies=[RequireHotelManager])
 async def list_hotels(
+    current_user: CurrentUser,
     db: DatabaseSession,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -291,8 +305,15 @@ async def list_hotels(
     is_active: Optional[bool] = None,
     star_rating: Optional[int] = None,
 ):
-    """List all hotels with filtering."""
+    """
+    List hotels. 
+    - Super Admin/Admin: See all hotels
+    - Hotel Manager: See only their assigned hotels
+    """
     query = select(Hotel).where(Hotel.is_deleted == False)
+    
+    # Filter by user access
+    query = await filter_resources_by_user(Hotel, current_user, query)
 
     if search:
         query = query.where(
@@ -665,3 +686,73 @@ async def delete_room(
     room.deleted_by = current_user.id
     await db.commit()
     return MessageResponse(message="Room deleted successfully")
+
+
+# ============== MANAGER ASSIGNMENT ==============
+
+
+@router.post("/{hotel_id}/assign-manager", response_model=dict, dependencies=[RequireAdmin])
+async def assign_hotel_manager(
+    hotel_id: UUID,
+    request: AssignHotelManagerRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Assign or unassign a hotel manager (admin only)."""
+    # Verify hotel exists
+    result = await db.execute(
+        select(Hotel).where(Hotel.id == hotel_id, Hotel.is_deleted == False)
+    )
+    hotel = result.scalar_one_or_none()
+    if not hotel:
+        raise HTTPException(status_code=404, detail="Hotel not found")
+    
+    # If assigning, verify manager exists and has hotel_manager role
+    if request.manager_id:
+        result = await db.execute(
+            select(User).where(User.id == request.manager_id)
+        )
+        manager = result.scalar_one_or_none()
+        if not manager:
+            raise HTTPException(status_code=404, detail="Manager user not found")
+        if manager.role != UserRole.HOTEL_MANAGER.value:
+            raise HTTPException(
+                status_code=400,
+                detail="User must have hotel_manager role"
+            )
+    
+    # Update hotel manager
+    hotel.manager_id = request.manager_id
+    hotel.updated_by = current_user.id
+    await db.commit()
+    await db.refresh(hotel)
+    
+    action = "assigned" if request.manager_id else "unassigned"
+    return {
+        "message": f"Hotel manager {action}",
+        "hotel_id": str(hotel.id),
+        "manager_id": str(hotel.manager_id) if hotel.manager_id else None
+    }
+
+
+@router.get("/{hotel_id}/manager", response_model=Optional[ManagerResponse], dependencies=[RequireAdmin])
+async def get_hotel_manager(
+    hotel_id: UUID,
+    db: DatabaseSession,
+):
+    """Get the manager assigned to a hotel."""
+    result = await db.execute(
+        select(Hotel).where(Hotel.id == hotel_id, Hotel.is_deleted == False)
+    )
+    hotel = result.scalar_one_or_none()
+    if not hotel:
+        raise HTTPException(status_code=404, detail="Hotel not found")
+    
+    if not hotel.manager_id:
+        return None
+    
+    result = await db.execute(
+        select(User).where(User.id == hotel.manager_id)
+    )
+    manager = result.scalar_one_or_none()
+    return manager

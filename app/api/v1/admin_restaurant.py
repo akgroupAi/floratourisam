@@ -8,9 +8,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 
-from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
+from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireRestaurantManager
 from app.models.restaurant import DiningPass, DiningPassPurchase, MealBooking, MenuCategory, MenuItem, Restaurant, Thali
+from app.models.user import User
 from app.schemas.common import MessageResponse, PaginatedResponse
+from app.utils.enums import UserRole
+from app.utils.resource_auth import check_resource_access, filter_resources_by_user
 
 router = APIRouter()
 
@@ -138,6 +141,19 @@ class RestaurantResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AssignRestaurantManagerRequest(BaseModel):
+    """Request to assign a restaurant manager."""
+    manager_id: Optional[UUID] = Field(None, description="Restaurant manager ID, or None to unassign")
+
+
+class ManagerResponse(BaseModel):
+    """Response with manager info."""
+    id: UUID
+    email: str
+    full_name: str
+    role: str
 
 
 # ---- Menu Category schemas ----
@@ -341,8 +357,9 @@ async def get_restaurant_totals(db: DatabaseSession):
 # ============== RESTAURANT CRUD ==============
 
 
-@router.get("", response_model=PaginatedResponse[RestaurantResponse], dependencies=[RequireAdmin])
+@router.get("", response_model=PaginatedResponse[RestaurantResponse], dependencies=[RequireRestaurantManager])
 async def list_restaurants(
+    current_user: CurrentUser,
     db: DatabaseSession,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -351,8 +368,15 @@ async def list_restaurants(
     is_active: Optional[bool] = None,
     cuisine_type: Optional[str] = None,
 ):
-    """List all restaurants with filtering."""
+    """
+    List restaurants.
+    - Super Admin/Admin: See all restaurants
+    - Restaurant Manager: See only their assigned restaurants
+    """
     query = select(Restaurant).where(Restaurant.is_deleted == False)
+    
+    # Filter by user access
+    query = await filter_resources_by_user(Restaurant, current_user, query)
 
     if search:
         query = query.where(
@@ -1280,3 +1304,73 @@ async def cancel_pass_purchase(
     purchase.updated_by = current_user.id
     await db.commit()
     return MessageResponse(message="Dining pass cancelled successfully")
+
+
+# ============== MANAGER ASSIGNMENT ==============
+
+
+@router.post("/{restaurant_id}/assign-manager", response_model=dict, dependencies=[RequireAdmin])
+async def assign_restaurant_manager(
+    restaurant_id: UUID,
+    request: AssignRestaurantManagerRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Assign or unassign a restaurant manager (admin only)."""
+    # Verify restaurant exists
+    result = await db.execute(
+        select(Restaurant).where(Restaurant.id == restaurant_id, Restaurant.is_deleted == False)
+    )
+    restaurant = result.scalar_one_or_none()
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    
+    # If assigning, verify manager exists and has restaurant_manager role
+    if request.manager_id:
+        result = await db.execute(
+            select(User).where(User.id == request.manager_id)
+        )
+        manager = result.scalar_one_or_none()
+        if not manager:
+            raise HTTPException(status_code=404, detail="Manager user not found")
+        if manager.role != UserRole.RESTAURANT_MANAGER.value:
+            raise HTTPException(
+                status_code=400,
+                detail="User must have restaurant_manager role"
+            )
+    
+    # Update restaurant manager
+    restaurant.manager_id = request.manager_id
+    restaurant.updated_by = current_user.id
+    await db.commit()
+    await db.refresh(restaurant)
+    
+    action = "assigned" if request.manager_id else "unassigned"
+    return {
+        "message": f"Restaurant manager {action}",
+        "restaurant_id": str(restaurant.id),
+        "manager_id": str(restaurant.manager_id) if restaurant.manager_id else None
+    }
+
+
+@router.get("/{restaurant_id}/manager", response_model=Optional[ManagerResponse], dependencies=[RequireAdmin])
+async def get_restaurant_manager(
+    restaurant_id: UUID,
+    db: DatabaseSession,
+):
+    """Get the manager assigned to a restaurant."""
+    result = await db.execute(
+        select(Restaurant).where(Restaurant.id == restaurant_id, Restaurant.is_deleted == False)
+    )
+    restaurant = result.scalar_one_or_none()
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    
+    if not restaurant.manager_id:
+        return None
+    
+    result = await db.execute(
+        select(User).where(User.id == restaurant.manager_id)
+    )
+    manager = result.scalar_one_or_none()
+    return manager

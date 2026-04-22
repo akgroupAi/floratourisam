@@ -11,6 +11,7 @@ class UserRole(str, Enum):
     PATIENT = "patient"
     DOCTOR = "doctor"
     HOTEL_MANAGER = "hotel_manager"
+    APARTMENT_MANAGER = "apartment_manager"
     RESTAURANT_MANAGER = "restaurant_manager"
 
 

@@ -4,6 +4,8 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status, UploadFile, File
+from sqlalchemy import select
+from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.schemas.common import PaginatedResponse, PaginationParams
@@ -13,6 +15,9 @@ from app.schemas.user import (
 )
 from app.services.user_service import UserService
 from app.utils.enums import UserRole
+from app.models.hotel import Hotel
+from app.models.apartment import Apartment
+from app.models.restaurant import Restaurant
 
 router = APIRouter()
 
@@ -103,3 +108,97 @@ async def delete_user(user_id: UUID, current_user: CurrentUser, db: DatabaseSess
         raise HTTPException(status_code=404, detail="User not found")
     await service.delete(user, current_user.id)
     return {"message": "User deleted"}
+
+
+# ============== RESOURCE ASSIGNMENT ==============
+
+
+class ResourceAssignmentResponse(BaseModel):
+    """Response showing all resources assigned to a user."""
+    user_id: UUID
+    email: str
+    role: str
+    hotels: list[dict]
+    apartments: list[dict]
+    restaurants: list[dict]
+    
+    class Config:
+        from_attributes = True
+
+
+@router.get("/{user_id}/assigned-resources", response_model=ResourceAssignmentResponse, dependencies=[RequireAdmin])
+async def get_user_assigned_resources(user_id: UUID, db: DatabaseSession):
+    """Get all resources (hotels, apartments, restaurants) assigned to a user."""
+    # Get user
+    service = UserService(db)
+    user = await service.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get assigned resources based on user role
+    hotels = []
+    apartments = []
+    restaurants = []
+    
+    if user.role == UserRole.HOTEL_MANAGER.value:
+        result = await db.execute(
+            select(Hotel).where(
+                Hotel.manager_id == user_id,
+                Hotel.is_deleted == False
+            )
+        )
+        hotels = [
+            {
+                "id": str(h.id),
+                "name": h.name,
+                "city": h.city,
+                "country": h.country,
+                "is_active": h.is_active
+            }
+            for h in result.scalars().all()
+        ]
+    
+    elif user.role == UserRole.APARTMENT_MANAGER.value:
+        result = await db.execute(
+            select(Apartment).where(
+                Apartment.manager_id == user_id,
+                Apartment.is_deleted == False
+            )
+        )
+        apartments = [
+            {
+                "id": str(a.id),
+                "name": a.name,
+                "city": a.city,
+                "country": a.country,
+                "is_active": a.is_active
+            }
+            for a in result.scalars().all()
+        ]
+    
+    elif user.role == UserRole.RESTAURANT_MANAGER.value:
+        result = await db.execute(
+            select(Restaurant).where(
+                Restaurant.manager_id == user_id,
+                Restaurant.is_deleted == False
+            )
+        )
+        restaurants = [
+            {
+                "id": str(r.id),
+                "name": r.name,
+                "city": r.city,
+                "country": r.country,
+                "is_active": r.is_active
+            }
+            for r in result.scalars().all()
+        ]
+    
+    return ResourceAssignmentResponse(
+        user_id=user.id,
+        email=user.email,
+        role=user.role,
+        hotels=hotels,
+        apartments=apartments,
+        restaurants=restaurants
+    )

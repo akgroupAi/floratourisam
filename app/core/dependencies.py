@@ -162,6 +162,9 @@ RequirePatient = Depends(
 RequireHotelManager = Depends(
     require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.HOTEL_MANAGER])
 )
+RequireApartmentManager = Depends(
+    require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.APARTMENT_MANAGER])
+)
 RequireRestaurantManager = Depends(
     require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.RESTAURANT_MANAGER])
 )
