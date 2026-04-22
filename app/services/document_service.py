@@ -217,8 +217,6 @@ class DocumentService:
 
     async def get_file_path(
         self, document_id: uuid.UUID, patient_id: uuid.UUID
-    async def get_file_path(
-        self, document_id: uuid.UUID, patient_id: uuid.UUID
     ) -> Optional[str]:
         """Get file path for download. Reconstructs path from document_id if needed."""
         result = await self.db.execute(
