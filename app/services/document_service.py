@@ -217,8 +217,10 @@ class DocumentService:
 
     async def get_file_path(
         self, document_id: uuid.UUID, patient_id: uuid.UUID
+    async def get_file_path(
+        self, document_id: uuid.UUID, patient_id: uuid.UUID
     ) -> Optional[str]:
-        """Get file path for download."""
+        """Get file path for download. Reconstructs path from document_id if needed."""
         result = await self.db.execute(
             select(MedicalReport).where(
                 MedicalReport.id == document_id,
@@ -228,10 +230,37 @@ class DocumentService:
         )
         document = result.scalar_one_or_none()
 
-        if not document or not document.file_url:
+        if not document:
             return None
-
-        return document.file_url
+        
+        # If file_url is an API endpoint (starts with /api), reconstruct filesystem path
+        if document.file_url and document.file_url.startswith("/api"):
+            # Find file by looking in patient directory for document_id with any extension
+            patient_dir = self.upload_dir / str(patient_id)
+            if not patient_dir.exists():
+                return None
+            
+            # Search for file matching document_id.*
+            for file in patient_dir.glob(f"{document_id}.*"):
+                if file.is_file():
+                    return str(file)
+            
+            return None
+        
+        # Old format: file_url is already the filesystem path
+        if document.file_url and os.path.exists(document.file_url):
+            return document.file_url
+        
+        # If no file_url stored, try to find it in the directory
+        patient_dir = self.upload_dir / str(patient_id)
+        if not patient_dir.exists():
+            return None
+        
+        for file in patient_dir.glob(f"{document_id}.*"):
+            if file.is_file():
+                return str(file)
+        
+        return None
 
     async def delete_document(self, document_id: uuid.UUID, patient_id: uuid.UUID) -> bool:
         """Delete a document."""

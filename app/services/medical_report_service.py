@@ -284,9 +284,36 @@ class MedicalReportService:
     # ------------------------------------------------------------------
 
     async def get_file_path(self, report_id: UUID, patient_id: UUID) -> Optional[str]:
+        """Get filesystem path for download. Reconstructs path from report_id if needed."""
         report = await self.get_report(report_id, patient_id)
-        if not report or not report.file_url:
+        if not report:
             return None
-        if not os.path.exists(report.file_url):
+        
+        # If file_url is an API endpoint (starts with /api), reconstruct filesystem path
+        if report.file_url and report.file_url.startswith("/api"):
+            # Find file by looking in patient directory for report_id with any extension
+            patient_dir = self.upload_dir / str(patient_id)
+            if not patient_dir.exists():
+                return None
+            
+            # Search for file matching report_id.*
+            for file in patient_dir.glob(f"{report_id}.*"):
+                if file.is_file():
+                    return str(file)
+            
             return None
-        return report.file_url
+        
+        # Old format: file_url is already the filesystem path
+        if report.file_url and os.path.exists(report.file_url):
+            return report.file_url
+        
+        # If no file_url stored, try to find it in the directory
+        patient_dir = self.upload_dir / str(patient_id)
+        if not patient_dir.exists():
+            return None
+        
+        for file in patient_dir.glob(f"{report_id}.*"):
+            if file.is_file():
+                return str(file)
+        
+        return None
