@@ -77,6 +77,52 @@ async def get_room_messages(
     return messages
 
 
+@router.get("/rooms/{room_id}/participants", response_model=list)
+async def get_room_participants(
+    room_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Debug endpoint: Get all participants in a room with their IDs."""
+    service = ChatService(db)
+    
+    # Verify room exists
+    room = await service.get_room_by_id(room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    
+    # Verify user is participant
+    if not await service.is_participant(room_id, current_user.id):
+        raise HTTPException(status_code=403, detail="Not a participant")
+    
+    # Get all participants
+    from sqlalchemy import select
+    from app.models.chat import ChatParticipant
+    from app.models.user import User
+    
+    result = await db.execute(
+        select(ChatParticipant, User)
+        .join(User, ChatParticipant.user_id == User.id)
+        .where(
+            ChatParticipant.room_id == room_id,
+            ChatParticipant.is_deleted == False,
+        )
+    )
+    
+    participants = []
+    for participant, user in result.all():
+        participants.append({
+            "participant_id": str(participant.id),
+            "user_id": str(participant.user_id),  # ← This should match sender_id in messages
+            "user_name": user.full_name,
+            "user_role": user.role,
+            "joined_at": participant.joined_at.isoformat(),
+            "is_active": participant.is_active,
+        })
+    
+    return participants
+
+
 @router.post("/rooms/{room_id}/messages", response_model=ChatMessageResponse, status_code=status.HTTP_201_CREATED)
 async def send_message(
     room_id: UUID,
@@ -187,6 +233,17 @@ async def websocket_chat(websocket: WebSocket, room_id: str):
                                 await notification_service.manager.broadcast(
                                     room_id, {"type": "message", "data": msg_dict}
                                 )
+                                continue
+                            except ValueError as val_err:
+                                logger.error("websocket_message_validation_failed", error=str(val_err), sender=sender_id, room=room_id)
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "data": {
+                                        "message": "Failed to send message",
+                                        "detail": str(val_err)
+                                    }
+                                })
+                                await session.rollback()
                                 continue
                             except Exception:
                                 await session.rollback()

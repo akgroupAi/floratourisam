@@ -228,6 +228,21 @@ class ChatService:
         """Persist a message and update room counters."""
         now = datetime.now(timezone.utc)
 
+        # ✅ VERIFY sender is actually a participant in this room
+        is_participant = await self.is_participant(room_id, sender_id)
+        if not is_participant:
+            # Debug: Log what we're looking for
+            logger.error(
+                "sender_not_participant",
+                room_id=str(room_id),
+                sender_id=str(sender_id),
+                reason="Sender is not a participant in this room. Check if sender_id is USER_ID, not PATIENT_ID or DOCTOR_ID"
+            )
+            raise ValueError(
+                f"Sender {sender_id} is not a participant in room {room_id}. "
+                "Make sure sender_id is a User ID, not a Patient or Doctor ID."
+            )
+
         message = ChatMessage(
             room_id=room_id,
             sender_id=sender_id,
