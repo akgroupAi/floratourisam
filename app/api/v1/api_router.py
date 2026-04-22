@@ -16,6 +16,7 @@ from app.api.v1 import (
     careers, admin_career,
     admin_knowledge,
     admin_hospitality,
+    rbac_admin,
 )
 
 api_router = APIRouter()
@@ -63,6 +64,7 @@ api_router.include_router(admin_site.router, prefix="/admin/site", tags=["Admin 
 
 # Admin - RBAC (Role-Based Access Control)
 api_router.include_router(rbac.router, prefix="/admin/rbac", tags=["Admin - RBAC"])
+api_router.include_router(rbac_admin.router)  # Already has prefix
 
 # Admin - Dashboard KPIs
 api_router.include_router(dashboard.router, prefix="/admin/dashboard", tags=["Admin - Dashboard"])
