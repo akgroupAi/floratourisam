@@ -85,6 +85,7 @@ class SharedDocumentListItem(BaseSchema):
     id: UUID
     sender_id: UUID
     receiver_id: UUID
+    consultation_id: Optional[UUID] = None
     title: str
     file_name: str
     file_url: str
