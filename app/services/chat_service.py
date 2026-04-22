@@ -39,13 +39,22 @@ class ChatService:
         # Resolve participant IDs — they might be user, patient, or doctor IDs
         resolved_user_ids = set()
         resolved_user_ids.add(created_by)
+        
+        # DEBUG: Log input
+        logger.info(
+            "chat_room_create_start",
+            created_by=str(created_by),
+            input_participant_ids=[str(pid) for pid in data.participant_ids]
+        )
 
         for pid in data.participant_ids:
             # Check if it's a user ID
             user_result = await self.db.execute(
                 select(User.id).where(User.id == pid)
             )
-            if user_result.scalar_one_or_none():
+            user_found = user_result.scalar_one_or_none()
+            if user_found:
+                logger.info("participant_resolved_as_user", input_id=str(pid), resolved_to=str(user_found))
                 resolved_user_ids.add(pid)
                 continue
 
@@ -55,6 +64,7 @@ class ChatService:
             )
             patient_user_id = patient_result.scalar_one_or_none()
             if patient_user_id:
+                logger.info("participant_resolved_as_patient", input_id=str(pid), resolved_to=str(patient_user_id))
                 resolved_user_ids.add(patient_user_id)
                 continue
 
@@ -64,9 +74,11 @@ class ChatService:
             )
             doctor_user_id = doctor_result.scalar_one_or_none()
             if doctor_user_id:
+                logger.info("participant_resolved_as_doctor", input_id=str(pid), resolved_to=str(doctor_user_id))
                 resolved_user_ids.add(doctor_user_id)
                 continue
 
+            logger.error("participant_not_found", input_id=str(pid))
             raise ValueError(f"ID not found as user, patient, or doctor: {pid}")
 
         room = ChatRoom(
@@ -93,7 +105,14 @@ class ChatService:
             self.db.add(participant)
 
         await self.db.flush()
-        logger.info("chat_room_created", room_id=str(room.id), type=room.room_type)
+        
+        # DEBUG: Log final result
+        logger.info(
+            "chat_room_created",
+            room_id=str(room.id),
+            type=room.room_type,
+            resolved_user_ids=[str(uid) for uid in resolved_user_ids]
+        )
         return room
 
     async def get_or_create_direct_room(
@@ -231,15 +250,26 @@ class ChatService:
         # ✅ VERIFY sender is actually a participant in this room
         is_participant = await self.is_participant(room_id, sender_id)
         if not is_participant:
+            # DEBUG: Get all participants in this room to show what we're looking for
+            participants_result = await self.db.execute(
+                select(ChatParticipant.user_id).where(
+                    ChatParticipant.room_id == room_id,
+                    ChatParticipant.is_deleted == False,
+                )
+            )
+            actual_participants = [str(row.user_id) for row in participants_result.all()]
+            
             # Debug: Log what we're looking for
             logger.error(
                 "sender_not_participant",
                 room_id=str(room_id),
                 sender_id=str(sender_id),
+                actual_participants=actual_participants,
                 reason="Sender is not a participant in this room. Check if sender_id is USER_ID, not PATIENT_ID or DOCTOR_ID"
             )
             raise ValueError(
                 f"Sender {sender_id} is not a participant in room {room_id}. "
+                f"Room participants: {actual_participants}. "
                 "Make sure sender_id is a User ID, not a Patient or Doctor ID."
             )
 

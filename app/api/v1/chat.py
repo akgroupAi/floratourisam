@@ -36,9 +36,18 @@ async def list_chat_rooms(current_user: CurrentUser, db: DatabaseSession):
 async def create_chat_room(data: ChatRoomCreate, current_user: CurrentUser, db: DatabaseSession):
     """Create a chat room with participants."""
     service = ChatService(db)
+    
+    # DEBUG: Log what's being sent
+    logger.info(
+        "create_room_request",
+        current_user_id=str(current_user.id),
+        participant_ids=[str(pid) for pid in data.participant_ids]
+    )
+    
     try:
         room = await service.create_room(data, created_by=current_user.id)
     except ValueError as exc:
+        logger.error("create_room_validation_failed", error=str(exc), current_user=str(current_user.id))
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     # Build response
@@ -188,7 +197,39 @@ async def websocket_chat(websocket: WebSocket, room_id: str):
     try:
         async with async_session_factory() as session:
             service = ChatService(session)
+            
+            # DEBUG: Check room participants
+            from sqlalchemy import select
+            from app.models.chat import ChatParticipant
+            
+            logger.info(
+                "websocket_connect_debug",
+                room_id=room_id,
+                jwt_sender_id=sender_id
+            )
+            
+            participants_result = await session.execute(
+                select(ChatParticipant.user_id).where(
+                    ChatParticipant.room_id == room_id,
+                    ChatParticipant.is_deleted == False,
+                )
+            )
+            room_participants = [str(row.user_id) for row in participants_result.all()]
+            
+            logger.info(
+                "websocket_room_participants",
+                room_id=room_id,
+                jwt_sender_id=sender_id,
+                room_participants=room_participants
+            )
+            
             if not await service.is_participant(UUID(room_id), UUID(sender_id)):
+                logger.error(
+                    "websocket_sender_not_in_room",
+                    room_id=room_id,
+                    jwt_sender_id=sender_id,
+                    room_participants=room_participants
+                )
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Not a participant")
                 return
     except Exception as exc:
