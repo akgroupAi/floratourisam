@@ -1,5 +1,6 @@
 """RBAC Management API Endpoints."""
 
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -273,6 +274,64 @@ async def remove_role_from_user(
     if not removed:
         raise HTTPException(status_code=404, detail="User-role assignment not found")
     return MessageResponse(message="Role removed from user")
+
+
+@router.patch("/user-roles/{user_id}", response_model=MessageResponse)
+async def update_user_role(
+    user_id: UUID,
+    data: UserRoleAssign,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Update a user's role (change old role to new role).
+    
+    Powers the "Manage" dialog in Tab 2 to change user's role.
+    Request body should contain 'role_id' (UUID) to change to.
+    """
+    service = RBACService(db)
+    
+    # Verify user exists
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    try:
+        # Verify new role exists and get its name
+        new_role = await service.get_role_by_id(data.role_id)
+        if not new_role:
+            raise HTTPException(status_code=404, detail="Role not found")
+        
+        # Don't allow changing to same role
+        if user.role == new_role.name:
+            raise HTTPException(status_code=400, detail="User already has this role")
+        
+        # Update user role to new role name
+        user.role = new_role.name
+        user.updated_by = current_user.id
+        user.updated_at = datetime.utcnow()
+        
+        await db.commit()
+        await db.refresh(user)
+        
+        # Log the change to audit
+        await service._audit_log(
+            actor_id=current_user.id,
+            action="update_user_role",
+            target_type="user",
+            target_id=user.id,
+            target_name=user.email,
+            meta_data={
+                "old_role": user.role if user.role != new_role.name else None,
+                "new_role": new_role.name,
+                "role_id": str(data.role_id)
+            },
+            description=f"Changed user role to {new_role.name}"
+        )
+        
+        return MessageResponse(message=f"User role updated to {new_role.name}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/users/{user_id}/resources", response_model=UserWithRoleResponse)
