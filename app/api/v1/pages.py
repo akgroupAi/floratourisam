@@ -1559,6 +1559,535 @@ async def get_patient_accommodation_page(db: DatabaseSession):
     }
 
 
+# ============== INSIGHTS ==============
+
+@router.get("/insights")
+async def get_insights_section(db: DatabaseSession):
+    """Get dynamic medical tourism insights (blog) section.
+
+    Content sources:
+    - Hero (Badge, Title, Subtitle) -> CMSPage(slug='insights') + CMSBlock(section='hero')
+    - Cards -> BlogPost table (status='published', ordered by date)
+    """
+    from app.models.cms import CMSPage, CMSBlock
+    from app.models.site import BlogPost
+
+    # 1. Load CMS content
+    cms_result = await db.execute(
+        select(CMSPage).where(CMSPage.slug == "insights", CMSPage.is_deleted == False)
+    )
+    cms_page = cms_result.scalar_one_or_none()
+
+    intro = {
+        "badge": "Latest Insights",
+        "title": "Medical Tourism Insights",
+        "subtitle": "Stay informed with the latest tips, guides, and news about medical tourism",
+        "all_articles_link": {"text": "View All Articles", "url": "/blog"}
+    }
+
+    if cms_page:
+        blk_result = await db.execute(
+            select(CMSBlock)
+            .where(
+                CMSBlock.page_id == cms_page.id,
+                CMSBlock.section == "hero",
+                CMSBlock.is_visible == True,
+                CMSBlock.is_deleted == False
+            )
+        )
+        blk = blk_result.scalar_one_or_none()
+        if blk:
+            intro["badge"] = (blk.config or {}).get("badge", intro["badge"])
+            intro["title"] = blk.title or intro["title"]
+            intro["subtitle"] = blk.subtitle or blk.content or intro["subtitle"]
+            intro["all_articles_link"]["text"] = blk.cta_text or intro["all_articles_link"]["text"]
+            intro["all_articles_link"]["url"] = blk.cta_url or intro["all_articles_link"]["url"]
+
+    # 2. Load Blog Posts from DB
+    posts_result = await db.execute(
+        select(BlogPost)
+        .where(BlogPost.status == "published")
+        .order_by(BlogPost.published_at.desc().nullslast())
+        .limit(3)
+    )
+    posts = posts_result.scalars().all()
+
+    # 3. Build Cards
+    if posts:
+        cards = [
+            {
+                "id": str(p.id),
+                "title": p.title,
+                "slug": p.slug,
+                "excerpt": p.excerpt,
+                "category": p.category,
+                "featured_image": p.featured_image,
+                "published_at": p.published_at,
+                "read_time": f"{p.read_time_minutes} min read",
+                "url": f"/blog/{p.slug}"
+            }
+            for p in posts
+        ]
+    else:
+        # Fallback placeholders matching screenshot
+        cards = [
+            {
+                "id": None,
+                "title": "Why India is a Top Choice for Knee Replacement Surgery",
+                "slug": "why-india-knee-replacement",
+                "excerpt": "Discover why thousands of international patients choose India for joint replacement surgeries...",
+                "category": "Orthopedics",
+                "featured_image": "/images/blog/knee-replacement.jpg",
+                "published_at": "2024-12-28T00:00:00Z",
+                "read_time": "5 min read",
+                "url": "/blog/why-india-knee-replacement"
+            },
+            {
+                "id": None,
+                "title": "How AI is Revolutionizing Your Medical Tourism Journey",
+                "slug": "how-ai-revolutionizing",
+                "excerpt": "Learn how Flora's AI technology matches you with the perfect specialists and streamlines every step...",
+                "category": "Technology",
+                "featured_image": "/images/blog/ai-medical.jpg",
+                "published_at": "2024-12-25T00:00:00Z",
+                "read_time": "4 min read",
+                "url": "/blog/how-ai-revolutionizing"
+            },
+            {
+                "id": None,
+                "title": "5 Things to Know Before Your Medical Trip to India",
+                "slug": "5-things-to-know",
+                "excerpt": "Essential tips for international patients — from visa requirements to cultural insights...",
+                "category": "Travel Tips",
+                "featured_image": "/images/blog/taj-mahal.jpg",
+                "published_at": "2024-12-20T00:00:00Z",
+                "read_time": "6 min read",
+                "url": "/blog/5-things-to-know"
+            }
+        ]
+
+    return {
+        "intro": intro,
+        "articles": cards
+    }
+
+
+# ============== GLOBAL CTA ==============
+
+@router.get("/global-cta")
+async def get_global_cta(db: DatabaseSession):
+    """Get dynamic global CTA section (footer cta).
+
+    Content source: CMSPage(slug='global-cta') + CMSBlock(section='cta' & 'trust_bar')
+    """
+    from app.models.cms import CMSPage, CMSBlock
+
+    # 1. Load CMS page
+    cms_result = await db.execute(
+        select(CMSPage).where(CMSPage.slug == "global-cta", CMSPage.is_deleted == False)
+    )
+    cms_page = cms_result.scalar_one_or_none()
+
+    # Defaults
+    cta_data = {
+        "title": "Ready to Start Your Healthcare Journey?",
+        "subtitle": "Join thousands of international patients who trust Flora for world-class medical care in India.",
+        "button": {"text": "Get Free Consultation", "url": "/contact"}
+    }
+    trust_bar = [
+        {"icon": "shield-check", "label": "HIPAA Compliant"},
+        {"icon": "globe",        "label": "30+ Countries"},
+        {"icon": "clock",        "label": "24/7 Support"}
+    ]
+
+    if cms_page:
+        # Load CTA block
+        blk_result = await db.execute(
+            select(CMSBlock)
+            .where(CMSBlock.page_id == cms_page.id, CMSBlock.section == "cta", CMSBlock.is_visible == True)
+        )
+        cta_blk = blk_result.scalar_one_or_none()
+        if cta_blk:
+            cta_data["title"] = cta_blk.title or cta_data["title"]
+            cta_data["subtitle"] = cta_blk.subtitle or cta_blk.content or cta_data["subtitle"]
+            cta_data["button"]["text"] = cta_blk.cta_text or cta_data["button"]["text"]
+            cta_data["button"]["url"] = cta_blk.cta_url or cta_data["button"]["url"]
+
+        # Load Trust Bar block
+        trust_result = await db.execute(
+            select(CMSBlock)
+            .where(CMSBlock.page_id == cms_page.id, CMSBlock.section == "trust_bar", CMSBlock.is_visible == True)
+        )
+        trust_blk = trust_result.scalar_one_or_none()
+        if trust_blk and trust_blk.items:
+            trust_bar = trust_blk.items
+
+    return {
+        "cta": cta_data,
+        "trust_bar": trust_bar
+    }
+
+
+# ============== FAQ SECTION ==============
+
+@router.get("/faq-section")
+async def get_faq_section(db: DatabaseSession):
+    """Get dynamic FAQ section for landing pages.
+
+    Content sources:
+    - Hero (Badge, Title, Subtitle) -> CMSPage(slug='faq') + CMSBlock(section='hero')
+    - Items -> FAQ table (is_active, is_featured, ordered by display_order)
+    """
+    from app.models.cms import CMSPage, CMSBlock
+    from app.models.site import FAQ
+
+    # 1. Load CMS content
+    cms_result = await db.execute(
+        select(CMSPage).where(CMSPage.slug == "faq", CMSPage.is_deleted == False)
+    )
+    cms_page = cms_result.scalar_one_or_none()
+
+    intro = {
+        "badge": "Questions?",
+        "title": "Frequently Asked Questions",
+        "subtitle": "Get answers to common questions about your medical tourism journey"
+    }
+
+    if cms_page:
+        blk_result = await db.execute(
+            select(CMSBlock)
+            .where(
+                CMSBlock.page_id == cms_page.id,
+                CMSBlock.section == "hero",
+                CMSBlock.is_visible == True,
+                CMSBlock.is_deleted == False
+            )
+        )
+        blk = blk_result.scalar_one_or_none()
+        if blk:
+            intro["badge"] = (blk.config or {}).get("badge", intro["badge"])
+            intro["title"] = blk.title or intro["title"]
+            intro["subtitle"] = blk.subtitle or blk.content or intro["subtitle"]
+
+    # 2. Load FAQs from DB
+    faq_result = await db.execute(
+        select(FAQ)
+        .where(
+            FAQ.is_active == True, 
+            FAQ.is_featured == True,
+            FAQ.is_deleted == False
+        )
+        .order_by(FAQ.display_order)
+        .limit(10)
+    )
+    faqs = faq_result.scalars().all()
+
+    # 3. Build Items
+    if faqs:
+        items = [
+            {
+                "id": str(f.id),
+                "question": f.question,
+                "answer": f.answer,
+                "category": f.category
+            }
+            for f in faqs
+        ]
+    else:
+        # Fallback placeholders matching screenshot
+        items = [
+            {
+                "id": None,
+                "question": "How do I start my medical journey with Flora?",
+                "answer": "You can start by sharing your medical requirements and preferences with our AI assistant or consultants. We will help you find the best doctors and hospitals.",
+                "category": "General"
+            },
+            {
+                "id": None,
+                "question": "Is the AI actually diagnosing me?",
+                "answer": "No, our AI assistant helps in organizing your medical journey, matching you with specialists, and providing information. Actual diagnosis is always performed by certified medical professionals.",
+                "category": "Medical"
+            },
+            {
+                "id": None,
+                "question": "What is included in the treatment packages?",
+                "answer": "Packages typically include treatment costs, hospital accommodation, airport transfers, and local assistance. We can customize them based on your needs.",
+                "category": "Packages"
+            },
+            {
+                "id": None,
+                "question": "How long does the entire process take?",
+                "answer": "The duration depends on the treatment type. Typically, the planning phase takes 1-2 weeks, followed by your travel and recovery period.",
+                "category": "Travel"
+            },
+            {
+                "id": None,
+                "question": "Are the hospitals and doctors really certified?",
+                "answer": "Yes, we only partner with leading NABH & JCI accredited hospitals and internationally trained surgeons with proven track records.",
+                "category": "Medical"
+            },
+            {
+                "id": None,
+                "question": "What if I need follow-up care after returning home?",
+                "answer": "We provide coordination for follow-up consultations via tele-health and ensure your local doctor receives all necessary medical documentation.",
+                "category": "Medical"
+            }
+        ]
+
+    return {
+        "intro": intro,
+        "items": items
+    }
+
+
+# ============== PATIENT STORIES ==============
+
+@router.get("/patient-stories")
+async def get_patient_stories(db: DatabaseSession):
+    """Get dynamic patient stories/testimonials section.
+
+    Content sources:
+    - Hero (Badge, Title, Subtitle) -> CMSPage(slug='patient-stories') + CMSBlock(section='hero')
+    - Cards -> Testimonial table (is_approved, is_featured, ordered by display_order)
+    """
+    from app.models.cms import CMSPage, CMSBlock
+    from app.models.site import Testimonial
+
+    # 1. Load CMS content
+    cms_result = await db.execute(
+        select(CMSPage).where(CMSPage.slug == "patient-stories", CMSPage.is_deleted == False)
+    )
+    cms_page = cms_result.scalar_one_or_none()
+
+    intro = {
+        "badge": "01 Patient Stories",
+        "title": "Hear From Our Patients",
+        "subtitle": "Real video testimonials from international patients who trusted Flora"
+    }
+
+    if cms_page:
+        blk_result = await db.execute(
+            select(CMSBlock)
+            .where(
+                CMSBlock.page_id == cms_page.id,
+                CMSBlock.section == "hero",
+                CMSBlock.is_visible == True,
+                CMSBlock.is_deleted == False
+            )
+        )
+        blk = blk_result.scalar_one_or_none()
+        if blk:
+            intro["badge"] = (blk.config or {}).get("badge", intro["badge"])
+            intro["title"] = blk.title or intro["title"]
+            intro["subtitle"] = blk.subtitle or blk.content or intro["subtitle"]
+
+    # 2. Load Testimonials from DB
+    testimonials_result = await db.execute(
+        select(Testimonial)
+        .where(
+            Testimonial.is_approved == True, 
+            Testimonial.is_featured == True,
+            Testimonial.is_deleted == False
+        )
+        .order_by(Testimonial.display_order)
+        .limit(10)
+    )
+    testimonials = testimonials_result.scalars().all()
+
+    # 3. Build Cards
+    if testimonials:
+        cards = [
+            {
+                "id": str(t.id),
+                "patient_name": t.patient_name,
+                "patient_country": t.patient_country,
+                "patient_avatar": t.patient_avatar,
+                "treatment_name": t.treatment_name,
+                "hospital_name": t.hospital_name,
+                "rating": t.rating,
+                "content": t.content,
+                "video_url": t.video_url,
+                "video_thumbnail": t.video_thumbnail,
+                "video_duration": t.video_duration,
+                "is_verified": t.is_verified,
+            }
+            for t in testimonials
+        ]
+    else:
+        # Fallback placeholders matching screenshot
+        cards = [
+            {
+                "id": None,
+                "patient_name": "Ahmed Al-Rashid",
+                "patient_country": "United Arab Emirates",
+                "patient_avatar": "/images/avatars/ahmed.jpg",
+                "treatment_name": "Cardiac Surgery",
+                "hospital_name": "Fortis Hospital",
+                "rating": 5.0,
+                "content": "The team was with me 24/7. Dr. Patel and her team at Fortis were exceptional!",
+                "video_url": "https://example.com/video1.mp4",
+                "video_thumbnail": "/images/testimonials/ahmed_thumb.jpg",
+                "video_duration": "2:45",
+                "is_verified": True,
+            },
+            {
+                "id": None,
+                "patient_name": "Sarah Johnson",
+                "patient_country": "United Kingdom",
+                "patient_avatar": "/images/avatars/sarah.jpg",
+                "treatment_name": "Orthopedic Treatment",
+                "hospital_name": "OrthoSport Speciality Hospital",
+                "rating": 5.0,
+                "content": "I couldn't be happier with the results of my surgery. Highly recommend!",
+                "video_url": "https://example.com/video2.mp4",
+                "video_thumbnail": "/images/testimonials/sarah_thumb.jpg",
+                "video_duration": "3:15",
+                "is_verified": True,
+            },
+            {
+                "id": None,
+                "patient_name": "Grace Okonkwo",
+                "patient_country": "Nigeria",
+                "patient_avatar": "/images/avatars/grace.jpg",
+                "treatment_name": "Dental Implants",
+                "hospital_name": "Aashwi ENT Hospital",
+                "rating": 4.9,
+                "content": "Excellent service and world-class facilities. Thank you Flora!",
+                "video_url": "https://example.com/video3.mp4",
+                "video_thumbnail": "/images/testimonials/grace_thumb.jpg",
+                "video_duration": "1:50",
+                "is_verified": True,
+            }
+        ]
+
+    return {
+        "intro": intro,
+        "testimonials": cards
+    }
+
+
+# ============== HOSPITAL PARTNERS ==============
+
+@router.get("/hospital-partners")
+async def get_hospital_partners(db: DatabaseSession):
+    """Get dynamic hospital partners section.
+
+    Content sources:
+    - Hero (Badge, Title, Subtitle) -> CMSPage(slug='hospital-partners') + CMSBlock(section='hero')
+    - Cards -> Hospital table (is_active, ordered by featured/rating)
+    """
+    from app.models.cms import CMSPage, CMSBlock
+    from app.models.hospital import Hospital
+
+    # 1. Load CMS content
+    cms_result = await db.execute(
+        select(CMSPage).where(CMSPage.slug == "hospital-partners", CMSPage.is_deleted == False)
+    )
+    cms_page = cms_result.scalar_one_or_none()
+
+    intro = {
+        "badge": "Verified & Accredited",
+        "title": "Trusted Hospital Partners",
+        "subtitle": "Partnered with leading NABH & JCI accredited hospitals for world-class treatment"
+    }
+
+    if cms_page:
+        blk_result = await db.execute(
+            select(CMSBlock)
+            .where(
+                CMSBlock.page_id == cms_page.id,
+                CMSBlock.section == "hero",
+                CMSBlock.is_visible == True,
+                CMSBlock.is_deleted == False
+            )
+        )
+        blk = blk_result.scalar_one_or_none()
+        if blk:
+            intro["badge"] = (blk.config or {}).get("badge", intro["badge"])
+            intro["title"] = blk.title or intro["title"]
+            intro["subtitle"] = blk.subtitle or blk.content or intro["subtitle"]
+
+    # 2. Load Hospitals from DB
+    hospitals_result = await db.execute(
+        select(Hospital)
+        .where(Hospital.is_active == True, Hospital.is_deleted == False)
+        .order_by(Hospital.is_featured.desc(), Hospital.rating.desc().nullslast())
+        .limit(10)
+    )
+    hospitals = hospitals_result.scalars().all()
+
+    # 3. Build Cards
+    if hospitals:
+        hospital_cards = [
+            {
+                "id": str(h.id),
+                "name": h.name,
+                "slug": h.slug,
+                "city": h.city,
+                "short_description": h.short_description,
+                "cover_image_url": h.cover_image_url,
+                "logo_url": h.logo_url,
+                "rating": h.rating,
+                "is_verified": h.is_verified,
+                "is_featured": h.is_featured,
+                "accreditations": h.accreditations or [],
+                "url": f"/hospitals/{h.slug}"
+            }
+            for h in hospitals
+        ]
+    else:
+        # Fallback to placeholders matching screenshot
+        hospital_cards = [
+            {
+                "id": None,
+                "name": "OrthoSport Speciality Hospital",
+                "slug": "orthosport-speciality-hospital",
+                "city": "Ahmedabad",
+                "short_description": "Asia's First 360° Hospital having Diagnostic, Surgical and Advanced Rehab Centre...",
+                "cover_image_url": "/images/hospitals/orthosport.jpg",
+                "logo_url": None,
+                "rating": 4.9,
+                "is_verified": True,
+                "is_featured": True,
+                "accreditations": ["NABH", "JCI"],
+                "url": "/hospitals/orthosport-speciality-hospital"
+            },
+            {
+                "id": None,
+                "name": "Fusion Kidney Institute",
+                "slug": "fusion-kidney-institute",
+                "city": "Ahmedabad",
+                "short_description": "Fusion Kidney Institute (Fusion Hospital) is a super-specialty Urology & Kidney hospital...",
+                "cover_image_url": "/images/hospitals/fusion.jpg",
+                "logo_url": None,
+                "rating": 4.8,
+                "is_verified": True,
+                "is_featured": True,
+                "accreditations": ["NABH"],
+                "url": "/hospitals/fusion-kidney-institute"
+            },
+            {
+                "id": None,
+                "name": "Aashwi ENT Hospital - Bopal",
+                "slug": "aashwi-ent-hospital",
+                "city": "Ahmedabad",
+                "short_description": "Aashwi ENT Hospital is the premier ENT hospital in Ahmedabad, specializing in treating ear...",
+                "cover_image_url": "/images/hospitals/aashwi.jpg",
+                "logo_url": None,
+                "rating": 4.7,
+                "is_verified": True,
+                "is_featured": True,
+                "accreditations": ["NABH"],
+                "url": "/hospitals/aashwi-ent-hospital"
+            }
+        ]
+
+    return {
+        "intro": intro,
+        "hospitals": hospital_cards
+    }
+
+
 # ============== IMPACT NUMBERS ==============
 
 @router.get("/impact-numbers")
