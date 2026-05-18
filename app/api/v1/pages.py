@@ -1559,6 +1559,59 @@ async def get_patient_accommodation_page(db: DatabaseSession):
     }
 
 
+# ============== IMPACT NUMBERS ==============
+
+@router.get("/impact-numbers")
+async def get_impact_numbers(db: DatabaseSession):
+    """Get dynamic impact numbers/stats section.
+
+    Content source: CMSPage(slug='impact-stats') + CMSBlock(section='stats')
+    Fallback: Hardcoded defaults matching design requirements.
+    """
+    from app.models.cms import CMSPage, CMSBlock
+
+    # 1. Try to load from CMS
+    cms_result = await db.execute(
+        select(CMSPage).where(CMSPage.slug == "impact-stats", CMSPage.is_deleted == False)
+    )
+    cms_page = cms_result.scalar_one_or_none()
+
+    if cms_page:
+        blk_result = await db.execute(
+            select(CMSBlock)
+            .where(
+                CMSBlock.page_id == cms_page.id,
+                CMSBlock.section == "stats",
+                CMSBlock.is_visible == True,
+                CMSBlock.is_deleted == False
+            )
+        )
+        blk = blk_result.scalar_one_or_none()
+        if blk:
+            return {
+                "title": blk.title or "Our Impact in Numbers",
+                "subtitle": blk.subtitle or "Trusted by thousands of International patients for their healthcare journey",
+                "items": blk.items or [
+                    {"value": "5,000+", "label": "Patients Served", "icon": "users"},
+                    {"value": "2,000+", "label": "Expert Doctors", "icon": "stethoscope"},
+                    {"value": "98%", "label": "Satisfaction Rate", "icon": "thumbs-up"},
+                    {"value": "50+", "label": "Partner Hospitals", "icon": "building"}
+                ]
+            }
+
+    # 2. Global fallback (No CMS page/block yet)
+    return {
+        "title": "Our Impact in Numbers",
+        "subtitle": "Trusted by thousands of International patients for their healthcare journey",
+        "items": [
+            {"value": "5,000+", "label": "Patients Served", "icon": "users"},
+            {"value": "2,000+", "label": "Expert Doctors", "icon": "stethoscope"},
+            {"value": "98%", "label": "Satisfaction Rate", "icon": "thumbs-up"},
+            {"value": "50+", "label": "Partner Hospitals", "icon": "building"}
+        ]
+    }
+
+
 # ============== NAVIGATION & SETTINGS ==============
 
 @router.get("/navigation")
