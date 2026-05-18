@@ -1267,6 +1267,298 @@ async def _fallback_apartments_stays_page(db: AsyncSession):
     }
 
 
+# ============== PATIENT ACCOMMODATION PAGE ==============
+
+# Amenity key -> display metadata fallback map.
+# Used when the apartment only stores a raw key string (e.g. "wifi") without a
+# description.  The admin can override everything via CMS blocks.
+_AMENITY_META: dict = {
+    "wifi":              {"icon": "wifi",       "title": "High-Speed WiFi",   "description": "Stay connected with family back home"},
+    "kitchen":           {"icon": "kitchen",    "title": "Kitchen Access",    "description": "Cook your own meals for dietary needs"},
+    "furnished":         {"icon": "bed",        "title": "Fully Furnished",   "description": "Comfortable beds, linens & essentials included"},
+    "fully_furnished":   {"icon": "bed",        "title": "Fully Furnished",   "description": "Comfortable beds, linens & essentials included"},
+    "ac":                {"icon": "snowflake",  "title": "Air Conditioning",  "description": "Maintained at a comfortable temperature"},
+    "shuttle":           {"icon": "bus",        "title": "Hospital Shuttle",  "description": "Free daily transport to partner hospitals"},
+    "hospital_shuttle":  {"icon": "bus",        "title": "Hospital Shuttle",  "description": "Free daily transport to partner hospitals"},
+    "support_24_7":      {"icon": "headset",    "title": "24/7 Support",      "description": "On-call medical assistance anytime"},
+    "24_7_support":      {"icon": "headset",    "title": "24/7 Support",      "description": "On-call medical assistance anytime"},
+    "flexible_stays":    {"icon": "calendar",   "title": "Flexible Stays",    "description": "Nightly, weekly, or monthly plans available"},
+    "washer":            {"icon": "washer",     "title": "Washer/Dryer",      "description": "In-unit laundry facilities"},
+    "parking":           {"icon": "car",        "title": "Parking",           "description": "Free on-site parking available"},
+    "gym":               {"icon": "dumbbell",   "title": "Gym Access",        "description": "Stay active during your recovery"},
+    "pool":              {"icon": "water",      "title": "Swimming Pool",     "description": "Heated pool for relaxation and therapy"},
+    "balcony":           {"icon": "balcony",    "title": "Balcony",           "description": "Private outdoor space to unwind"},
+    "tv":                {"icon": "tv",         "title": "Smart TV",          "description": "Entertainment during your stay"},
+    "workspace":         {"icon": "laptop",     "title": "Workspace",         "description": "Dedicated desk for remote work"},
+    "elevator":          {"icon": "elevator",   "title": "Elevator",          "description": "Accessible for all mobility needs"},
+    # Medical amenities
+    "nurse_on_call":     {"icon": "user-nurse",   "title": "Nurse on Call",     "description": "Trained medical staff available"},
+    "physiotherapy":     {"icon": "heart-pulse",  "title": "Physiotherapy",     "description": "On-site rehabilitation support"},
+    "medical_equipment": {"icon": "stethoscope",  "title": "Medical Equipment", "description": "Essential medical devices provided"},
+    "wheelchair_access": {"icon": "wheelchair",   "title": "Wheelchair Access", "description": "Fully accessible for patients with mobility needs"},
+}
+
+
+def _build_amenities_from_apartments(apartments: list) -> list:
+    """Aggregate & deduplicate amenities from a list of Apartment objects.
+
+    Priority order:
+    1. apartment.highlights (JSONB [{icon, title, description}]) -- already rich
+    2. apartment.amenities (ARRAY[str]) -- raw keys, enriched via _AMENITY_META
+    3. apartment.medical_amenities (ARRAY[str]) -- same enrichment
+    """
+    seen_titles: set = set()
+    result: list = []
+
+    for apt in apartments:
+        # 1. Rich highlights first
+        for h in (apt.highlights or []):
+            title = h.get("title", "")
+            if title and title not in seen_titles:
+                seen_titles.add(title)
+                result.append({
+                    "icon": h.get("icon", "star"),
+                    "title": title,
+                    "description": h.get("description", ""),
+                })
+
+        # 2. Raw amenity keys
+        for raw_keys, is_medical in [
+            (apt.amenities or [], False),
+            (apt.medical_amenities or [], True),
+        ]:
+            for key in raw_keys:
+                norm = key.lower().replace(" ", "_").replace("-", "_")
+                meta = _AMENITY_META.get(norm)
+                if meta:
+                    if meta["title"] not in seen_titles:
+                        seen_titles.add(meta["title"])
+                        result.append(meta.copy())
+                else:
+                    # Unknown key -- capitalise and show as-is
+                    title = key.replace("_", " ").replace("-", " ").title()
+                    if title not in seen_titles:
+                        seen_titles.add(title)
+                        result.append({
+                            "icon": "star" if not is_medical else "stethoscope",
+                            "title": title,
+                            "description": "",
+                        })
+
+    return result
+
+
+@router.get("/patient-accommodation")
+async def get_patient_accommodation_page(db: DatabaseSession):
+    """Get the Patient Accommodation landing page content -- fully dynamic.
+
+    Content sources:
+    - Hero / CTA-section / Meta  -> CMSPage (slug='patient-accommodation') + CMSBlocks
+    - Amenities grid             -> derived from the actual apartments being shown
+                                   (apartment.highlights + apartment.amenities)
+    - Featured apartments        -> Apartment table (is_available, ordered by rating)
+
+    Fallbacks keep the response valid even before the admin seeds any CMS data.
+    """
+    from app.models.cms import CMSPage, CMSBlock
+
+    # -- 1. Load CMS page + blocks ------------------------------------------
+    cms_result = await db.execute(
+        select(CMSPage)
+        .where(
+            CMSPage.slug == "patient-accommodation",
+            CMSPage.is_deleted == False,
+        )
+    )
+    cms_page = cms_result.scalar_one_or_none()
+
+    # Index visible blocks by their `section` field for O(1) lookup
+    blocks_by_section: dict = {}
+    if cms_page:
+        blocks_result = await db.execute(
+            select(CMSBlock)
+            .where(
+                CMSBlock.page_id == cms_page.id,
+                CMSBlock.is_visible == True,
+                CMSBlock.is_deleted == False,
+            )
+            .order_by(CMSBlock.position)
+        )
+        for blk in blocks_result.scalars().all():
+            key = blk.section or blk.block_type
+            blocks_by_section[key] = blk
+
+    def _blk(section: str):
+        return blocks_by_section.get(section)
+
+    # -- 2. Fetch apartments -------------------------------------------------
+    # Hero card: top-rated featured apartment
+    hero_apt_result = await db.execute(
+        select(Apartment)
+        .where(
+            Apartment.is_deleted == False,
+            Apartment.is_available == True,
+            Apartment.is_featured == True,
+        )
+        .order_by(Apartment.rating.desc().nullslast(), Apartment.priority.desc())
+        .limit(1)
+    )
+    hero_apt = hero_apt_result.scalar_one_or_none()
+
+    # Cards grid: up to 6 available apartments (featured first -> rating)
+    featured_result = await db.execute(
+        select(Apartment)
+        .where(
+            Apartment.is_deleted == False,
+            Apartment.is_available == True,
+        )
+        .order_by(
+            Apartment.is_featured.desc(),
+            Apartment.rating.desc().nullslast(),
+            Apartment.priority.desc(),
+        )
+        .limit(6)
+    )
+    featured_apartments = list(featured_result.scalars().all())
+
+    # -- 3. Build hero featured-apartment card --------------------------------
+    if hero_apt:
+        featured_card = {
+            "id": str(hero_apt.id),
+            "name": hero_apt.name,
+            "slug": hero_apt.slug,
+            "short_description": hero_apt.short_description or hero_apt.description,
+            "cover_image_url": hero_apt.cover_image_url,
+            "nearest_hospital": hero_apt.nearest_hospital,
+            "distance_to_hospital_km": hero_apt.distance_to_hospital_km,
+            "city": hero_apt.city,
+            "price_per_night": hero_apt.price_per_night,
+            "currency": hero_apt.currency,
+            "rating": hero_apt.rating,
+            "bedroom_type": hero_apt.bedroom_type,
+        }
+    else:
+        featured_card = None  # frontend hides the card gracefully
+
+    # -- 4. Build apartment cards --------------------------------------------
+    apt_cards = [
+        {
+            "id": str(a.id),
+            "name": a.name,
+            "slug": a.slug,
+            "short_description": a.short_description,
+            "cover_image_url": a.cover_image_url,
+            "nearest_hospital": a.nearest_hospital,
+            "city": a.city,
+            "bedroom_type": a.bedroom_type,
+            "price_per_night": a.price_per_night,
+            "currency": a.currency,
+            "rating": a.rating,
+            "is_featured": a.is_featured,
+            "url": f"/apartments/{a.slug}",
+        }
+        for a in featured_apartments
+    ]
+
+    # -- 5. Amenities derived from the displayed apartments ------------------
+    # Pool hero_apt + featured_apartments (hero may not be in the list)
+    all_apts_for_amenities = featured_apartments[:]
+    if hero_apt and not any(a.id == hero_apt.id for a in featured_apartments):
+        all_apts_for_amenities.insert(0, hero_apt)
+
+    derived_amenities = _build_amenities_from_apartments(all_apts_for_amenities)
+
+    # CMS override: if admin stored a features/amenities block with items, use those
+    features_blk = _blk("features") or _blk("amenities")
+    if features_blk and features_blk.items:
+        amenities_out = features_blk.items       # fully admin-controlled list
+    elif derived_amenities:
+        amenities_out = derived_amenities        # derived from real apt data
+    else:
+        # Last-resort fallback (no apartments, no CMS data)
+        amenities_out = [
+            {"icon": "bed",      "title": "Fully Furnished",  "description": "Comfortable beds, linens & essentials included"},
+            {"icon": "kitchen",  "title": "Kitchen Access",   "description": "Cook your own meals for dietary needs"},
+            {"icon": "wifi",     "title": "High-Speed WiFi",  "description": "Stay connected with family back home"},
+            {"icon": "bus",      "title": "Hospital Shuttle", "description": "Free daily transport to partner hospitals"},
+            {"icon": "headset",  "title": "24/7 Support",     "description": "On-call medical assistance anytime"},
+            {"icon": "calendar", "title": "Flexible Stays",   "description": "Nightly, weekly, or monthly plans available"},
+        ]
+
+    # -- 6. Hero section (CMS hero block overrides defaults) -----------------
+    hero_blk = _blk("hero")
+    if hero_blk:
+        hero_section = {
+            "badge":    (hero_blk.config or {}).get("badge", "Patient Accommodation"),
+            "title":    hero_blk.title    or "Your Home Away from Home During Treatment",
+            "subtitle": hero_blk.subtitle or hero_blk.content or "",
+            "highlights": hero_blk.items or [],
+            "cta": {
+                "text": hero_blk.cta_text or "Browse Apartments",
+                "url":  hero_blk.cta_url  or "/apartments",
+            },
+            "featured_apartment": featured_card,
+        }
+    else:
+        hero_section = {
+            "badge":    "Patient Accommodation",
+            "title":    "Your Home Away from Home During Treatment",
+            "subtitle": (
+                "Skip expensive hotels. Our fully-furnished apartments are designed "
+                "specifically for medical patients and their families — close to hospitals, "
+                "affordable, and equipped with everything you need for a comfortable recovery."
+            ),
+            "highlights": [
+                {"icon": "percentage",   "text": "Up to 60% cheaper than hotels"},
+                {"icon": "hospital",     "text": "Near top hospitals"},
+                {"icon": "shield-check", "text": "Patient-friendly amenities"},
+            ],
+            "cta": {"text": "Browse Apartments", "url": "/apartments"},
+            "featured_apartment": featured_card,
+        }
+
+    # -- 7. CTA section ------------------------------------------------------
+    cta_blk = _blk("cta") or _blk("cta_section")
+    if cta_blk:
+        cta_section = {
+            "title":    cta_blk.title    or "Find Your Perfect Recovery Home",
+            "subtitle": cta_blk.subtitle or "Browse all patient-friendly apartments near top hospitals",
+            "button": {
+                "text": cta_blk.cta_text or "View All Apartments",
+                "url":  cta_blk.cta_url  or "/apartments",
+            },
+        }
+    else:
+        cta_section = {
+            "title":    "Find Your Perfect Recovery Home",
+            "subtitle": "Browse all patient-friendly apartments near top hospitals",
+            "button":   {"text": "View All Apartments", "url": "/apartments"},
+        }
+
+    # -- 8. Meta / SEO -------------------------------------------------------
+    meta = {
+        "title": (
+            (cms_page.meta_title if cms_page else None)
+            or "Patient Accommodation | Flora Medical"
+        ),
+        "description": (
+            (cms_page.meta_description if cms_page else None)
+            or (
+                "Affordable, fully-furnished patient accommodation near top hospitals. "
+                "Book your recovery apartment with hospital shuttle, 24/7 support, and flexible stays."
+            )
+        ),
+    }
+
+    return {
+        "hero":                hero_section,
+        "amenities":           amenities_out,
+        "featured_apartments": apt_cards,
+        "cta_section":         cta_section,
+        "meta":                meta,
+    }
+
+
 # ============== NAVIGATION & SETTINGS ==============
 
 @router.get("/navigation")
