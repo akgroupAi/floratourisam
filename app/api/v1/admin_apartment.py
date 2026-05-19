@@ -190,10 +190,21 @@ class AssignApartmentManagerRequest(BaseModel):
 
 class ManagerResponse(BaseModel):
     """Response with manager info."""
-    id: UUID
+    user_id: UUID
     email: str
     full_name: str
-    role: str
+    role: Optional[str] = None
+
+
+class ApartmentWithManagerResponse(BaseModel):
+    """Apartment response with manager information."""
+    id: UUID
+    name: str
+    city: str
+    manager: Optional[ManagerResponse] = None
+
+    class Config:
+        from_attributes = True
 
 
 # ============== APARTMENT KPIs ==============
@@ -231,7 +242,7 @@ async def get_apartment_totals(db: DatabaseSession):
 # ============== APARTMENT CRUD ==============
 
 
-@router.get("", response_model=PaginatedResponse[ApartmentResponse], dependencies=[RequireApartmentManager])
+@router.get("", dependencies=[RequireApartmentManager])
 async def list_apartments(
     current_user: CurrentUser,
     db: DatabaseSession,
@@ -242,11 +253,13 @@ async def list_apartments(
     bedroom_type: Optional[str] = None,
     is_active: Optional[bool] = None,
     is_available: Optional[bool] = None,
+    with_manager: bool = Query(False, description="Include manager information"),
 ):
     """
     List apartments.
     - Super Admin/Admin: See all apartments
     - Apartment Manager: See only their assigned apartments
+    - with_manager=true: Include manager details in response
     """
     query = select(Apartment).where(Apartment.is_deleted == False)
     
@@ -277,6 +290,33 @@ async def list_apartments(
 
     result = await db.execute(query)
     apartments = result.scalars().all()
+
+    # Return with or without manager info based on parameter
+    if with_manager:
+        items = []
+        for apartment in apartments:
+            manager_data = None
+            if apartment.manager_id:
+                manager_result = await db.execute(
+                    select(User).where(User.id == apartment.manager_id)
+                )
+                manager = manager_result.scalar_one_or_none()
+                if manager:
+                    manager_data = ManagerResponse(
+                        user_id=manager.id,
+                        email=manager.email,
+                        full_name=manager.full_name,
+                        role=manager.role
+                    )
+            items.append(ApartmentWithManagerResponse(
+                id=apartment.id,
+                name=apartment.name,
+                city=apartment.city,
+                manager=manager_data
+            ))
+        return PaginatedResponse.create(items, total, page, page_size)
+    else:
+        return PaginatedResponse.create(apartments, total, page, page_size)
 
     return PaginatedResponse.create(apartments, total, page, page_size)
 

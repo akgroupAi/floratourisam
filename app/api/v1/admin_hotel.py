@@ -54,10 +54,24 @@ class AssignHotelManagerRequest(BaseModel):
 
 class ManagerResponse(BaseModel):
     """Response with manager info."""
-    id: UUID
+    user_id: UUID
     email: str
     full_name: str
-    role: str
+    role: Optional[str] = None
+
+
+class HotelWithManagerResponse(BaseModel):
+    """Hotel response with manager information."""
+    id: UUID
+    name: str
+    city: str
+    manager: Optional[ManagerResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
+class HotelCreate(BaseModel):
     """Schema for creating a hotel."""
 
     name: str = Field(..., min_length=2, max_length=255)
@@ -294,7 +308,7 @@ async def get_hotel_totals(db: DatabaseSession):
 # ============== HOTEL CRUD ==============
 
 
-@router.get("", response_model=PaginatedResponse[HotelResponse], dependencies=[RequireHotelManager])
+@router.get("", dependencies=[RequireHotelManager])
 async def list_hotels(
     current_user: CurrentUser,
     db: DatabaseSession,
@@ -304,11 +318,13 @@ async def list_hotels(
     city: Optional[str] = None,
     is_active: Optional[bool] = None,
     star_rating: Optional[int] = None,
+    with_manager: bool = Query(False, description="Include manager information"),
 ):
     """
     List hotels. 
     - Super Admin/Admin: See all hotels
     - Hotel Manager: See only their assigned hotels
+    - with_manager=true: Include manager details in response
     """
     query = select(Hotel).where(Hotel.is_deleted == False)
     
@@ -339,12 +355,36 @@ async def list_hotels(
     result = await db.execute(query)
     hotels = result.scalars().all()
 
-    # Enrich hotels with calculated base prices
-    from app.services.hotel_service import HotelService
-    service = HotelService(db)
-    hotels = await service._enrich_hotels_with_base_prices(list(hotels))
-
-    return PaginatedResponse.create(hotels, total, page, page_size)
+    # Return with or without manager info based on parameter
+    if with_manager:
+        items = []
+        for hotel in hotels:
+            manager_data = None
+            if hotel.manager_id:
+                manager_result = await db.execute(
+                    select(User).where(User.id == hotel.manager_id)
+                )
+                manager = manager_result.scalar_one_or_none()
+                if manager:
+                    manager_data = ManagerResponse(
+                        user_id=manager.id,
+                        email=manager.email,
+                        full_name=manager.full_name,
+                        role=manager.role
+                    )
+            items.append(HotelWithManagerResponse(
+                id=hotel.id,
+                name=hotel.name,
+                city=hotel.city,
+                manager=manager_data
+            ))
+        return PaginatedResponse.create(items, total, page, page_size)
+    else:
+        # Enrich hotels with calculated base prices
+        from app.services.hotel_service import HotelService
+        service = HotelService(db)
+        hotels = await service._enrich_hotels_with_base_prices(list(hotels))
+        return PaginatedResponse.create(hotels, total, page, page_size)
 
 
 @router.post("", response_model=HotelResponse, status_code=status.HTTP_201_CREATED, dependencies=[RequireAdmin])
