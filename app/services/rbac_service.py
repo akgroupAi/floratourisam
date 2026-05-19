@@ -58,6 +58,7 @@ class RBACService:
             name=data.name,
             description=data.description,
             is_system_role=False,
+            is_deleted=not data.is_active,
             created_by=actor_id
         )
         self.db.add(role)
@@ -70,7 +71,8 @@ class RBACService:
             target_type="role",
             target_id=role.id,
             target_name=data.name,
-            description=f"Created role: {data.name}"
+            description=f"Created role: {data.name}",
+            metadata={"is_active": data.is_active}
         )
 
         await self.db.commit()

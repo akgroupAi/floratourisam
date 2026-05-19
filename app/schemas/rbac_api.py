@@ -16,6 +16,7 @@ class RoleCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=50, description="Role name (e.g., 'hotel_manager')")
     label: str = Field(..., min_length=2, max_length=100, description="Display label (e.g., 'Hotel Manager')")
     description: Optional[str] = Field(None, max_length=500)
+    is_active: bool = Field(True, description="Whether the role is active immediately upon creation")
 
 
 class RoleUpdate(BaseModel):
