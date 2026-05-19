@@ -182,49 +182,54 @@ class RBACService:
         self, role_id: UUID, data: RolePermissionsUpdate, actor_id: UUID
     ) -> bool:
         """Update permissions matrix for a role."""
-        role = await self.get_role_by_id(role_id)
-        if not role:
-            return False
+        try:
+            role = await self.get_role_by_id(role_id)
+            if not role:
+                return False
 
-        # Clear existing permissions
-        await self.db.execute(
-            select(role_permissions).where(role_permissions.c.role_id == role_id)
-        )
-        # Delete via join
-        await self.db.execute(
-            role_permissions.delete().where(role_permissions.c.role_id == role_id)
-        )
+            # Delete existing permissions via raw SQL
+            await self.db.execute(
+                role_permissions.delete().where(role_permissions.c.role_id == role_id)
+            )
 
-        # Add new permissions from matrix
-        for resource, actions in data.permissions.items():
-            for action, enabled in actions.items():
-                if enabled:
-                    action_name = action.replace("can_", "")  # can_create → create
-                    perm = await self.db.execute(
-                        select(Permission).where(
-                            Permission.resource == resource,
-                            Permission.action == action_name
+            # Refresh role to sync ORM state after raw SQL delete
+            await self.db.refresh(role)
+
+            # Add new permissions from matrix
+            for resource, actions in data.permissions.items():
+                for action, enabled in actions.items():
+                    if enabled:
+                        action_name = action.replace("can_", "")  # can_create → create
+                        perm_result = await self.db.execute(
+                            select(Permission).where(
+                                Permission.resource == resource,
+                                Permission.action == action_name
+                            )
                         )
-                    )
-                    permission = perm.scalar_one_or_none()
-                    if permission:
-                        role.permissions.append(permission)
+                        permission = perm_result.scalar_one_or_none()
+                        if permission:
+                            role.permissions.append(permission)
 
-        role.updated_by = actor_id
-        await self.db.commit()
+            role.updated_by = actor_id
+            role.updated_at = datetime.utcnow()
+            await self.db.commit()
 
-        # Audit log
-        await self._audit_log(
-            actor_id=actor_id,
-            action="update_permissions",
-            target_type="role",
-            target_id=role.id,
-            target_name=role.name,
-            description=f"Updated permissions for role: {role.name}",
-            metadata={"permissions": data.permissions, "scope_own_only": data.scope_own_only}
-        )
+            # Audit log
+            await self._audit_log(
+                actor_id=actor_id,
+                action="update_permissions",
+                target_type="role",
+                target_id=role.id,
+                target_name=role.name,
+                description=f"Updated permissions for role: {role.name}",
+                meta_data={"permissions": data.permissions, "scope_own_only": data.scope_own_only}
+            )
 
-        return True
+            return True
+        except Exception as e:
+            logger.error(f"Error updating permissions for role {role_id}: {str(e)}")
+            await self.db.rollback()
+            raise
 
     # ============== USER ROLE ASSIGNMENT ==============
 
