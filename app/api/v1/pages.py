@@ -1728,6 +1728,99 @@ async def get_global_cta(db: DatabaseSession):
     }
 
 
+# ============== CONTACT US ==============
+
+@router.get("/contact")
+async def get_contact_page_content(db: DatabaseSession):
+    """Get dynamic content for the Contact Us page.
+
+    Content sources:
+    - Hero (Badge, Title, Subtitle) -> CMSPage(slug='contact') + CMSBlock(section='hero')
+    - Methods -> CMSBlock(section='methods')
+    - Offices -> CMSBlock(section='offices')
+    - Hours -> CMSBlock(section='hours')
+    """
+    from app.models.cms import CMSPage, CMSBlock
+
+    # 1. Load CMS page
+    cms_result = await db.execute(
+        select(CMSPage).where(CMSPage.slug == "contact", CMSPage.is_deleted == False)
+    )
+    cms_page = cms_result.scalar_one_or_none()
+
+    # Defaults
+    hero = {
+        "badge": "We'd Love to Hear From You",
+        "title": "Let's Start Your Healing Journey",
+        "subtitle": "Whether you need a second opinion, treatment estimate, or travel assistance — our team is ready to help around the clock."
+    }
+    methods = [
+        {"icon": "phone", "title": "Call Us", "value": "+91 1800 123 4567", "subtitle": "24/7 Patient Helpline"},
+        {"icon": "mail",  "title": "Email Us", "value": "hello@floramedical.com", "subtitle": "Reply within 2 hours"},
+        {"icon": "user-check", "title": "Live Support", "value": "Chat with us", "subtitle": "Available 24/7"},
+        {"icon": "message-circle", "title": "WhatsApp", "value": "+91 98765 43210", "subtitle": "Instant messaging"}
+    ]
+    offices = [
+        {
+            "id": "ahmedabad",
+            "name": "Ahmedabad",
+            "tag": "HQ",
+            "address": "SG Highway, Ahmedabad, Gujarat 380015",
+            "map_url": "https://maps.google.com/?q=Ahmedabad"
+        },
+        {
+            "id": "delhi",
+            "name": "New Delhi",
+            "tag": "Branch",
+            "address": "Connaught Place, New Delhi 110001",
+            "map_url": "https://maps.google.com/?q=New+Delhi"
+        }
+    ]
+    hours = "Helpline: 24/7 | Office: Mon-Sat, 9AM-6PM IST"
+
+    if cms_page:
+        # Load Hero
+        hero_blk = await db.execute(
+            select(CMSBlock).where(CMSBlock.page_id == cms_page.id, CMSBlock.section == "hero", CMSBlock.is_visible == True)
+        )
+        blk = hero_blk.scalar_one_or_none()
+        if blk:
+            hero["badge"] = (blk.config or {}).get("badge", hero["badge"])
+            hero["title"] = blk.title or hero["title"]
+            hero["subtitle"] = blk.subtitle or blk.content or hero["subtitle"]
+
+        # Load Methods
+        methods_blk = await db.execute(
+            select(CMSBlock).where(CMSBlock.page_id == cms_page.id, CMSBlock.section == "methods", CMSBlock.is_visible == True)
+        )
+        blk_m = methods_blk.scalar_one_or_none()
+        if blk_m and blk_m.items:
+            methods = blk_m.items
+
+        # Load Offices
+        offices_blk = await db.execute(
+            select(CMSBlock).where(CMSBlock.page_id == cms_page.id, CMSBlock.section == "offices", CMSBlock.is_visible == True)
+        )
+        blk_o = offices_blk.scalar_one_or_none()
+        if blk_o and blk_o.items:
+            offices = blk_o.items
+
+        # Load Hours
+        hours_blk = await db.execute(
+            select(CMSBlock).where(CMSBlock.page_id == cms_page.id, CMSBlock.section == "hours", CMSBlock.is_visible == True)
+        )
+        blk_h = hours_blk.scalar_one_or_none()
+        if blk_h:
+            hours = blk_h.content or hours
+
+    return {
+        "hero": hero,
+        "contact_methods": methods,
+        "offices": offices,
+        "working_hours": hours
+    }
+
+
 # ============== FAQ SECTION ==============
 
 @router.get("/faq-section")

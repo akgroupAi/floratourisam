@@ -445,3 +445,56 @@ def render_verification_email_html(
     </body>
     </html>
     """
+
+
+def render_contact_lead_email_html(
+    *,
+    name: str,
+    email: str,
+    phone: Optional[str] = None,
+    country: Optional[str] = None,
+    treatment: Optional[str] = None,
+    message: str,
+) -> str:
+    """Render the admin notification email for a new contact form lead."""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px;">
+      <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <div style="background:#13bba4;padding:24px;text-align:center;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">New Contact Lead</h1>
+          <p style="color:#e0f2f1;margin:5px 0 0;">New inquiry received from contact page</p>
+        </div>
+        <div style="padding:32px;">
+          <h2 style="font-size:18px;color:#2d3748;border-bottom:1px solid #edf2f7;padding-bottom:10px;">Contact Details</h2>
+          <table style="width:100%;border-collapse:collapse;margin:15px 0;">
+            <tr><td style="padding:8px 0;width:140px;color:#718096;font-size:14px;">Full Name:</td>
+                <td style="padding:8px 0;font-size:14px;color:#1a202c;font-weight:bold;">{name}</td></tr>
+            <tr><td style="padding:8px 0;color:#718096;font-size:14px;">Email:</td>
+                <td style="padding:8px 0;font-size:14px;color:#0066cc;">{email}</td></tr>
+            <tr><td style="padding:8px 0;color:#718096;font-size:14px;">Phone:</td>
+                <td style="padding:8px 0;font-size:14px;color:#1a202c;">{phone or 'N/A'}</td></tr>
+            <tr><td style="padding:8px 0;color:#718096;font-size:14px;">Country:</td>
+                <td style="padding:8px 0;font-size:14px;color:#1a202c;">{country or 'N/A'}</td></tr>
+            <tr><td style="padding:8px 0;color:#718096;font-size:14px;">Treatment:</td>
+                <td style="padding:8px 0;font-size:14px;color:#1a202c;">{treatment or 'General Inquiry'}</td></tr>
+          </table>
+          
+          <h2 style="font-size:18px;color:#2d3748;border-bottom:1px solid #edf2f7;padding-bottom:10px;margin-top:25px;">Message</h2>
+          <div style="padding:15px;background:#f8fafc;border-radius:6px;border-left:4px solid #13bba4;margin-top:10px;">
+            <p style="font-size:14px;color:#4a5568;line-height:1.6;margin:0;">{message}</p>
+          </div>
+          
+          <div style="text-align:center;margin-top:35px;">
+             <p style="font-size:12px;color:#a0aec0;">Received on {datetime.now().strftime('%B %d, %Y at %I:%M %p')}</p>
+          </div>
+        </div>
+        <div style="background:#f9f9f9;padding:16px;text-align:center;">
+          <p style="font-size:12px;color:#aaa;margin:0;">Flora Medical | Healthcare Tourism Admissions</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
