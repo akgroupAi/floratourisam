@@ -217,11 +217,20 @@ async def list_user_roles(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    """List users with their roles and assigned resources."""
-    query = select(User).where(User.is_deleted == False).order_by(User.email)
+    """List users with their roles and assigned resources (excluding patients and doctors)."""
+    # Exclude patient and doctor roles
+    query = select(User).where(
+        User.is_deleted == False,
+        User.role.not_in([UserRole.PATIENT.value, UserRole.DOCTOR.value])
+    ).order_by(User.email)
     
     from sqlalchemy import func
-    count_result = await db.execute(select(func.count()).select_from(User).where(User.is_deleted == False))
+    count_result = await db.execute(
+        select(func.count()).select_from(User).where(
+            User.is_deleted == False,
+            User.role.not_in([UserRole.PATIENT.value, UserRole.DOCTOR.value])
+        )
+    )
     total = count_result.scalar() or 0
     
     result = await db.execute(
