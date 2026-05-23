@@ -150,10 +150,21 @@ class AssignRestaurantManagerRequest(BaseModel):
 
 class ManagerResponse(BaseModel):
     """Response with manager info."""
-    id: UUID
+    user_id: UUID
     email: str
     full_name: str
-    role: str
+    role: Optional[str] = None
+
+
+class RestaurantWithManagerResponse(BaseModel):
+    """Restaurant response with manager information."""
+    id: UUID
+    name: str
+    city: str
+    manager: Optional[ManagerResponse] = None
+
+    class Config:
+        from_attributes = True
 
 
 # ---- Menu Category schemas ----
@@ -357,7 +368,7 @@ async def get_restaurant_totals(db: DatabaseSession):
 # ============== RESTAURANT CRUD ==============
 
 
-@router.get("", response_model=PaginatedResponse[RestaurantResponse], dependencies=[RequireRestaurantManager])
+@router.get("", dependencies=[RequireRestaurantManager])
 async def list_restaurants(
     current_user: CurrentUser,
     db: DatabaseSession,
@@ -367,11 +378,13 @@ async def list_restaurants(
     city: Optional[str] = None,
     is_active: Optional[bool] = None,
     cuisine_type: Optional[str] = None,
+    with_manager: bool = Query(False, description="Include manager information"),
 ):
     """
     List restaurants.
     - Super Admin/Admin: See all restaurants
     - Restaurant Manager: See only their assigned restaurants
+    - with_manager=true: Include manager details in response
     """
     query = select(Restaurant).where(Restaurant.is_deleted == False)
     
@@ -402,7 +415,32 @@ async def list_restaurants(
     result = await db.execute(query)
     restaurants = result.scalars().all()
 
-    return PaginatedResponse.create(restaurants, total, page, page_size)
+    # Return with or without manager info based on parameter
+    if with_manager:
+        items = []
+        for restaurant in restaurants:
+            manager_data = None
+            if restaurant.manager_id:
+                manager_result = await db.execute(
+                    select(User).where(User.id == restaurant.manager_id)
+                )
+                manager = manager_result.scalar_one_or_none()
+                if manager:
+                    manager_data = ManagerResponse(
+                        user_id=manager.id,
+                        email=manager.email,
+                        full_name=manager.full_name,
+                        role=manager.role
+                    )
+            items.append(RestaurantWithManagerResponse(
+                id=restaurant.id,
+                name=restaurant.name,
+                city=restaurant.city,
+                manager=manager_data
+            ))
+        return PaginatedResponse.create(items, total, page, page_size)
+    else:
+        return PaginatedResponse.create(restaurants, total, page, page_size)
 
 
 @router.post(
