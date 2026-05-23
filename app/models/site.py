@@ -112,6 +112,18 @@ class Treatment(BaseModel):
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
     display_order: Mapped[int] = mapped_column(Integer, default=0)
 
+    @property
+    def ratings(self) -> Optional[float]:
+        return self.average_rating
+
+    @property
+    def stay_days(self) -> Optional[int]:
+        return self.duration_days_max or self.duration_days_min
+
+    @property
+    def total_patient(self) -> int:
+        return self.patient_count
+
 
 class BlogPost(BaseModel):
     """Blog article."""
@@ -222,7 +234,7 @@ class BlogComment(BaseModel):
     user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[user_id], lazy="select")
     replies: Mapped[List["BlogComment"]] = relationship(
         "BlogComment",
-        primaryjoin="and_(BlogComment.parent_id == BlogComment.id, BlogComment.is_deleted == False)",
+        primaryjoin="and_(remote(BlogComment.parent_id) == BlogComment.id, BlogComment.is_deleted == False)",
         foreign_keys="BlogComment.parent_id",
         order_by="BlogComment.created_at.asc()",
         lazy="selectin",

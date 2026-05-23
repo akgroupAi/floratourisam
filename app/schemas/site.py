@@ -151,6 +151,11 @@ class TreatmentListResponse(BaseSchema):
     procedures: List[str] = []
     short_description: Optional[str] = None
     is_featured: bool = False
+    
+    # Frontend aliases
+    ratings: Optional[float] = None
+    stay_days: Optional[int] = None
+    total_patient: int = 0
 
 
 class TreatmentResponse(BaseSchema):
