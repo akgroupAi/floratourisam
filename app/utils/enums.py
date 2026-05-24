@@ -14,6 +14,30 @@ class UserRole(str, Enum):
     APARTMENT_MANAGER = "apartment_manager"
     RESTAURANT_MANAGER = "restaurant_manager"
 
+    # Creator-Admin roles (self-onboarding entity owners)
+    HOTEL_ADMIN = "hotel_admin"
+    APARTMENT_ADMIN = "apartment_admin"
+    HOSPITAL_ADMIN = "hospital_admin"
+    RESTAURANT_ADMIN = "restaurant_admin"
+
+
+class EntityType(str, Enum):
+    """Entity types that creator admins can own."""
+
+    HOTEL = "HOTEL"
+    APARTMENT = "APARTMENT"
+    HOSPITAL = "HOSPITAL"
+    RESTAURANT = "RESTAURANT"
+
+
+# Maps creator-admin roles to their managed entity type
+CREATOR_ADMIN_ENTITY_MAP: dict = {
+    UserRole.HOTEL_ADMIN: EntityType.HOTEL,
+    UserRole.APARTMENT_ADMIN: EntityType.APARTMENT,
+    UserRole.HOSPITAL_ADMIN: EntityType.HOSPITAL,
+    UserRole.RESTAURANT_ADMIN: EntityType.RESTAURANT,
+}
+
 
 class BookingType(str, Enum):
     """Types of bookings in the system."""

@@ -10,7 +10,7 @@ from datetime import date, datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, cast, Date, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -26,6 +26,15 @@ from app.schemas.booking import (
     BookingUpdate,
     HotelBookingCreate,
     RestaurantBookingCreate,
+    AdminBookingKPIs,
+    AdminBookingListItem,
+    AdminBookingDashboardResponse,
+    AdminBookingDetailResponse,
+    BookingTimelineItem,
+    AdminBookingUpdate,
+    BookingReportSummary,
+    KPITrend,
+    PropertyBooking,
 )
 from app.schemas.common import PaginationParams
 from app.utils.email_sender import (
@@ -37,6 +46,7 @@ from app.utils.email_sender import (
 from app.utils.enums import BookingStatus, BookingType
 from app.utils.helpers import generate_reference_id
 from app.utils.notifications import notify
+from sqlalchemy.orm import selectinload, joinedload
 
 logger = get_logger(__name__)
 
@@ -94,6 +104,223 @@ class BookingService:
         )
         result = await self.db.execute(query)
         return list(result.scalars().all()), total
+
+    # ------------------------------------------------------------------
+    # Admin Reads
+    # ------------------------------------------------------------------
+
+    async def get_admin_dashboard_stats(self) -> AdminBookingKPIs:
+        """Calculate admin dashboard KPIs."""
+        total = await self.db.scalar(select(func.count(Booking.id)).where(Booking.is_deleted == False)) or 0
+        active_confirmed = await self.db.scalar(
+            select(func.count(Booking.id)).where(
+                Booking.is_deleted == False, 
+                Booking.status.in_([BookingStatus.CONFIRMED.value, "checked_in"])
+            )
+        ) or 0
+        pending = await self.db.scalar(
+            select(func.count(Booking.id)).where(
+                Booking.is_deleted == False, 
+                Booking.status == BookingStatus.PENDING.value
+            )
+        ) or 0
+        revenue = await self.db.scalar(
+            select(func.sum(Booking.total_price)).where(
+                Booking.is_deleted == False, 
+                Booking.is_paid == True
+            )
+        ) or 0.0
+
+        return AdminBookingKPIs(
+            total_bookings=total,
+            active_confirmed=active_confirmed,
+            pending_approval=pending,
+            collected_revenue=float(revenue)
+        )
+
+    async def get_admin_list(
+        self,
+        pagination: PaginationParams,
+        booking_type: Optional[BookingType] = None,
+        status: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> tuple[List[AdminBookingListItem], int]:
+        """Fetch bookings with patient and entity info for admin list."""
+        from app.models.patient import Patient
+        from app.models.user import User
+        from app.models.hotel import Hotel, Room
+        from app.models.apartment import Apartment
+        from app.models.restaurant import Restaurant
+
+        query = select(Booking).options(
+            joinedload(Booking.patient).joinedload(Patient.user)
+        ).where(Booking.is_deleted == False)
+
+        if booking_type:
+            query = query.where(Booking.booking_type == booking_type.value)
+        if status:
+            query = query.where(Booking.status == status)
+        if search:
+            search_filter = f"%{search}%"
+            query = query.join(Patient).join(User).where(
+                (Booking.reference_number.ilike(search_filter)) |
+                (User.full_name.ilike(search_filter)) |
+                (User.email.ilike(search_filter))
+            )
+
+        count_result = await self.db.execute(select(func.count()).select_from(query.subquery()))
+        total = count_result.scalar() or 0
+
+        query = query.order_by(Booking.created_at.desc()).offset(pagination.offset).limit(pagination.page_size)
+        result = await self.db.execute(query)
+        bookings = result.scalars().all()
+
+        items = []
+        for b in bookings:
+            entity_name = None
+            room_name = None
+            if b.hotel_room_id:
+                room_res = await self.db.execute(select(Room).options(joinedload(Room.hotel)).where(Room.id == b.hotel_room_id))
+                room = room_res.scalar_one_or_none()
+                if room:
+                    entity_name = room.hotel.name if room.hotel else "Hotel"
+                    room_name = room.name
+            elif b.apartment_id:
+                apt_res = await self.db.execute(select(Apartment).where(Apartment.id == b.apartment_id))
+                apt = apt_res.scalar_one_or_none()
+                entity_name = apt.name if apt else "Apartment"
+            elif b.restaurant_id:
+                rest_res = await self.db.execute(select(Restaurant).where(Restaurant.id == b.restaurant_id))
+                rest = rest_res.scalar_one_or_none()
+                entity_name = rest.name if rest else "Restaurant"
+
+            items.append(AdminBookingListItem(
+                id=b.id,
+                reference_number=b.reference_number,
+                booking_type=b.booking_type,
+                status=b.status,
+                booking_date=b.booking_date,
+                check_in_date=b.check_in_date,
+                check_out_date=b.check_out_date,
+                scheduled_time=b.scheduled_time,
+                guest_count=b.guest_count,
+                total_price=b.total_price,
+                currency=b.currency,
+                is_paid=b.is_paid,
+                created_at=b.created_at,
+                patient_name=b.patient.user.full_name if b.patient and b.patient.user else "Unknown",
+                patient_email=b.patient.user.email if b.patient and b.patient.user else None,
+                property_name=entity_name,
+                room_name=room_name
+            ))
+
+        return items, total
+
+    async def get_admin_detail(self, booking_id: UUID) -> AdminBookingDetailResponse:
+        """Fetch detailed booking info with timeline for admin."""
+        from app.models.patient import Patient
+        from app.models.hotel import Hotel, Room
+        from app.models.apartment import Apartment
+        from app.models.restaurant import Restaurant
+
+        result = await self.db.execute(
+            select(Booking).options(
+                joinedload(Booking.patient).joinedload(Patient.user)
+            ).where(Booking.id == booking_id, Booking.is_deleted == False)
+        )
+        b = result.scalar_one_or_none()
+        if not b:
+            raise ValueError("Booking not found")
+
+        entity_name = None
+        entity_address = None
+        room_name = None
+        room_no = None
+        if b.hotel_room_id:
+            room_res = await self.db.execute(select(Room).options(joinedload(Room.hotel)).where(Room.id == b.hotel_room_id))
+            room = room_res.scalar_one_or_none()
+            if room:
+                entity_name = room.hotel.name if room.hotel else "Hotel"
+                entity_address = room.hotel.address if room.hotel else None
+                room_name = room.name
+                room_no = room.room_no # Assuming this exists or using name as no
+        elif b.apartment_id:
+            apt_res = await self.db.execute(select(Apartment).where(Apartment.id == b.apartment_id))
+            apt = apt_res.scalar_one_or_none()
+            if apt:
+                entity_name = apt.name
+                entity_address = apt.address_line1
+
+        # Timeline
+        timeline = [
+            BookingTimelineItem(
+                status="Created",
+                description="Booking request initiated by patient",
+                timestamp=b.created_at,
+                actor_name=b.patient.user.full_name if b.patient and b.patient.user else "Patient"
+            )
+        ]
+        if b.is_paid:
+            timeline.append(BookingTimelineItem(
+                status="Paid",
+                description=f"Payment received via {b.currency}",
+                timestamp=b.paid_at or b.created_at,
+                actor_name="System"
+            ))
+        if b.confirmed_at:
+            timeline.append(BookingTimelineItem(
+                status="Confirmed",
+                description="Booking confirmed by administration",
+                timestamp=b.confirmed_at,
+                actor_name="Admin"
+            ))
+        if b.status == BookingStatus.CANCELLED.value:
+            timeline.append(BookingTimelineItem(
+                status="Cancelled",
+                description=f"Booking cancelled. Reason: {b.cancellation_reason}",
+                timestamp=b.cancelled_at or b.updated_at,
+                actor_name="Admin"
+            ))
+
+        timeline.sort(key=lambda x: x.timestamp)
+
+        paid_amount = b.total_price if b.is_paid else 0.0
+        balance = b.total_price - paid_amount
+        progress = 100.0 if b.is_paid else 0.0
+
+        return AdminBookingDetailResponse(
+            **b.__dict__,
+            patient_name=b.patient.user.full_name if b.patient and b.patient.user else "Unknown",
+            patient_email=b.patient.user.email if b.patient and b.patient.user else None,
+            patient_phone=b.patient.user.phone if b.patient and b.patient.user else None,
+            property_name=entity_name,
+            entity_name=entity_name,
+            entity_address=entity_address,
+            room_name=room_name,
+            room_no=room_no,
+            timeline=timeline,
+            payment_progress=progress,
+            paid_amount=paid_amount,
+            balance_amount=balance
+        )
+
+    async def admin_update(self, booking_id: UUID, data: AdminBookingUpdate, updated_by: UUID) -> Booking:
+        """Comprehensive update for admin."""
+        b = await self.get_by_id(booking_id)
+        if not b:
+            raise ValueError("Booking not found")
+        
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            if field == "status":
+                b.status = value.value
+            else:
+                setattr(b, field, value)
+        
+        b.updated_by = updated_by
+        await self.db.commit()
+        await self.db.refresh(b)
+        return b
 
     # ------------------------------------------------------------------
     # Hotel booking
@@ -586,6 +813,151 @@ class BookingService:
             "bookings_by_type": by_type,
             "bookings_by_status": by_status,
         }
+
+    async def get_booking_reports(
+        self, 
+        start_date: date, 
+        end_date: date, 
+        property_type: str = "all"
+    ) -> BookingReportSummary:
+        """Get booking reports for a specific date range and property type for admin dashboard."""
+        from app.models.hotel import Hotel, Room
+        from app.models.apartment import Apartment
+        
+        # Filters for bookings
+        booking_filters = [
+            cast(Booking.created_at, Date) >= start_date,
+            cast(Booking.created_at, Date) <= end_date,
+            Booking.is_deleted == False
+        ]
+        
+        if property_type == "hotel":
+            booking_filters.append(Booking.booking_type == "hotel")
+        elif property_type == "apartment":
+            booking_filters.append(Booking.booking_type == "apartment")
+
+        # 1. Total Bookings
+        total_bookings = await self.db.scalar(
+            select(func.count(Booking.id)).where(and_(*booking_filters))
+        ) or 0
+
+        # 2. Revenue (confirmed or completed bookings)
+        revenue_filters = list(booking_filters)
+        revenue_filters.append(Booking.status.in_(["confirmed", "completed"]))
+        total_revenue = await self.db.scalar(
+            select(func.sum(Booking.total_price)).where(and_(*revenue_filters))
+        ) or 0.0
+
+        # 3. Cancellation Rate
+        cancelled_bookings = await self.db.scalar(
+            select(func.count(Booking.id)).where(
+                and_(
+                    *booking_filters,
+                    Booking.status == "cancelled"
+                )
+            )
+        ) or 0
+        cancellation_rate = (cancelled_bookings / total_bookings * 100) if total_bookings > 0 else 0.0
+
+        # 4. Occupancy Rate (Approximate based on nights booked vs capacity)
+        # Total rooms across relevant properties
+        if property_type == "hotel":
+            total_rooms = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False, Room.room_type != "apartment")) or 0
+        elif property_type == "apartment":
+            total_rooms = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False, Room.room_type == "apartment")) or 0
+        else:
+            total_rooms = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False)) or 0
+            
+        num_days = max(1, (end_date - start_date).days + 1)
+        total_room_nights = (total_rooms or 0) * num_days
+        
+        # Booked room nights in this period
+        # Simplified: sum of nights for bookings made in this period
+        booked_nights = await self.db.scalar(
+            select(func.sum(
+                func.extract('day', func.age(Booking.check_out_date, Booking.check_in_date))
+            )).where(
+                and_(
+                    *booking_filters,
+                    Booking.status.in_(["confirmed", "completed"]),
+                    Booking.check_in_date.isnot(None),
+                    Booking.check_out_date.isnot(None)
+                )
+            )
+        ) or 0
+        
+        occupancy_rate = (float(booked_nights) / total_room_nights * 100) if total_room_nights > 0 else 0.0
+
+        # 5. Trends
+        # Daily bookings
+        bookings_trend_res = await self.db.execute(
+            select(
+                cast(Booking.created_at, Date).label("date"),
+                func.count(Booking.id).label("count")
+            )
+            .where(and_(*booking_filters))
+            .group_by(text("date"))
+            .order_by(text("date"))
+        )
+        bookings_trend = [KPITrend(date=row.date, value=float(row.count)) for row in bookings_trend_res]
+
+        # Daily revenue
+        revenue_trend_res = await self.db.execute(
+            select(
+                cast(Booking.created_at, Date).label("date"),
+                func.sum(Booking.total_price).label("revenue")
+            )
+            .where(and_(*revenue_filters))
+            .group_by(text("date"))
+            .order_by(text("date"))
+        )
+        revenue_trend = [KPITrend(date=row.date, value=float(row.revenue)) for row in revenue_trend_res]
+
+        # 6. Bookings by Property Distribution
+        prop_bookings = []
+        
+        # Hotel bookings
+        hotel_bookings_sql = select(Hotel.name, func.count(Booking.id).label("count")) \
+            .select_from(Booking) \
+            .join(Room, Booking.hotel_room_id == Room.id) \
+            .join(Hotel, Room.hotel_id == Hotel.id) \
+            .where(and_(*booking_filters)) \
+            .group_by(Hotel.name)
+        
+        hotel_bookings_res = await self.db.execute(hotel_bookings_sql)
+        for row in hotel_bookings_res:
+            prop_bookings.append(PropertyBooking(
+                name=row.name, 
+                count=row.count, 
+                percentage=(row.count / total_bookings * 100) if total_bookings > 0 else 0
+            ))
+            
+        # Apartment bookings
+        apt_bookings_sql = select(Apartment.name, func.count(Booking.id).label("count")) \
+            .select_from(Booking) \
+            .join(Apartment, Booking.apartment_id == Apartment.id) \
+            .where(and_(*booking_filters)) \
+            .group_by(Apartment.name)
+            
+        apt_bookings_res = await self.db.execute(apt_bookings_sql)
+        for row in apt_bookings_res:
+            prop_bookings.append(PropertyBooking(
+                name=row.name, 
+                count=row.count, 
+                percentage=(row.count / total_bookings * 100) if total_bookings > 0 else 0
+            ))
+            
+        prop_bookings.sort(key=lambda x: x.count, reverse=True)
+
+        return BookingReportSummary(
+            total_bookings=total_bookings,
+            total_revenue=float(total_revenue),
+            occupancy_rate=round(occupancy_rate, 2),
+            cancellation_rate=round(cancellation_rate, 2),
+            bookings_trend=bookings_trend,
+            revenue_trend=revenue_trend,
+            bookings_by_property=prop_bookings[:5]
+        )
 
     # ------------------------------------------------------------------
     # Private helpers
