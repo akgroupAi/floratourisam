@@ -30,7 +30,6 @@ from app.models.shared_document import SharedDocument, DocumentComment
 from app.models.treatment_proposal import TreatmentProposal
 from app.models.career import JobPosition, JobApplication
 from app.models.knowledge_document import KnowledgeDocument
-from app.models.entity_mapping import UserEntityMapping
 
 __all__ = [
     "BaseModel",
@@ -90,5 +89,4 @@ __all__ = [
     "JobPosition",
     "JobApplication",
     "KnowledgeDocument",
-    "UserEntityMapping",
 ]
