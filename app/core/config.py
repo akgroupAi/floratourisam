@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
     STRIPE_CURRENCY: str = "usd"
 
+    # Razorpay
+    RAZORPAY_KEY_ID: Optional[str] = None
+    RAZORPAY_KEY_SECRET: Optional[str] = None
+    RAZORPAY_WEBHOOK_SECRET: Optional[str] = None
+    RAZORPAY_CURRENCY: str = "INR"
+
     # AI / RAG Chatbot
     AI_SERVICE_URL: Optional[str] = None
     AI_API_KEY: Optional[str] = None
