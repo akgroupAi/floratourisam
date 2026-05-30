@@ -87,7 +87,7 @@ class RazorpayService:
                 json={
                     "amount": amount_paise,
                     "currency": currency,
-                    "receipt": f"order_{booking_id}",
+                    "receipt": f"ord_{str(booking_id)[:34]}",  # Max 40 chars (6+34)
                     "notes": {
                         "booking_id": str(booking_id),
                         "user_id": str(user_id),
