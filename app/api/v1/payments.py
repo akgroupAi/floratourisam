@@ -11,28 +11,12 @@ from app.schemas.payment import (
     PaymentResponse,
 )
 from app.services.payment_service import PaymentService
-from app.services.stripe_service import StripeService
+
 from app.services.razorpay_service import RazorpayService
 from pydantic import BaseModel, Field
 from typing import Optional
 
 router = APIRouter()
-
-
-# ---------- Stripe request schemas ----------
-
-class StripeCheckoutRequest(BaseModel):
-    """Request to create a Stripe Checkout Session."""
-    booking_id: UUID
-    description: Optional[str] = None
-    success_url: Optional[str] = None
-    cancel_url: Optional[str] = None
-
-
-class StripePaymentIntentRequest(BaseModel):
-    """Request to create a Stripe PaymentIntent."""
-    booking_id: UUID
-    description: Optional[str] = None
 
 
 # ---------- Razorpay request schemas ----------
@@ -67,63 +51,7 @@ async def list_payments(current_user: CurrentUser, db: DatabaseSession, page: in
     return PaginatedResponse.create(payments, total, page, page_size)
 
 
-# ========== STRIPE ENDPOINTS (LEGACY) ==========
-
-@router.post("/stripe/checkout")
-async def create_stripe_checkout(
-    data: StripeCheckoutRequest,
-    current_user: CurrentUser,
-    db: DatabaseSession,
-):
-    """Create a Stripe Checkout Session. Returns a checkout URL to redirect the user to."""
-    service = StripeService(db)
-    try:
-        result = await service.create_checkout_session(
-            user_id=current_user.id,
-            booking_id=data.booking_id,
-            description=data.description,
-            success_url=data.success_url,
-            cancel_url=data.cancel_url,
-        )
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/stripe/payment-intent")
-async def create_stripe_payment_intent(
-    data: StripePaymentIntentRequest,
-    current_user: CurrentUser,
-    db: DatabaseSession,
-):
-    """Create a Stripe PaymentIntent. Returns a client_secret for frontend Stripe.js."""
-    service = StripeService(db)
-    try:
-        result = await service.create_payment_intent(
-            user_id=current_user.id,
-            booking_id=data.booking_id,
-            description=data.description,
-        )
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/stripe/webhook")
-async def stripe_webhook(request: Request, db: DatabaseSession):
-    """Handle Stripe webhook events. Stripe sends payment status updates here."""
-    payload = await request.body()
-    sig_header = request.headers.get("stripe-signature", "")
-
-    service = StripeService(db)
-    try:
-        result = await service.handle_webhook(payload, sig_header)
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# ========== RAZORPAY ENDPOINTS (NEW) ==========
+# ========== RAZORPAY ENDPOINTS ==========
 
 @router.post("/razorpay/order")
 async def create_razorpay_order(
@@ -194,7 +122,7 @@ async def refund_payment(
     reason: Optional[str] = None,
     amount: Optional[float] = None,
 ):
-    """Refund a payment (works for both Stripe and Razorpay)."""
+    """Refund a payment (Razorpay)."""
     # First get the payment to determine which gateway was used
     service = PaymentService(db)
     payment = await service.get_by_id(payment_id)
@@ -206,14 +134,11 @@ async def refund_payment(
     if str(payment.user_id) != str(current_user.id) and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized to refund this payment")
     
-    # Route to appropriate service
-    if payment.gateway == "stripe":
-        service = StripeService(db)
-    elif payment.gateway == "razorpay":
-        service = RazorpayService(db)
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown payment gateway: {payment.gateway}")
+    # Only support Razorpay
+    if payment.gateway != "razorpay":
+        raise HTTPException(status_code=400, detail=f"Payment gateway '{payment.gateway}' is not supported or deprecated")
     
+    service = RazorpayService(db)
     try:
         result = await service.refund_payment(
             payment_id=payment_id,

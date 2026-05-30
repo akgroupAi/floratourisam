@@ -86,7 +86,7 @@ class Payment(BaseModel):
     gateway: Mapped[Optional[str]] = mapped_column(
         String(50),
         nullable=True,
-    )  # stripe, paypal, etc.
+    )  # razorpay, paypal, etc.
     gateway_transaction_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,

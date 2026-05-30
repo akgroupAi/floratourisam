@@ -187,10 +187,8 @@ async def init_default_configs(current_user: CurrentUser, db: DatabaseSession):
         {"key": "FROM_EMAIL", "value": {"value": "noreply@floramedical.com"}, "category": "email", "name": "From Email"},
         {"key": "FROM_NAME", "value": {"value": "Flora Medical"}, "category": "email", "name": "From Name"},
         
-        # Payment
-        {"key": "STRIPE_PUBLIC_KEY", "value": {"value": ""}, "category": "payment", "name": "Stripe Public Key", "is_public": True},
-        {"key": "STRIPE_SECRET_KEY", "value": {"value": ""}, "category": "payment", "name": "Stripe Secret Key", "is_sensitive": True},
-        {"key": "PAYMENT_CURRENCY", "value": {"value": "USD"}, "category": "payment", "name": "Payment Currency", "is_public": True},
+        # Payment (Razorpay Only)
+        {"key": "PAYMENT_CURRENCY", "value": {"value": "INR"}, "category": "payment", "name": "Payment Currency", "is_public": True},
         
         # Booking
         {"key": "BOOKING_ADVANCE_DAYS", "value": {"value": 30}, "category": "booking", "name": "Max Advance Booking Days", "value_type": "number"},

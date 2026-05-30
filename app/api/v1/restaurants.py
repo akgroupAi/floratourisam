@@ -305,9 +305,9 @@ async def purchase_dining_pass(
     """Purchase a dining pass for a restaurant.
 
     Creates a pending DiningPassPurchase and a Booking record.
-    The frontend should then call POST /api/v1/payments/stripe/checkout
-    with the returned booking_id and amount to initiate Stripe payment.
-    The pass activates automatically when the Stripe webhook confirms payment.
+    The frontend should then call POST /api/v1/payments/razorpay/order
+    with the returned booking_id to initiate Razorpay payment.
+    The pass activates automatically when the Razorpay webhook confirms payment.
     """
     result = await db.execute(
         select(DiningPass).where(
