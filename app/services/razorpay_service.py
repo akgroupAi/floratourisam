@@ -160,6 +160,8 @@ class RazorpayService:
             order_id=order_data.get("id"),
         )
 
+        # Build checkout response with all necessary data
+        # Frontend will use: order_id, key_id to open Razorpay modal
         return {
             "payment_id": str(payment.id),
             "reference_number": payment.reference_number,
@@ -171,6 +173,9 @@ class RazorpayService:
             "user_name": getattr(payment, "user_name", "User"),
             "user_email": getattr(payment, "user_email", ""),
             "description": description or f"Booking {booking_id}",
+            # Frontend integration hint
+            "checkout_method": "razorpay_sdk",  # Use Razorpay SDK for modal
+            "integration_hint": "Use order_id and key_id with Razorpay.js SDK to open payment modal",
         }
 
     async def verify_payment(

@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Razorpay Checkout Integration</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .info {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .code-block {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .response-box {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .response-box pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .error {
+            color: #d32f2f;
+            background-color: #ffebee;
+            border-left: 4px solid #d32f2f;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success {
+            color: #388e3c;
+            background-color: #e8f5e9;
+            border-left: 4px solid #388e3c;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            margin: 8px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 14px;
+        }
+        label {
+            display: block;
+            margin-top: 15px;
+            font-weight: bold;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Razorpay Checkout Integration</h1>
+        
+        <div class="info">
+            <strong>How it works:</strong>
+            <ol>
+                <li>Enter your booking ID (from apartment booking response)</li>
+                <li>Click "Create Order" to get Razorpay order details</li>
+                <li>Click "Open Checkout" to open Razorpay payment modal</li>
+                <li>Complete payment in the modal</li>
+                <li>System verifies and confirms payment</li>
+            </ol>
+        </div>
+
+        <div>
+            <label for="apiBase">API Base URL:</label>
+            <input type="text" id="apiBase" placeholder="http://localhost:8000 or https://13.201.5.161:8000" value="http://13.201.5.161:8000">
+
+            <label for="token">Authorization Token:</label>
+            <input type="text" id="token" placeholder="Your JWT token from login response" value="">
+
+            <label for="bookingId">Booking ID:</label>
+            <input type="text" id="bookingId" placeholder="UUID from apartment booking">
+        </div>
+
+        <button onclick="createOrder()">1️⃣ Create Order</button>
+        <button onclick="openCheckout()" id="checkoutBtn" disabled>2️⃣ Open Checkout</button>
+        
+        <div id="response" class="response-box" style="display:none;">
+            <strong>Response:</strong>
+            <pre id="responseContent"></pre>
+        </div>
+
+        <div id="message"></div>
+
+        <hr>
+
+        <h2>📝 Integration Steps</h2>
+
+        <h3>Step 1: Login to get Token</h3>
+        <div class="code-block">
+POST /api/v1/auth/login
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+
+Response includes: access_token (or tokens.access_token depending on endpoint)
+        </div>
+
+        <h3>Step 2: Create Booking (e.g., Apartment)</h3>
+        <div class="code-block">
+POST /api/v1/bookings/apartment
+Headers: Authorization: Bearer {token}
+{
+  "apartment_id": "uuid",
+  "check_in_date": "2026-06-15",
+  "check_out_date": "2026-06-20",
+  "guests": 2
+}
+
+Response includes: booking_id and total_price
+        </div>
+
+        <h3>Step 3: Create Razorpay Order</h3>
+        <div class="code-block">
+POST /api/v1/payments/razorpay/order
+Headers: Authorization: Bearer {token}
+{
+  "booking_id": "uuid-from-booking"
+}
+
+Response:
+{
+  "payment_id": "uuid",
+  "order_id": "order_SvZLidgPYGFjD9",
+  "key_id": "rzp_test_SvYnusY18eShJP",
+  "amount_paise": 3300,
+  "currency": "USD",
+  "user_name": "John",
+  "user_email": "john@example.com"
+}
+        </div>
+
+        <h3>Step 4: Open Razorpay Checkout Modal</h3>
+        <div class="code-block">
+// Include SDK
+&lt;script src="https://checkout.razorpay.com/v1/checkout.js"&gt;&lt;/script&gt;
+
+// Use response data
+var options = {
+  key: response.key_id,           // Razorpay Key ID
+  amount: response.amount_paise,  // Amount in paise
+  currency: response.currency,    // INR, USD, EUR, etc.
+  order_id: response.order_id,    // Razorpay Order ID
+  
+  handler: function(response) {
+    // After successful payment
+    // response contains: razorpay_payment_id, razorpay_signature
+    verifyPayment(response);
+  }
+};
+
+var rzp = new Razorpay(options);
+rzp.open();
+        </div>
+
+        <h3>Step 5: Verify Payment</h3>
+        <div class="code-block">
+POST /api/v1/payments/razorpay/verify
+Headers: Authorization: Bearer {token}
+{
+  "payment_id": "uuid-from-create-order-response",
+  "order_id": "order_SvZLidgPYGFjD9",
+  "razorpay_payment_id": "pay_xxx",
+  "razorpay_signature": "signature_from_handler"
+}
+
+Response: Payment confirmed, booking marked as paid
+        </div>
+
+        <hr>
+
+        <h2>⚙️ Configuration</h2>
+        <ul>
+            <li><strong>API Base URL:</strong> http://localhost:8000 (dev) or https://13.201.5.161:8000 (prod)</li>
+            <li><strong>Razorpay Key:</strong> Visible in response from create order endpoint</li>
+            <li><strong>Amount Unit:</strong> Paise for INR, cents for USD (multiply by 100)</li>
+            <li><strong>Test Cards:</strong> Use Razorpay test card details (4111111111111111)</li>
+        </ul>
+
+    </div>
+
+    <script>
+        const API_BASE = () => document.getElementById('apiBase').value;
+        const TOKEN = () => document.getElementById('token').value;
+        const BOOKING_ID = () => document.getElementById('bookingId').value;
+
+        let orderData = null;
+
+        function showMessage(text, isError = false) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.innerHTML = `<div class="${isError ? 'error' : 'success'}">${text}</div>`;
+        }
+
+        function showResponse(data) {
+            const responseDiv = document.getElementById('response');
+            const responseContent = document.getElementById('responseContent');
+            responseContent.textContent = JSON.stringify(data, null, 2);
+            responseDiv.style.display = 'block';
+        }
+
+        async function createOrder() {
+            const bookingId = BOOKING_ID();
+            const token = TOKEN();
+            const apiBase = API_BASE();
+
+            if (!bookingId) {
+                showMessage('Please enter a Booking ID', true);
+                return;
+            }
+
+            if (!token) {
+                showMessage('Please enter Authorization Token', true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${apiBase}/api/v1/payments/razorpay/order`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ booking_id: bookingId })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showMessage(`Error: ${data.detail || 'Order creation failed'}`, true);
+                    showResponse(data);
+                    return;
+                }
+
+                orderData = data;
+                showMessage('✅ Order created successfully!');
+                showResponse(data);
+                document.getElementById('checkoutBtn').disabled = false;
+
+            } catch (error) {
+                showMessage(`Error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+
+        function openCheckout() {
+            if (!orderData) {
+                showMessage('Please create order first', true);
+                return;
+            }
+
+            const options = {
+                key: orderData.key_id,
+                amount: orderData.amount_paise,
+                currency: orderData.currency,
+                name: 'Flora Medical Tourism',
+                description: orderData.description,
+                order_id: orderData.order_id,
+                prefill: {
+                    name: orderData.user_name,
+                    email: orderData.user_email,
+                    contact: '9999999999'
+                },
+                handler: function(response) {
+                    showMessage('✅ Payment completed! Verifying...');
+                    verifyPayment(response);
+                },
+                modal: {
+                    ondismiss: function() {
+                        showMessage('Payment cancelled by user', true);
+                    }
+                }
+            };
+
+            var rzp = new Razorpay(options);
+            rzp.open();
+        }
+
+        async function verifyPayment(response) {
+            const token = TOKEN();
+            const apiBase = API_BASE();
+
+            try {
+                const verifyResponse = await fetch(`${apiBase}/api/v1/payments/razorpay/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        payment_id: orderData.payment_id,
+                        order_id: orderData.order_id,
+                        razorpay_payment_id: response.razorpay_payment_id,
+                        razorpay_signature: response.razorpay_signature
+                    })
+                });
+
+                const data = await verifyResponse.json();
+
+                if (!verifyResponse.ok) {
+                    showMessage(`Verification failed: ${data.detail || 'Unknown error'}`, true);
+                    showResponse(data);
+                    return;
+                }
+
+                showMessage('🎉 Payment verified and confirmed!');
+                showResponse(data);
+
+            } catch (error) {
+                showMessage(`Verification error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>
