@@ -50,12 +50,34 @@ class RazorpayService:
         if booking.is_paid:
             raise ValueError("Booking is already paid")
 
+        # Validate amount
+        if not booking.total_price or booking.total_price <= 0:
+            raise ValueError(f"Invalid booking amount: {booking.total_price}")
+
         # Get amount in smallest currency unit (paise for INR, cents for USD, etc.)
         amount = round(booking.total_price, 2)
         currency = (booking.currency or settings.RAZORPAY_CURRENCY).upper()
         
+        # Validate currency
+        if not currency or len(currency) != 3:
+            raise ValueError(f"Invalid currency: {currency}")
+        
         # Convert to smallest unit: INR → paise (multiply by 100)
         amount_paise = int(round(amount * 100))
+        
+        # Validate minimum amount (Razorpay requires at least 1 paise)
+        if amount_paise < 1:
+            raise ValueError(f"Amount too small: {amount_paise} paise")
+
+        # Log order creation attempt
+        logger.info(
+            "razorpay_order_creation_attempt",
+            booking_id=str(booking_id),
+            user_id=str(user_id),
+            amount_paise=amount_paise,
+            currency=currency,
+            razorpay_key_id=self.key_id[:10] + "***" if self.key_id else "MISSING"
+        )
 
         # Create Razorpay Order via API
         try:
@@ -76,7 +98,20 @@ class RazorpayService:
             order_response.raise_for_status()
             order_data = order_response.json()
         except requests.RequestException as e:
-            logger.error("razorpay_order_creation_failed", error=str(e))
+            error_response = None
+            try:
+                error_response = e.response.json() if hasattr(e, 'response') and e.response is not None else None
+            except:
+                pass
+            logger.error(
+                "razorpay_order_creation_failed",
+                amount_paise=amount_paise,
+                currency=currency,
+                booking_id=str(booking_id),
+                error=str(e),
+                error_response=error_response,
+                status_code=e.response.status_code if hasattr(e, 'response') and e.response is not None else None
+            )
             raise ValueError(f"Failed to create Razorpay order: {str(e)}")
 
         # Create local payment record
@@ -213,7 +248,19 @@ class RazorpayService:
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
-            logger.error("razorpay_capture_failed", payment_id=razorpay_payment_id, error=str(e))
+            error_response = None
+            try:
+                error_response = e.response.json() if hasattr(e, 'response') and e.response is not None else None
+            except:
+                pass
+            logger.error(
+                "razorpay_capture_failed",
+                payment_id=razorpay_payment_id,
+                amount_paise=amount_paise,
+                error=str(e),
+                error_response=error_response,
+                status_code=e.response.status_code if hasattr(e, 'response') and e.response is not None else None
+            )
             raise ValueError(f"Failed to capture payment: {str(e)}")
 
     async def refund_payment(
@@ -253,7 +300,20 @@ class RazorpayService:
             refund_response.raise_for_status()
             refund_data = refund_response.json()
         except requests.RequestException as e:
-            logger.error("razorpay_refund_failed", payment_id=str(payment_id), error=str(e))
+            error_response = None
+            try:
+                error_response = e.response.json() if hasattr(e, 'response') and e.response is not None else None
+            except:
+                pass
+            logger.error(
+                "razorpay_refund_failed",
+                payment_id=str(payment_id),
+                razorpay_payment_id=razorpay_payment_id,
+                refund_amount_paise=refund_amount_paise,
+                error=str(e),
+                error_response=error_response,
+                status_code=e.response.status_code if hasattr(e, 'response') and e.response is not None else None
+            )
             raise ValueError(f"Failed to refund payment: {str(e)}")
 
         # Update payment record
