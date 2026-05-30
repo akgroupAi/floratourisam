@@ -17,6 +17,7 @@ from app.api.v1 import (
     admin_knowledge,
     admin_hospitality,
     rbac_admin,
+    admin_bookings,
 )
 
 api_router = APIRouter()
@@ -47,6 +48,7 @@ api_router.include_router(restaurants.router, prefix="/restaurants", tags=["Rest
 
 # Bookings & Payments
 api_router.include_router(bookings.router, prefix="/bookings", tags=["Bookings"])
+api_router.include_router(admin_bookings.router, prefix="/admin/bookings", tags=["Admin - Bookings"])
 api_router.include_router(payments.router, prefix="/payments", tags=["Payments"])
 
 # Communication

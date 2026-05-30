@@ -20,146 +20,19 @@ from app.models.hospital import Hospital
 from app.models.hotel import Hotel, Room
 from app.utils.enums import UserRole
 
+from app.services.dashboard_service import DashboardService
+from app.schemas.dashboard import AdminDashboardSummary
+
 router = APIRouter()
 
 
 # ============== MAIN DASHBOARD ==============
 
-@router.get("/summary", dependencies=[RequireAdmin])
+@router.get("/summary", response_model=AdminDashboardSummary, dependencies=[RequireAdmin])
 async def get_dashboard_summary(db: DatabaseSession):
     """Get all KPIs in one call for the main dashboard."""
-    
-    # Date ranges
-    now = datetime.utcnow()
-    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    start_of_last_month = (start_of_month - timedelta(days=1)).replace(day=1)
-    
-    # Total users by role
-    users_result = await db.execute(
-        select(
-            User.role,
-            func.count(User.id).label("count")
-        )
-        .where(User.is_deleted == False)
-        .group_by(User.role)
-    )
-    users_by_role = {row.role: row.count for row in users_result}
-    
-    total_users = sum(users_by_role.values())
-    
-    # Total bookings by status
-    bookings_result = await db.execute(
-        select(
-            Booking.status,
-            func.count(Booking.id).label("count")
-        )
-        .where(Booking.is_deleted == False)
-        .group_by(Booking.status)
-    )
-    bookings_by_status = {row.status: row.count for row in bookings_result}
-    
-    total_bookings = sum(bookings_by_status.values())
-    
-    # Revenue this month
-    revenue_this_month_result = await db.execute(
-        select(func.sum(Payment.amount))
-        .where(
-            Payment.status == "completed",
-            Payment.created_at >= start_of_month
-        )
-    )
-    revenue_this_month = revenue_this_month_result.scalar() or 0
-    
-    # Revenue last month
-    revenue_last_month_result = await db.execute(
-        select(func.sum(Payment.amount))
-        .where(
-            Payment.status == "completed",
-            Payment.created_at >= start_of_last_month,
-            Payment.created_at < start_of_month
-        )
-    )
-    revenue_last_month = revenue_last_month_result.scalar() or 0
-    
-    # Revenue growth
-    revenue_growth = 0
-    if revenue_last_month > 0:
-        revenue_growth = ((revenue_this_month - revenue_last_month) / revenue_last_month) * 100
-    
-    # Consultations
-    consultations_result = await db.execute(
-        select(
-            Consultation.status,
-            func.count(Consultation.id).label("count")
-        )
-        .where(Consultation.is_deleted == False)
-        .group_by(Consultation.status)
-    )
-    consultations_by_status = {row.status: row.count for row in consultations_result}
-    
-    total_consultations = sum(consultations_by_status.values())
-    
-    # Leads/Quotes
-    leads_result = await db.execute(
-        select(
-            LeadSubmission.status,
-            func.count(LeadSubmission.id).label("count")
-        )
-        .where(LeadSubmission.is_deleted == False)
-        .group_by(LeadSubmission.status)
-    )
-    leads_by_status = {row.status: row.count for row in leads_result}
-    
-    total_leads = sum(leads_by_status.values())
-    
-    # Active doctors
-    active_doctors_result = await db.execute(
-        select(func.count(Doctor.id))
-        .where(
-            Doctor.is_verified == True,
-            Doctor.is_deleted == False
-        )
-    )
-    active_doctors = active_doctors_result.scalar() or 0
-    
-    return {
-        "users": {
-            "total": total_users,
-            "by_role": users_by_role,
-            "patients": users_by_role.get(UserRole.PATIENT.value, 0),
-            "doctors": users_by_role.get(UserRole.DOCTOR.value, 0),
-            "admins": users_by_role.get(UserRole.ADMIN.value, 0) + users_by_role.get(UserRole.SUPER_ADMIN.value, 0),
-        },
-        "bookings": {
-            "total": total_bookings,
-            "by_status": bookings_by_status,
-            "pending": bookings_by_status.get("pending", 0),
-            "confirmed": bookings_by_status.get("confirmed", 0),
-            "completed": bookings_by_status.get("completed", 0),
-            "cancelled": bookings_by_status.get("cancelled", 0),
-        },
-        "revenue": {
-            "this_month": float(revenue_this_month),
-            "last_month": float(revenue_last_month),
-            "growth_percent": round(revenue_growth, 2),
-        },
-        "consultations": {
-            "total": total_consultations,
-            "by_status": consultations_by_status,
-            "completed": consultations_by_status.get("completed", 0),
-            "upcoming": consultations_by_status.get("scheduled", 0),
-        },
-        "leads": {
-            "total": total_leads,
-            "by_status": leads_by_status,
-            "new": leads_by_status.get("new", 0),
-            "contacted": leads_by_status.get("contacted", 0),
-            "converted": leads_by_status.get("converted", 0),
-        },
-        "doctors": {
-            "active": active_doctors,
-        },
-    }
+    service = DashboardService(db)
+    return await service.get_admin_dashboard_summary()
 
 
 # ============== USER STATISTICS ==============

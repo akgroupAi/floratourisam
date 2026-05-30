@@ -244,3 +244,79 @@ class BookingStatsResponse(BaseModel):
     bookings_by_type: dict[str, int]
     bookings_by_status: dict[str, int]
 
+
+# Admin Booking Management Schemas
+
+class AdminBookingKPIs(BaseModel):
+    total_bookings: int
+    active_confirmed: int
+    pending_approval: int
+    collected_revenue: float
+
+
+class AdminBookingListItem(BookingListResponse):
+    patient_name: str
+    patient_email: Optional[str]
+    property_name: Optional[str]
+    room_name: Optional[str]
+
+
+class AdminBookingDashboardResponse(BaseModel):
+    kpis: AdminBookingKPIs
+    bookings: List[AdminBookingListItem]
+    total_count: int
+    page: int
+    page_size: int
+
+
+class BookingTimelineItem(BaseModel):
+    status: str
+    description: str
+    timestamp: datetime
+    actor_name: Optional[str] = None
+
+
+class AdminBookingDetailResponse(BookingResponse):
+    patient_name: str
+    patient_email: Optional[str]
+    patient_phone: Optional[str]
+    property_name: Optional[str]
+    room_name: Optional[str]
+    room_no: Optional[str] = None
+    timeline: List[BookingTimelineItem] = []
+    payment_progress: float = 0.0
+    paid_amount: float = 0.0
+    balance_amount: float = 0.0
+
+
+class AdminBookingUpdate(BaseModel):
+    check_in_date: Optional[date] = None
+    check_out_date: Optional[date] = None
+    guest_count: Optional[int] = Field(default=None, ge=1, le=20)
+    status: Optional[BookingStatus] = None
+    special_requests: Optional[str] = None
+    notes: Optional[str] = None
+    internal_notes: Optional[str] = None
+    reference_number: Optional[str] = None
+
+
+class KPITrend(BaseModel):
+    date: date
+    value: float
+
+
+class PropertyBooking(BaseModel):
+    name: str
+    count: int
+    percentage: float
+
+
+class BookingReportSummary(BaseModel):
+    total_bookings: int
+    total_revenue: float
+    occupancy_rate: float
+    cancellation_rate: float
+    bookings_trend: List[KPITrend]
+    revenue_trend: List[KPITrend]
+    bookings_by_property: List[PropertyBooking]
+
