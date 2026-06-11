@@ -4,9 +4,9 @@ from datetime import date
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 
-from app.api.deps import DatabaseSession, SuperUser, get_current_active_superuser
+from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.schemas.booking import (
     AdminBookingDashboardResponse,
     AdminBookingDetailResponse,
@@ -27,10 +27,10 @@ router = APIRouter()
     response_model=AdminBookingDashboardResponse,
     summary="List bookings with KPIs",
     description="Returns a list of bookings and key performance indicators for the admin dashboard.",
+    dependencies=[RequireAdmin],
 )
 async def list_bookings(
     db: DatabaseSession,
-    current_user: SuperUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     booking_type: Optional[BookingType] = Query(None),
@@ -59,10 +59,10 @@ async def list_bookings(
     response_model=BookingReportSummary,
     summary="Booking reports summary for dashboard",
     description="Returns brief report summary of bookings for all KPIs including trends.",
+    dependencies=[RequireAdmin],
 )
 async def get_booking_reports_dashboard(
     db: DatabaseSession,
-    current_user: SuperUser,
     start_date: date = Query(..., description="Start date for reports"),
     end_date: date = Query(..., description="End date for reports"),
     property_type: str = Query("all", pattern="^(all|hotel|apartment)$")
@@ -76,11 +76,11 @@ async def get_booking_reports_dashboard(
     response_model=AdminBookingDetailResponse,
     summary="View booking details",
     description="Returns full details of a particular booking, including timeline.",
+    dependencies=[RequireAdmin],
 )
 async def get_booking_detail(
     booking_id: UUID,
     db: DatabaseSession,
-    current_user: SuperUser,
 ):
     service = BookingService(db)
     try:
@@ -94,12 +94,13 @@ async def get_booking_detail(
     response_model=BookingResponse,
     summary="Modify a booking",
     description="Updates booking details such as dates, guest count, or status.",
+    dependencies=[RequireAdmin],
 )
 async def modify_booking(
     booking_id: UUID,
     data: AdminBookingUpdate,
     db: DatabaseSession,
-    current_user: SuperUser,
+    current_user: CurrentUser,
 ):
     service = BookingService(db)
     try:
@@ -113,12 +114,13 @@ async def modify_booking(
     response_model=BookingResponse,
     summary="Cancel a booking",
     description="Cancels the booking with a provided reason.",
+    dependencies=[RequireAdmin],
 )
 async def cancel_booking(
     booking_id: UUID,
     data: BookingCancelRequest,
     db: DatabaseSession,
-    current_user: SuperUser,
+    current_user: CurrentUser,
 ):
     service = BookingService(db)
     booking = await service.get_by_id(booking_id)

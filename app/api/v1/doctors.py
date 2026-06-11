@@ -1,10 +1,11 @@
 """Doctor endpoints."""
 
+from datetime import date, timezone
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, select, cast, Date
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireDoctor
 from app.models.consultation import Consultation
@@ -59,37 +60,108 @@ async def get_my_doctor_profile(current_user: CurrentUser, db: DatabaseSession):
 @router.get("/me/stats", summary="Doctor dashboard stats")
 async def get_my_doctor_stats(current_user: CurrentUser, db: DatabaseSession):
     """
-    Returns key statistics for the doctor's own dashboard:
-    - total_consultations: lifetime consultations
-    - total_patients: unique patients ever seen
-    - rating: current average rating
-    - total_reviews: number of reviews received
-    - consultation_fee: current fee
+    Returns key statistics for the doctor's own dashboard matching the design:
+
+    Top row:
+    - today:          consultations scheduled for today
+    - pending:        consultations in pending / scheduled / waiting status
+    - done:           completed consultations (lifetime)
+
+    Bottom cards:
+    - today_schedule: same as `today` (today's appointment count)
+    - pending_review: completed consultations with no diagnosis written yet
+    - video_sessions: currently in-progress video consultations
+    - completed:      lifetime completed count
+    - completion_rate: completed / total * 100  (0-100 float)
+
+    Legacy fields (kept for backward compatibility):
+    - total_consultations, total_patients, rating, total_reviews,
+      consultation_fee, years_of_experience, is_verified
     """
     service = DoctorService(db)
     doctor = await service.get_by_user_id(current_user.id)
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor profile not found")
 
+    base = (Consultation.doctor_id == doctor.id, Consultation.is_deleted == False)
+    today_date = date.today()
+
+    # ── total (lifetime) ──────────────────────────────────────────────
     total_consultations = (
-        await db.execute(
-            select(func.count()).where(
-                Consultation.doctor_id == doctor.id,
-                Consultation.is_deleted == False,
-            )
-        )
+        await db.execute(select(func.count()).where(*base))
     ).scalar() or 0
 
     total_patients = (
         await db.execute(
-            select(func.count(func.distinct(Consultation.patient_id))).where(
-                Consultation.doctor_id == doctor.id,
-                Consultation.is_deleted == False,
+            select(func.count(func.distinct(Consultation.patient_id))).where(*base)
+        )
+    ).scalar() or 0
+
+    # ── top-row stats ─────────────────────────────────────────────────
+    today = (
+        await db.execute(
+            select(func.count()).where(
+                *base,
+                cast(Consultation.scheduled_at, Date) == today_date,
             )
         )
     ).scalar() or 0
 
+    pending = (
+        await db.execute(
+            select(func.count()).where(
+                *base,
+                Consultation.status.in_(["pending", "scheduled", "waiting"]),
+            )
+        )
+    ).scalar() or 0
+
+    done = (
+        await db.execute(
+            select(func.count()).where(
+                *base,
+                Consultation.status == "completed",
+            )
+        )
+    ).scalar() or 0
+
+    # ── bottom-card stats ─────────────────────────────────────────────
+    # Pending Review: completed but doctor hasn't written diagnosis yet
+    pending_review = (
+        await db.execute(
+            select(func.count()).where(
+                *base,
+                Consultation.status == "completed",
+                Consultation.diagnosis == None,
+            )
+        )
+    ).scalar() or 0
+
+    # Video Sessions: currently in-progress video consultations
+    video_sessions = (
+        await db.execute(
+            select(func.count()).where(
+                *base,
+                Consultation.status == "in_progress",
+                Consultation.consultation_type == "video",
+            )
+        )
+    ).scalar() or 0
+
+    completion_rate = round((done / total_consultations * 100), 1) if total_consultations > 0 else 0.0
+
     return {
+        # Top row
+        "today": today,
+        "pending": pending,
+        "done": done,
+        # Bottom cards
+        "today_schedule": today,
+        "pending_review": pending_review,
+        "video_sessions": video_sessions,
+        "completed": done,
+        "completion_rate": completion_rate,
+        # Legacy / profile fields
         "doctor_id": doctor.id,
         "total_consultations": total_consultations,
         "total_patients": total_patients,

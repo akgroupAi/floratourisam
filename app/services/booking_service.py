@@ -22,6 +22,7 @@ from app.models.user import User
 from app.schemas.booking import (
     ApartmentBookingCreate,
     BookingCancelRequest,
+    BookingListResponse,
     BookingStatusUpdate,
     BookingUpdate,
     HotelBookingCreate,
@@ -82,7 +83,11 @@ class BookingService:
         patient_id: Optional[UUID] = None,
         booking_type: Optional[BookingType] = None,
         status: Optional[BookingStatus] = None,
-    ) -> tuple[List[Booking], int]:
+    ) -> tuple[List[BookingListResponse], int]:
+        from app.models.hotel import Hotel, Room
+        from app.models.apartment import Apartment
+        from app.models.restaurant import Restaurant
+
         query = select(Booking).where(Booking.is_deleted == False)
 
         if patient_id:
@@ -103,7 +108,45 @@ class BookingService:
             .limit(pagination.page_size)
         )
         result = await self.db.execute(query)
-        return list(result.scalars().all()), total
+        bookings = result.scalars().all()
+
+        items = []
+        for b in bookings:
+            entity_name = None
+            if b.hotel_room_id:
+                room_res = await self.db.execute(
+                    select(Room).options(joinedload(Room.hotel)).where(Room.id == b.hotel_room_id)
+                )
+                room = room_res.scalar_one_or_none()
+                if room:
+                    entity_name = room.hotel.name if room.hotel else "Hotel"
+            elif b.apartment_id:
+                apt_res = await self.db.execute(select(Apartment).where(Apartment.id == b.apartment_id))
+                apt = apt_res.scalar_one_or_none()
+                entity_name = apt.name if apt else "Apartment"
+            elif b.restaurant_id:
+                rest_res = await self.db.execute(select(Restaurant).where(Restaurant.id == b.restaurant_id))
+                rest = rest_res.scalar_one_or_none()
+                entity_name = rest.name if rest else "Restaurant"
+
+            items.append(BookingListResponse(
+                id=b.id,
+                reference_number=b.reference_number,
+                booking_type=b.booking_type,
+                status=b.status,
+                booking_date=b.booking_date,
+                check_in_date=b.check_in_date,
+                check_out_date=b.check_out_date,
+                scheduled_time=b.scheduled_time,
+                guest_count=b.guest_count,
+                total_price=b.total_price,
+                currency=b.currency,
+                is_paid=b.is_paid,
+                created_at=b.created_at,
+                entity_name=entity_name,
+            ))
+
+        return items, total
 
     # ------------------------------------------------------------------
     # Admin Reads

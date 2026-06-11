@@ -440,7 +440,8 @@ async def list_restaurants(
             ))
         return PaginatedResponse.create(items, total, page, page_size)
     else:
-        return PaginatedResponse.create(restaurants, total, page, page_size)
+        items = [RestaurantResponse.model_validate(r) for r in restaurants]
+        return PaginatedResponse.create(items, total, page, page_size)
 
 
 @router.post(

@@ -1,0 +1,4 @@
+WARNING: Cache entry deserialization failed, entry ignored
+
+[notice] A new release of pip is available: 24.0 -> 26.1.2
+[notice] To update, run: python.exe -m pip install --upgrade pip

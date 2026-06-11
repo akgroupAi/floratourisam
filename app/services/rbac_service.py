@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -183,19 +183,20 @@ class RBACService:
     ) -> bool:
         """Update permissions matrix for a role."""
         try:
-            role = await self.get_role_by_id(role_id)
+            # Verify role exists (scalar only — don't load permissions relationship)
+            role_result = await self.db.execute(
+                select(Role).where(Role.id == role_id, Role.is_deleted == False)
+            )
+            role = role_result.scalar_one_or_none()
             if not role:
                 return False
 
-            # Delete existing permissions via raw SQL
+            # Delete all existing permissions via raw SQL
             await self.db.execute(
                 role_permissions.delete().where(role_permissions.c.role_id == role_id)
             )
 
-            # Refresh role to sync ORM state after raw SQL delete
-            await self.db.refresh(role)
-
-            # Add new permissions from matrix
+            # Insert new permissions via raw SQL (avoids stale ORM collection cache)
             for resource, actions in data.permissions.items():
                 for action, enabled in actions.items():
                     if enabled:
@@ -208,13 +209,23 @@ class RBACService:
                         )
                         permission = perm_result.scalar_one_or_none()
                         if permission:
-                            role.permissions.append(permission)
+                            await self.db.execute(
+                                role_permissions.insert().values(
+                                    role_id=role_id,
+                                    permission_id=permission.id
+                                )
+                            )
 
-            role.updated_by = actor_id
-            role.updated_at = datetime.utcnow()
+            # Update role timestamp via raw SQL to stay consistent
+            await self.db.execute(
+                sql_update(Role)
+                .where(Role.id == role_id)
+                .values(updated_by=actor_id, updated_at=datetime.utcnow())
+            )
+
             await self.db.commit()
 
-            # Audit log
+            # Audit log (no commit needed — flushed with next transaction)
             await self._audit_log(
                 actor_id=actor_id,
                 action="update_permissions",
@@ -224,6 +235,7 @@ class RBACService:
                 description=f"Updated permissions for role: {role.name}",
                 meta_data={"permissions": data.permissions, "scope_own_only": data.scope_own_only}
             )
+            await self.db.commit()
 
             return True
         except Exception as e:

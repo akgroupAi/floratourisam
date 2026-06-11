@@ -2,6 +2,7 @@
 
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from app.api.deps import CurrentUser, DatabaseSession
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.schemas.payment import (
@@ -15,6 +16,7 @@ from app.services.payment_service import PaymentService
 from app.services.razorpay_service import RazorpayService
 from pydantic import BaseModel, Field
 from typing import Optional
+import io
 
 router = APIRouter()
 
@@ -205,4 +207,92 @@ async def get_payment(payment_id: UUID, current_user: CurrentUser, db: DatabaseS
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
     return payment
+
+
+@router.get("/{payment_id}/invoice")
+async def download_invoice(payment_id: UUID, current_user: CurrentUser, db: DatabaseSession):
+    """Download a PDF invoice for a completed Razorpay payment."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import joinedload
+    from app.models.payment import Payment
+    from app.models.booking import Booking
+    from app.models.user import User
+    from app.models.hotel import Room
+    from app.models.apartment import Apartment
+    from app.models.restaurant import Restaurant
+    from app.utils.invoice_generator import generate_invoice_pdf
+
+    # Load payment
+    pay_result = await db.execute(select(Payment).where(Payment.id == payment_id))
+    payment = pay_result.scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    if str(payment.user_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if payment.status not in ("completed", "partially_refunded", "refunded"):
+        raise HTTPException(status_code=400, detail="Invoice is only available for completed payments")
+
+    # Load user
+    user_result = await db.execute(select(User).where(User.id == payment.user_id))
+    user = user_result.scalar_one_or_none()
+
+    # Load booking linked to this payment
+    booking = None
+    if payment.booking_id:
+        bk_result = await db.execute(select(Booking).where(Booking.id == payment.booking_id))
+        booking = bk_result.scalar_one_or_none()
+    if not booking:
+        # Fall back: find booking where payment_id == this payment
+        bk_result = await db.execute(select(Booking).where(Booking.payment_id == payment.id))
+        booking = bk_result.scalar_one_or_none()
+
+    # Resolve entity name from booking
+    entity_name = None
+    if booking:
+        if booking.hotel_room_id:
+            room_res = await db.execute(
+                select(Room).options(joinedload(Room.hotel)).where(Room.id == booking.hotel_room_id)
+            )
+            room = room_res.scalar_one_or_none()
+            if room:
+                entity_name = room.hotel.name if room.hotel else "Hotel"
+        elif booking.apartment_id:
+            apt_res = await db.execute(select(Apartment).where(Apartment.id == booking.apartment_id))
+            apt = apt_res.scalar_one_or_none()
+            entity_name = apt.name if apt else "Apartment"
+        elif booking.restaurant_id:
+            rest_res = await db.execute(select(Restaurant).where(Restaurant.id == booking.restaurant_id))
+            rest = rest_res.scalar_one_or_none()
+            entity_name = rest.name if rest else "Restaurant"
+
+    pdf_bytes = generate_invoice_pdf(
+        payment_reference=payment.reference_number,
+        razorpay_payment_id=payment.gateway_transaction_id,
+        payment_status=payment.status,
+        payment_method=payment.payment_method,
+        paid_at=payment.completed_at,
+        booking_reference=booking.reference_number if booking else payment.reference_number,
+        booking_type=booking.booking_type if booking else "booking",
+        entity_name=entity_name,
+        check_in_date=booking.check_in_date if booking else None,
+        check_out_date=booking.check_out_date if booking else None,
+        guest_count=booking.guest_count if booking else 1,
+        base_price=booking.base_price if booking else payment.amount,
+        taxes=booking.taxes if booking else 0.0,
+        discount=booking.discount if booking else 0.0,
+        total_price=booking.total_price if booking else payment.amount,
+        currency=payment.currency,
+        user_name=user.full_name if user else "Guest",
+        user_email=user.email if user else "",
+        user_phone=user.phone if user else None,
+    )
+
+    filename = f"invoice-{payment.reference_number}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
