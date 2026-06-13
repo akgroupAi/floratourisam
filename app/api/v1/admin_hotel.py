@@ -384,7 +384,8 @@ async def list_hotels(
         from app.services.hotel_service import HotelService
         service = HotelService(db)
         hotels = await service._enrich_hotels_with_base_prices(list(hotels))
-        return PaginatedResponse.create(hotels, total, page, page_size)
+        items = [HotelResponse.model_validate(h) for h in hotels]
+        return PaginatedResponse.create(items, total, page, page_size)
 
 
 @router.post("", response_model=HotelResponse, status_code=status.HTTP_201_CREATED, dependencies=[RequireAdmin])

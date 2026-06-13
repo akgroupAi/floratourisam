@@ -153,19 +153,29 @@ class RBACService:
 
     async def get_role_permissions(self, role_id: UUID) -> Optional[Dict]:
         """Get permissions matrix for a role."""
-        role = await self.get_role_by_id(role_id)
-        if not role:
+        role_exists = await self.db.scalar(
+            select(func.count(Role.id)).where(Role.id == role_id, Role.is_deleted == False)
+        )
+        if not role_exists:
             return None
 
-        # Build permissions matrix
+        # Query directly from DB — bypasses ORM identity-map cache which can be
+        # stale after raw-SQL inserts in update_role_permissions.
+        result = await self.db.execute(
+            select(Permission)
+            .join(role_permissions, role_permissions.c.permission_id == Permission.id)
+            .where(role_permissions.c.role_id == role_id)
+        )
+        perms = result.scalars().all()
+
         matrix = {}
-        for perm in role.permissions:
+        for perm in perms:
             if perm.resource not in matrix:
                 matrix[perm.resource] = {
                     "can_create": False,
                     "can_read": False,
                     "can_update": False,
-                    "can_delete": False
+                    "can_delete": False,
                 }
             if perm.action == "create":
                 matrix[perm.resource]["can_create"] = True
@@ -223,9 +233,10 @@ class RBACService:
                 .values(updated_by=actor_id, updated_at=datetime.utcnow())
             )
 
+            # Expire the role so the ORM's stale permissions cache is discarded.
+            self.db.expire(role)
             await self.db.commit()
 
-            # Audit log (no commit needed — flushed with next transaction)
             await self._audit_log(
                 actor_id=actor_id,
                 action="update_permissions",
