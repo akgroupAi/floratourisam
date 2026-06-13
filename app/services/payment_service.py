@@ -31,19 +31,45 @@ class PaymentService:
 
     async def get_list(
         self, pagination: PaginationParams, user_id: Optional[UUID] = None,
-    ) -> tuple[List[Payment], int]:
-        query = select(Payment).where(Payment.is_deleted == False)
-        if user_id:
-            query = query.where(Payment.user_id == user_id)
+    ) -> tuple[List[dict], int]:
+        from app.models.booking import Booking
+        from app.models.hotel import Hotel, Room
+        from app.models.apartment import Apartment
+        from app.models.restaurant import Restaurant
 
-        count_query = select(func.count()).select_from(query.subquery())
+        base_filter = [Payment.is_deleted == False]
+        if user_id:
+            base_filter.append(Payment.user_id == user_id)
+
+        count_query = select(func.count(Payment.id)).where(*base_filter)
         total = (await self.db.execute(count_query)).scalar() or 0
 
-        query = query.order_by(Payment.created_at.desc())
-        query = query.offset(pagination.offset).limit(pagination.page_size)
-        payments = (await self.db.execute(query)).scalars().all()
+        stmt = (
+            select(
+                Payment,
+                Booking.booking_type,
+                func.coalesce(Hotel.name, Apartment.name, Restaurant.name).label("entity_name"),
+            )
+            .outerjoin(Booking, Payment.booking_id == Booking.id)
+            .outerjoin(Room, Booking.hotel_room_id == Room.id)
+            .outerjoin(Hotel, Room.hotel_id == Hotel.id)
+            .outerjoin(Apartment, Booking.apartment_id == Apartment.id)
+            .outerjoin(Restaurant, Booking.restaurant_id == Restaurant.id)
+            .where(*base_filter)
+            .order_by(Payment.created_at.desc())
+            .offset(pagination.offset)
+            .limit(pagination.page_size)
+        )
 
-        return list(payments), total
+        rows = (await self.db.execute(stmt)).all()
+        result = []
+        for payment, booking_type, entity_name in rows:
+            d = {c.name: getattr(payment, c.name) for c in payment.__table__.columns}
+            d["booking_type"] = booking_type
+            d["entity_name"] = entity_name
+            result.append(d)
+
+        return result, total
 
     async def create(self, user_id: UUID, amount: float, method: str, booking_id: Optional[UUID] = None) -> Payment:
         payment = Payment(

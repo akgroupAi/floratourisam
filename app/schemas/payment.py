@@ -58,6 +58,8 @@ class PaymentListResponse(BaseSchema):
     initiated_at: datetime
     completed_at: Optional[datetime] = None
     is_refunded: bool
+    booking_type: Optional[str] = None
+    entity_name: Optional[str] = None
 
 
 class PaymentResponse(BaseSchema):
