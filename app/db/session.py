@@ -16,7 +16,6 @@ engine = create_async_engine(
     echo=settings.DATABASE_ECHO,
     pool_size=20,
     max_overflow=10,
-    pool_pre_ping=True,
     pool_recycle=3600,
 )
 
