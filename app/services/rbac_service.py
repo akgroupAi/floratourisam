@@ -233,6 +233,10 @@ class RBACService:
                 .values(updated_by=actor_id, updated_at=datetime.utcnow())
             )
 
+            # Capture scalars before expiring to avoid MissingGreenlet on attribute access.
+            role_id_val = role.id
+            role_name_val = role.name
+
             # Expire the role so the ORM's stale permissions cache is discarded.
             self.db.expire(role)
             await self.db.commit()
@@ -241,9 +245,9 @@ class RBACService:
                 actor_id=actor_id,
                 action="update_permissions",
                 target_type="role",
-                target_id=role.id,
-                target_name=role.name,
-                description=f"Updated permissions for role: {role.name}",
+                target_id=role_id_val,
+                target_name=role_name_val,
+                description=f"Updated permissions for role: {role_name_val}",
                 meta_data={"permissions": data.permissions, "scope_own_only": data.scope_own_only}
             )
             await self.db.commit()
