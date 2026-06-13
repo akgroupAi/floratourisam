@@ -858,21 +858,21 @@ class BookingService:
         }
 
     async def get_booking_reports(
-        self, 
-        start_date: date, 
-        end_date: date, 
+        self,
+        start_date: Optional[date],
+        end_date: Optional[date],
         property_type: str = "all"
     ) -> BookingReportSummary:
         """Get booking reports for a specific date range and property type for admin dashboard."""
         from app.models.hotel import Hotel, Room
         from app.models.apartment import Apartment
-        
+
         # Filters for bookings
-        booking_filters = [
-            cast(Booking.created_at, Date) >= start_date,
-            cast(Booking.created_at, Date) <= end_date,
-            Booking.is_deleted == False
-        ]
+        booking_filters = [Booking.is_deleted == False]
+        if start_date:
+            booking_filters.append(cast(Booking.created_at, Date) >= start_date)
+        if end_date:
+            booking_filters.append(cast(Booking.created_at, Date) <= end_date)
         
         if property_type == "hotel":
             booking_filters.append(Booking.booking_type == "hotel")
@@ -911,7 +911,7 @@ class BookingService:
         else:
             total_rooms = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False)) or 0
             
-        num_days = max(1, (end_date - start_date).days + 1)
+        num_days = max(1, (end_date - start_date).days + 1) if start_date and end_date else 1
         total_room_nights = (total_rooms or 0) * num_days
         
         # Booked room nights in this period

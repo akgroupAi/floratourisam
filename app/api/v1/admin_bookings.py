@@ -63,8 +63,8 @@ async def list_bookings(
 )
 async def get_booking_reports_dashboard(
     db: DatabaseSession,
-    start_date: date = Query(..., description="Start date for reports"),
-    end_date: date = Query(..., description="End date for reports"),
+    start_date: Optional[date] = Query(None, description="Start date for reports (optional, defaults to all-time)"),
+    end_date: Optional[date] = Query(None, description="End date for reports (optional, defaults to all-time)"),
     property_type: str = Query("all", pattern="^(all|hotel|apartment)$")
 ):
     service = BookingService(db)
