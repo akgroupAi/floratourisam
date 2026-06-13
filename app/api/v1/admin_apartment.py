@@ -316,9 +316,8 @@ async def list_apartments(
             ))
         return PaginatedResponse.create(items, total, page, page_size)
     else:
-        return PaginatedResponse.create(apartments, total, page, page_size)
-
-    return PaginatedResponse.create(apartments, total, page, page_size)
+        items = [ApartmentResponse.model_validate(a) for a in apartments]
+        return PaginatedResponse.create(items, total, page, page_size)
 
 
 @router.post(
