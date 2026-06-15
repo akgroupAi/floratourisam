@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -45,29 +45,33 @@ class PaymentService:
         from app.models.apartment import Apartment
         from app.models.restaurant import Restaurant
 
-        payment_filters = [Payment.is_deleted == False]
+        conditions = [Payment.is_deleted == False]
         if user_id:
-            payment_filters.append(Payment.user_id == user_id)
+            conditions.append(Payment.user_id == user_id)
         if status:
             if status in ("completed", "confirmed"):
-                payment_filters.append(Payment.status.in_(["completed", "confirmed"]))
+                conditions.append(Payment.status.in_(["completed", "confirmed"]))
             else:
-                payment_filters.append(Payment.status == status)
+                conditions.append(Payment.status == status)
         if payment_method:
-            payment_filters.append(Payment.payment_method == payment_method)
+            conditions.append(Payment.payment_method == payment_method)
         if from_date:
-            payment_filters.append(Payment.initiated_at >= datetime(from_date.year, from_date.month, from_date.day, tzinfo=timezone.utc))
+            conditions.append(Payment.initiated_at >= datetime(from_date.year, from_date.month, from_date.day, tzinfo=timezone.utc))
         if to_date:
-            payment_filters.append(Payment.initiated_at < datetime(to_date.year, to_date.month, to_date.day, tzinfo=timezone.utc) + timedelta(days=1))
+            conditions.append(Payment.initiated_at < datetime(to_date.year, to_date.month, to_date.day, tzinfo=timezone.utc) + timedelta(days=1))
 
-        all_filters = list(payment_filters)
+        payment_where = and_(*conditions)
+
+        booking_conditions = [payment_where]
         if booking_type:
-            all_filters.append(Booking.booking_type == booking_type)
+            booking_conditions.append(Booking.booking_type == booking_type)
+        full_where = and_(*booking_conditions)
 
         count_base = (
             select(func.count(Payment.id))
+            .select_from(Payment)
             .outerjoin(Booking, Payment.booking_id == Booking.id)
-            .where(*all_filters)
+            .where(full_where)
         )
         total = (await self.db.execute(count_base)).scalar() or 0
 
@@ -77,12 +81,13 @@ class PaymentService:
                 Booking.booking_type,
                 func.coalesce(Hotel.name, Apartment.name, Restaurant.name).label("entity_name"),
             )
+            .select_from(Payment)
             .outerjoin(Booking, Payment.booking_id == Booking.id)
             .outerjoin(Room, Booking.hotel_room_id == Room.id)
             .outerjoin(Hotel, Room.hotel_id == Hotel.id)
             .outerjoin(Apartment, Booking.apartment_id == Apartment.id)
             .outerjoin(Restaurant, Booking.restaurant_id == Restaurant.id)
-            .where(*all_filters)
+            .where(full_where)
             .order_by(Payment.created_at.desc())
             .offset(pagination.offset)
             .limit(pagination.page_size)
