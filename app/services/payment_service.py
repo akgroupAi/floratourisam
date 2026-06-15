@@ -49,8 +49,10 @@ class PaymentService:
         if user_id:
             payment_filters.append(Payment.user_id == user_id)
         if status:
-            normalized = "completed" if status == "confirmed" else status
-            payment_filters.append(Payment.status == normalized)
+            if status in ("completed", "confirmed"):
+                payment_filters.append(Payment.status.in_(["completed", "confirmed"]))
+            else:
+                payment_filters.append(Payment.status == status)
         if payment_method:
             payment_filters.append(Payment.payment_method == payment_method)
         if from_date:
@@ -90,6 +92,8 @@ class PaymentService:
         result = []
         for payment, row_booking_type, entity_name in rows:
             d = {c.name: getattr(payment, c.name) for c in payment.__table__.columns}
+            if d.get("status") == "confirmed":
+                d["status"] = "completed"
             d["booking_type"] = row_booking_type
             d["entity_name"] = entity_name
             result.append(d)
