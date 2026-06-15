@@ -87,7 +87,7 @@ async def list_payments(
     db: DatabaseSession,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[str] = Query(None, description="Filter by payment status (pending, processing, completed, failed, refunded, partially_refunded)"),
+    status: Optional[str] = Query(None, description="Filter by payment status (pending, processing, completed, failed, refunded, partially_refunded). 'confirmed' is treated as 'completed'."),
     payment_method: Optional[str] = Query(None, description="Filter by payment method (credit_card, debit_card, bank_transfer, wallet, cash)"),
     booking_type: Optional[str] = Query(None, description="Filter by booking type (hotel, apartment, restaurant)"),
     from_date: Optional[str] = Query(None, description="Filter payments initiated on or after this date (YYYY-MM-DD)"),

@@ -206,7 +206,7 @@ class RBACService:
                 role_permissions.delete().where(role_permissions.c.role_id == role_id)
             )
 
-            # Insert new permissions via raw SQL (avoids stale ORM collection cache)
+            # Insert new permissions, creating Permission rows on-the-fly if missing
             for resource, actions in data.permissions.items():
                 for action, enabled in actions.items():
                     if enabled:
@@ -218,13 +218,21 @@ class RBACService:
                             )
                         )
                         permission = perm_result.scalar_one_or_none()
-                        if permission:
-                            await self.db.execute(
-                                role_permissions.insert().values(
-                                    role_id=role_id,
-                                    permission_id=permission.id
-                                )
+                        if not permission:
+                            permission = Permission(
+                                name=f"{resource}.{action_name}",
+                                resource=resource,
+                                action=action_name,
+                                description=f"Permission to {action_name} {resource}",
                             )
+                            self.db.add(permission)
+                            await self.db.flush()
+                        await self.db.execute(
+                            role_permissions.insert().values(
+                                role_id=role_id,
+                                permission_id=permission.id
+                            )
+                        )
 
             # Update role timestamp via raw SQL to stay consistent
             await self.db.execute(

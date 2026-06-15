@@ -184,6 +184,20 @@ async def delete_role(
 
 # ============== PERMISSIONS ==============
 
+@router.get("/permissions")
+async def list_permissions(db: DatabaseSession):
+    """List all available permissions."""
+    from app.models.rbac import Permission
+    result = await db.execute(
+        select(Permission).where(Permission.is_deleted == False).order_by(Permission.resource, Permission.action)
+    )
+    perms = result.scalars().all()
+    return [
+        {"id": str(p.id), "name": p.name, "resource": p.resource, "action": p.action, "description": p.description}
+        for p in perms
+    ]
+
+
 @router.get("/roles/{role_id}/permissions")
 async def get_role_permissions(role_id: UUID, db: DatabaseSession):
     """Get permissions matrix for a role."""

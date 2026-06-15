@@ -49,7 +49,8 @@ class PaymentService:
         if user_id:
             payment_filters.append(Payment.user_id == user_id)
         if status:
-            payment_filters.append(Payment.status == status)
+            normalized = "completed" if status == "confirmed" else status
+            payment_filters.append(Payment.status == normalized)
         if payment_method:
             payment_filters.append(Payment.payment_method == payment_method)
         if from_date:
