@@ -30,19 +30,43 @@ class PaymentService:
         return result.scalar_one_or_none()
 
     async def get_list(
-        self, pagination: PaginationParams, user_id: Optional[UUID] = None,
+        self,
+        pagination: PaginationParams,
+        user_id: Optional[UUID] = None,
+        status: Optional[str] = None,
+        payment_method: Optional[str] = None,
+        booking_type: Optional[str] = None,
+        from_date=None,
+        to_date=None,
     ) -> tuple[List[dict], int]:
+        from datetime import timedelta
         from app.models.booking import Booking
         from app.models.hotel import Hotel, Room
         from app.models.apartment import Apartment
         from app.models.restaurant import Restaurant
 
-        base_filter = [Payment.is_deleted == False]
+        payment_filters = [Payment.is_deleted == False]
         if user_id:
-            base_filter.append(Payment.user_id == user_id)
+            payment_filters.append(Payment.user_id == user_id)
+        if status:
+            payment_filters.append(Payment.status == status)
+        if payment_method:
+            payment_filters.append(Payment.payment_method == payment_method)
+        if from_date:
+            payment_filters.append(Payment.initiated_at >= datetime(from_date.year, from_date.month, from_date.day, tzinfo=timezone.utc))
+        if to_date:
+            payment_filters.append(Payment.initiated_at < datetime(to_date.year, to_date.month, to_date.day, tzinfo=timezone.utc) + timedelta(days=1))
 
-        count_query = select(func.count(Payment.id)).where(*base_filter)
-        total = (await self.db.execute(count_query)).scalar() or 0
+        all_filters = list(payment_filters)
+        if booking_type:
+            all_filters.append(Booking.booking_type == booking_type)
+
+        count_base = (
+            select(func.count(Payment.id))
+            .outerjoin(Booking, Payment.booking_id == Booking.id)
+            .where(*all_filters)
+        )
+        total = (await self.db.execute(count_base)).scalar() or 0
 
         stmt = (
             select(
@@ -55,7 +79,7 @@ class PaymentService:
             .outerjoin(Hotel, Room.hotel_id == Hotel.id)
             .outerjoin(Apartment, Booking.apartment_id == Apartment.id)
             .outerjoin(Restaurant, Booking.restaurant_id == Restaurant.id)
-            .where(*base_filter)
+            .where(*all_filters)
             .order_by(Payment.created_at.desc())
             .offset(pagination.offset)
             .limit(pagination.page_size)
@@ -63,9 +87,9 @@ class PaymentService:
 
         rows = (await self.db.execute(stmt)).all()
         result = []
-        for payment, booking_type, entity_name in rows:
+        for payment, row_booking_type, entity_name in rows:
             d = {c.name: getattr(payment, c.name) for c in payment.__table__.columns}
-            d["booking_type"] = booking_type
+            d["booking_type"] = row_booking_type
             d["entity_name"] = entity_name
             result.append(d)
 

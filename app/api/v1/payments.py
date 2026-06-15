@@ -82,10 +82,31 @@ class RazorpayOrderResponse(BaseModel):
 # ---------- Endpoints ----------
 
 @router.get("", response_model=PaginatedResponse[PaymentListResponse])
-async def list_payments(current_user: CurrentUser, db: DatabaseSession, page: int = Query(1), page_size: int = Query(20)):
-    """List user's payments."""
+async def list_payments(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None, description="Filter by payment status (pending, processing, completed, failed, refunded, partially_refunded)"),
+    payment_method: Optional[str] = Query(None, description="Filter by payment method (credit_card, debit_card, bank_transfer, wallet, cash)"),
+    booking_type: Optional[str] = Query(None, description="Filter by booking type (hotel, apartment, restaurant)"),
+    from_date: Optional[str] = Query(None, description="Filter payments initiated on or after this date (YYYY-MM-DD)"),
+    to_date: Optional[str] = Query(None, description="Filter payments initiated on or before this date (YYYY-MM-DD)"),
+):
+    """List user's payments with optional filters."""
+    from datetime import date
+    from_dt = date.fromisoformat(from_date) if from_date else None
+    to_dt = date.fromisoformat(to_date) if to_date else None
     service = PaymentService(db)
-    payments, total = await service.get_list(PaginationParams(page=page, page_size=page_size), current_user.id)
+    payments, total = await service.get_list(
+        PaginationParams(page=page, page_size=page_size),
+        current_user.id,
+        status=status,
+        payment_method=payment_method,
+        booking_type=booking_type,
+        from_date=from_dt,
+        to_date=to_dt,
+    )
     return PaginatedResponse.create(payments, total, page, page_size)
 
 
