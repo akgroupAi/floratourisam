@@ -168,6 +168,16 @@ RequireApartmentManager = Depends(
 RequireRestaurantManager = Depends(
     require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.RESTAURANT_MANAGER])
 )
+# Admins plus any entity manager — used by endpoints whose data is scoped per manager
+RequireAdminOrManager = Depends(
+    require_roles([
+        UserRole.SUPER_ADMIN,
+        UserRole.ADMIN,
+        UserRole.HOTEL_MANAGER,
+        UserRole.APARTMENT_MANAGER,
+        UserRole.RESTAURANT_MANAGER,
+    ])
+)
 
 
 async def get_current_active_superuser(current_user: CurrentUser) -> User:

@@ -152,25 +152,65 @@ class BookingService:
     # Admin Reads
     # ------------------------------------------------------------------
 
-    async def get_admin_dashboard_stats(self) -> AdminBookingKPIs:
-        """Calculate admin dashboard KPIs."""
-        total = await self.db.scalar(select(func.count(Booking.id)).where(Booking.is_deleted == False)) or 0
+    def _manager_scope_clause(self, user: Optional[User]):
+        """Return a filter restricting bookings to a manager's assigned entities.
+
+        - Super admin / admin: returns None (no restriction — all bookings).
+        - Hotel/apartment/restaurant manager: only bookings for the hotels,
+          apartments or restaurants assigned to them via ``manager_id``.
+        - Any other role (or no user): returns a clause matching nothing.
+        """
+        from app.models.hotel import Hotel
+        from app.utils.enums import UserRole
+
+        if user is None:
+            return Booking.id.is_(None)
+
+        role = user.role
+        if role in (UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value):
+            return None
+        if role == UserRole.HOTEL_MANAGER.value:
+            room_ids = (
+                select(Room.id)
+                .join(Hotel, Room.hotel_id == Hotel.id)
+                .where(Hotel.manager_id == user.id)
+            )
+            return Booking.hotel_room_id.in_(room_ids)
+        if role == UserRole.APARTMENT_MANAGER.value:
+            apt_ids = select(Apartment.id).where(Apartment.manager_id == user.id)
+            return Booking.apartment_id.in_(apt_ids)
+        if role == UserRole.RESTAURANT_MANAGER.value:
+            rest_ids = select(Restaurant.id).where(Restaurant.manager_id == user.id)
+            return Booking.restaurant_id.in_(rest_ids)
+        return Booking.id.is_(None)
+
+    async def get_admin_dashboard_stats(self, user: Optional[User] = None) -> AdminBookingKPIs:
+        """Calculate admin dashboard KPIs (scoped to the manager's entities)."""
+        scope = self._manager_scope_clause(user)
+        scope_filters = [scope] if scope is not None else []
+
+        total = await self.db.scalar(
+            select(func.count(Booking.id)).where(Booking.is_deleted == False, *scope_filters)
+        ) or 0
         active_confirmed = await self.db.scalar(
             select(func.count(Booking.id)).where(
-                Booking.is_deleted == False, 
-                Booking.status.in_([BookingStatus.CONFIRMED.value, "checked_in"])
+                Booking.is_deleted == False,
+                Booking.status.in_([BookingStatus.CONFIRMED.value, "checked_in"]),
+                *scope_filters,
             )
         ) or 0
         pending = await self.db.scalar(
             select(func.count(Booking.id)).where(
-                Booking.is_deleted == False, 
-                Booking.status == BookingStatus.PENDING.value
+                Booking.is_deleted == False,
+                Booking.status == BookingStatus.PENDING.value,
+                *scope_filters,
             )
         ) or 0
         revenue = await self.db.scalar(
             select(func.sum(Booking.total_price)).where(
-                Booking.is_deleted == False, 
-                Booking.is_paid == True
+                Booking.is_deleted == False,
+                Booking.is_paid == True,
+                *scope_filters,
             )
         ) or 0.0
 
@@ -187,6 +227,7 @@ class BookingService:
         booking_type: Optional[BookingType] = None,
         status: Optional[str] = None,
         search: Optional[str] = None,
+        user: Optional[User] = None,
     ) -> tuple[List[AdminBookingListItem], int]:
         """Fetch bookings with patient and entity info for admin list."""
         from app.models.patient import Patient
@@ -198,6 +239,10 @@ class BookingService:
         query = select(Booking).options(
             joinedload(Booking.patient).joinedload(Patient.user)
         ).where(Booking.is_deleted == False)
+
+        scope = self._manager_scope_clause(user)
+        if scope is not None:
+            query = query.where(scope)
 
         if booking_type:
             query = query.where(Booking.booking_type == booking_type.value)
@@ -861,7 +906,8 @@ class BookingService:
         self,
         start_date: Optional[date],
         end_date: Optional[date],
-        property_type: str = "all"
+        property_type: str = "all",
+        user: Optional[User] = None,
     ) -> BookingReportSummary:
         """Get booking reports for a specific date range and property type for admin dashboard."""
         from app.models.hotel import Hotel, Room
@@ -869,6 +915,12 @@ class BookingService:
 
         # Filters for bookings
         booking_filters = [Booking.is_deleted == False]
+
+        # Restrict to the manager's assigned entities (None for admins)
+        scope = self._manager_scope_clause(user)
+        if scope is not None:
+            booking_filters.append(scope)
+
         if start_date:
             booking_filters.append(cast(Booking.created_at, Date) >= start_date)
         if end_date:
@@ -904,12 +956,22 @@ class BookingService:
 
         # 4. Occupancy Rate (Approximate based on nights booked vs capacity)
         # Total rooms across relevant properties
+        from app.utils.enums import UserRole as _UserRole
+        room_filters = [Room.is_deleted == False]
+        # Hotel managers' occupancy is measured against only their own rooms
+        if user is not None and user.role == _UserRole.HOTEL_MANAGER.value:
+            room_filters.append(
+                Room.hotel_id.in_(
+                    select(Hotel.id).where(Hotel.manager_id == user.id)
+                )
+            )
+
         if property_type == "hotel":
-            total_rooms = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False, Room.room_type != "apartment")) or 0
+            total_rooms = await self.db.scalar(select(func.sum(Room.total_rooms)).where(*room_filters, Room.room_type != "apartment")) or 0
         elif property_type == "apartment":
-            total_rooms = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False, Room.room_type == "apartment")) or 0
+            total_rooms = await self.db.scalar(select(func.sum(Room.total_rooms)).where(*room_filters, Room.room_type == "apartment")) or 0
         else:
-            total_rooms = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False)) or 0
+            total_rooms = await self.db.scalar(select(func.sum(Room.total_rooms)).where(*room_filters)) or 0
             
         num_days = max(1, (end_date - start_date).days + 1) if start_date and end_date else 1
         total_room_nights = (total_rooms or 0) * num_days

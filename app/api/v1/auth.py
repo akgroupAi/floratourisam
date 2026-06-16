@@ -115,7 +115,16 @@ async def login(request: LoginRequest, db: DatabaseSession):
 
 @router.post("/register", response_model=MessageResponse)
 async def register(request: RegisterRequest, db: DatabaseSession):
-    """Register a new user."""
+    """Register a new user (public — patients and doctors only)."""
+    from app.utils.enums import UserRole
+
+    if request.role not in [UserRole.PATIENT, UserRole.DOCTOR]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This endpoint can only register patients and doctors. "
+                   "Other roles must be created by an admin.",
+        )
+
     service = AuthService(db)
     user = await service.register(request)
     if not user:
@@ -139,13 +148,14 @@ async def register(request: RegisterRequest, db: DatabaseSession):
 @router.post("/admin/register", response_model=MessageResponse, dependencies=[RequireAdmin])
 async def register_admin(request: RegisterRequest, current_user: CurrentUser, db: DatabaseSession):
     """Register a new admin user (requires admin authentication)."""
-    # Validate role is admin or super_admin
+    # This endpoint handles every role except the self-service ones
+    # (patients and doctors register themselves via /register).
     from app.utils.enums import UserRole
-    
-    if request.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+
+    if request.role in [UserRole.PATIENT, UserRole.DOCTOR]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This endpoint is only for creating admin users"
+            detail="Patients and doctors must register via the public /register endpoint"
         )
     
     # Check if email already exists
