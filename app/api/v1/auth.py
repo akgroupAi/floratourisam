@@ -160,13 +160,18 @@ async def register_admin(request: RegisterRequest, current_user: CurrentUser, db
     
     service = AuthService(db)
     user = await service.register(request)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to create admin user"
         )
-    
+
+    # Admin-created users are verified immediately — skip email verification
+    user.is_verified = True
+    user.verification_token = None
+    await db.commit()
+
     return MessageResponse(message=f"Admin user created successfully: {user.email}")
 
 
