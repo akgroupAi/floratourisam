@@ -72,7 +72,7 @@ class RBACService:
             target_id=role.id,
             target_name=data.name,
             description=f"Created role: {data.name}",
-            metadata={"is_active": data.is_active}
+            meta_data={"is_active": data.is_active}
         )
 
         await self.db.commit()
@@ -111,7 +111,7 @@ class RBACService:
             target_id=role.id,
             target_name=role.name,
             description=f"Updated role: {role.name}",
-            metadata={"changes": changes}
+            meta_data={"changes": changes}
         )
 
         return role
@@ -315,7 +315,7 @@ class RBACService:
             target_id=user.id,
             target_name=user.email,
             description=f"Assigned role '{role.name}' to {user.email}",
-            metadata={"role_name": role.name, "role_id": str(data.role_id)}
+            meta_data={"role_name": role.name, "role_id": str(data.role_id)}
         )
 
         logger.info(f"Assigned role {role.name} to user {user.email}")
@@ -354,7 +354,7 @@ class RBACService:
             target_id=user_id,
             target_name=user_obj.email if user_obj else None,
             description=f"Removed role '{role.name}' from {user_obj.email if user_obj else 'deleted user'}",
-            metadata={"role_name": role.name if role else None}
+            meta_data={"role_name": role.name if role else None}
         )
 
         return True
