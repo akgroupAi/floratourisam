@@ -525,6 +525,7 @@ class HeroSliderCreate(BaseModel):
     features: Optional[list] = None
     background_image: Optional[str] = Field(None, max_length=500)
     badge_text: Optional[str] = Field(None, max_length=100)
+    icon: Optional[str] = Field(None, max_length=255)
     primary_cta_text: Optional[str] = Field(None, max_length=100)
     primary_cta_url: Optional[str] = Field(None, max_length=500)
     secondary_cta_text: Optional[str] = Field(None, max_length=100)
@@ -546,6 +547,7 @@ class HeroSliderUpdate(BaseModel):
     features: Optional[list] = None
     background_image: Optional[str] = Field(None, max_length=500)
     badge_text: Optional[str] = Field(None, max_length=100)
+    icon: Optional[str] = Field(None, max_length=255)
     primary_cta_text: Optional[str] = Field(None, max_length=100)
     primary_cta_url: Optional[str] = Field(None, max_length=500)
     secondary_cta_text: Optional[str] = Field(None, max_length=100)
@@ -568,6 +570,7 @@ class HeroSliderResponse(BaseSchema):
     features: Optional[list] = None
     background_image: Optional[str] = None
     badge_text: Optional[str] = None
+    icon: Optional[str] = None
     primary_cta_text: Optional[str] = None
     primary_cta_url: Optional[str] = None
     secondary_cta_text: Optional[str] = None

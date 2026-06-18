@@ -405,6 +405,7 @@ class HeroSlider(BaseModel):
     # Media
     background_image: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     badge_text: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g. "Featured Service"
+    icon: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # icon name or URL, e.g. "stethoscope"
 
     # Primary CTA button
     primary_cta_text: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
