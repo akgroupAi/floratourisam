@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import (
     Boolean,
     Date,
+    DateTime,
     Float,
     ForeignKey,
     Integer,
@@ -167,6 +168,7 @@ class Doctor(BaseModel):
         nullable=False,
     )
     verification_date: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
 
