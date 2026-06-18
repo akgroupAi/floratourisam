@@ -291,6 +291,99 @@ class ReviewService:
 
         return await self._enrich(reviews), total, average_rating
 
+    async def _attach_entity_names(self, reviews: List[dict]) -> List[dict]:
+        """Attach the reviewed entity's display name to each enriched review dict."""
+        if not reviews:
+            return reviews
+
+        # Group entity ids by type so we run one query per table.
+        ids_by_type: dict[str, set] = {}
+        for r in reviews:
+            ids_by_type.setdefault(r["entity_type"], set()).add(r["entity_id"])
+
+        names: dict[tuple, str] = {}
+        for entity_type, ids in ids_by_type.items():
+            if entity_type == "doctor":
+                # Doctor display name comes from the linked user.
+                rows = (
+                    await self.db.execute(
+                        select(Doctor.id, Doctor.title, User.full_name)
+                        .join(User, Doctor.user_id == User.id)
+                        .where(Doctor.id.in_(ids))
+                    )
+                ).all()
+                for eid, title, full_name in rows:
+                    label = f"{title} {full_name}".strip() if title else full_name
+                    names[(entity_type, eid)] = label
+                continue
+
+            model = _ENTITY_MODELS.get(entity_type)
+            if not model or not hasattr(model, "name"):
+                continue
+            rows = (
+                await self.db.execute(
+                    select(model.id, model.name).where(model.id.in_(ids))
+                )
+            ).all()
+            for eid, name in rows:
+                names[(entity_type, eid)] = name
+
+        for r in reviews:
+            r["entity_name"] = names.get((r["entity_type"], r["entity_id"]))
+        return reviews
+
+    async def list_all_admin(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        entity_type: Optional[str] = None,
+        min_rating: Optional[int] = None,
+        is_approved: Optional[bool] = None,
+        is_verified: Optional[bool] = None,
+        sort_by: str = "created_at",  # created_at | rating | helpful_count
+    ) -> Tuple[List[dict], int, float]:
+        """Return non-deleted reviews across all (or one) entity type(s) for admins.
+
+        Powers a global admin "all reviews" feed for hotels, apartments,
+        restaurants, doctors and hospitals. Each item carries the reviewed
+        entity's name. By default every moderation status is included; pass
+        ``is_approved`` to narrow to approved (True) or pending/rejected (False).
+        """
+        filters = [Review.is_deleted == False]
+        if entity_type:
+            filters.append(Review.entity_type == entity_type)
+        if min_rating is not None:
+            filters.append(Review.rating >= min_rating)
+        if is_approved is not None:
+            filters.append(Review.is_approved == is_approved)
+        if is_verified is not None:
+            filters.append(Review.is_verified == is_verified)
+
+        base = select(Review).where(*filters)
+        total = (await self.db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+
+        order_col = {
+            "rating": Review.rating.desc(),
+            "helpful_count": Review.helpful_count.desc(),
+        }.get(sort_by, Review.created_at.desc())
+
+        rows_q = (
+            base.order_by(Review.is_featured.desc(), order_col)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        reviews = list((await self.db.execute(rows_q)).scalars().all())
+
+        # Overall average across the same filter scope (ignoring pagination).
+        average_rating = round(
+            float((await self.db.execute(select(func.avg(Review.rating)).where(*filters))).scalar() or 0),
+            2,
+        )
+
+        enriched = await self._enrich(reviews)
+        enriched = await self._attach_entity_names(enriched)
+        return enriched, total, average_rating
+
     async def get_entity_summary(self, entity_type: str, entity_id: UUID) -> dict:
         """Aggregate stats for the entity."""
         breakdown: dict = {i: 0 for i in range(1, 6)}

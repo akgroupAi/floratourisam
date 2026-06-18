@@ -14,6 +14,7 @@ Mount layout (registered under /reviews in api_router.py):
     GET    /reviews/{entity_type}/{entity_id}/summary   — aggregate stats
 
   Admin (RequireAdmin):
+    GET    /reviews/admin/all                           — all reviews, every entity (filterable)
     GET    /admin/reviews                              — all reviews (filterable)
     PUT    /admin/reviews/{review_id}/approve          — approve or reject
     POST   /admin/reviews/{review_id}/respond          — official response
@@ -31,6 +32,7 @@ from app.schemas.common import PaginatedResponse
 from app.schemas.review import (
     AdminReviewApprove,
     AdminReviewResponse,
+    AllReviewsPaginatedResponse,
     EntityType,
     ReviewCreate,
     ReviewHelpfulRequest,
@@ -243,6 +245,45 @@ async def admin_list_reviews(
         min_rating=min_rating,
     )
     return PaginatedResponse.create(reviews, total, page, page_size)
+
+
+@router.get(
+    "/admin/all",
+    response_model=AllReviewsPaginatedResponse,
+    dependencies=[RequireAdmin],
+    summary="[Admin] All reviews across every entity",
+    description=(
+        "Returns paginated reviews for **all** hotels, apartments, restaurants, "
+        "doctors and hospitals in one feed. Each item includes the reviewed "
+        "entity's name.\n\n"
+        "By default every moderation status is included. Narrow with `entity_type`, "
+        "`is_approved` (True=approved, False=pending/rejected), `is_verified`, or "
+        "`min_rating`, and sort by newest, rating or helpfulness."
+    ),
+)
+async def admin_list_all_reviews(
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    entity_type: Optional[EntityType] = Query(
+        None, description="Limit to one category (hotel, apartment, restaurant, doctor, hospital)"
+    ),
+    min_rating: Optional[int] = Query(None, ge=1, le=5, description="Minimum star rating"),
+    is_approved: Optional[bool] = Query(None, description="True=approved, False=pending/rejected"),
+    is_verified: Optional[bool] = Query(None, description="Only verified purchases"),
+    sort_by: Literal["created_at", "rating", "helpful_count"] = Query("created_at"),
+):
+    service = ReviewService(db)
+    reviews, total, average_rating = await service.list_all_admin(
+        page=page,
+        page_size=page_size,
+        entity_type=entity_type,
+        min_rating=min_rating,
+        is_approved=is_approved,
+        is_verified=is_verified,
+        sort_by=sort_by,
+    )
+    return AllReviewsPaginatedResponse.create(reviews, total, page, page_size, average_rating)
 
 
 @router.put(

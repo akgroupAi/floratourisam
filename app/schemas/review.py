@@ -220,6 +220,62 @@ class ReviewPaginatedResponse(BaseModel):
         )
 
 
+class AllReviewItem(BaseSchema):
+    """Public review item across all entity types, with the reviewed entity's name."""
+
+    id: UUID
+    entity_type: str
+    entity_id: UUID
+    entity_name: Optional[str] = None
+
+    rating: int
+    title: Optional[str] = None
+    body: Optional[str] = None
+
+    is_verified: bool
+    is_approved: bool
+    is_featured: bool
+    helpful_count: int
+
+    response_text: Optional[str] = None
+    response_date: Optional[datetime] = None
+
+    reviewer_name: Optional[str] = None
+    reviewer_avatar: Optional[str] = None
+
+    created_at: datetime
+
+
+class AllReviewsPaginatedResponse(BaseModel):
+    """Paginated reviews spanning every entity type, with the overall average rating."""
+
+    items: List[AllReviewItem]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+    average_rating: float
+
+    @classmethod
+    def create(
+        cls,
+        items: list,
+        total: int,
+        page: int,
+        page_size: int,
+        average_rating: float,
+    ) -> "AllReviewsPaginatedResponse":
+        pages = (total + page_size - 1) // page_size if page_size > 0 else 0
+        return cls(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=pages,
+            average_rating=average_rating,
+        )
+
+
 class AdminReviewListResponse(BaseModel):
     """Admin list reviews with summary stats."""
     
