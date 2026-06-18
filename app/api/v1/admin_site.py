@@ -4,7 +4,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -894,7 +894,44 @@ async def admin_list_leads(
     
     query = query.order_by(LeadSubmission.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
-    
+
+    return PaginatedResponse.create(result.scalars().all(), total, page, page_size)
+
+
+# ============== CONTACTS ADMIN ==============
+
+@router.get("/contacts", response_model=PaginatedResponse[LeadSubmissionResponse], dependencies=[RequireAdmin])
+async def admin_list_contacts(
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20),
+    status: Optional[str] = None,
+    country: Optional[str] = None,
+    search: Optional[str] = Query(None, description="Search name or email"),
+):
+    """List all contact-form submissions (admin)."""
+    query = select(LeadSubmission).where(
+        LeadSubmission.is_deleted == False,
+        LeadSubmission.form_source == "contact_page",
+    )
+    if status:
+        query = query.where(LeadSubmission.status == status)
+    if country:
+        query = query.where(LeadSubmission.country.ilike(f"%{country}%"))
+    if search:
+        query = query.where(
+            or_(
+                LeadSubmission.name.ilike(f"%{search}%"),
+                LeadSubmission.email.ilike(f"%{search}%"),
+            )
+        )
+
+    count_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = count_result.scalar() or 0
+
+    query = query.order_by(LeadSubmission.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+
     return PaginatedResponse.create(result.scalars().all(), total, page, page_size)
 
 
@@ -919,15 +956,19 @@ async def admin_list_quotes(
     - medical_condition: Filter by medical condition
     - sort_by: created_at, name, email, country
     """
+    # Match newly-tagged "quote_form" rows plus legacy untagged (NULL) quote submissions.
     query = select(LeadSubmission).where(
         LeadSubmission.is_deleted == False,
-        LeadSubmission.form_source == "quote_form"
+        or_(
+            LeadSubmission.form_source == "quote_form",
+            LeadSubmission.form_source.is_(None),
+        ),
     )
-    
+
     # Apply filters
     if status:
         query = query.where(LeadSubmission.status == status)
-    
+
     if country:
         query = query.where(LeadSubmission.country.ilike(f"%{country}%"))
     

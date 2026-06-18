@@ -488,6 +488,7 @@ class LeadSubmissionResponse(BaseSchema):
     country: Optional[str] = None
     medical_condition: Optional[str] = None
     treatment_interest: Optional[str] = None
+    message: Optional[str] = None
     status: str
     form_source: Optional[str] = None
     created_at: datetime

@@ -13,7 +13,11 @@ router = APIRouter()
 @router.post("/quote")
 async def submit_quote_request(data: LeadSubmissionCreate, db: DatabaseSession):
     """Submit a quote request (public)."""
-    lead = LeadSubmission(**data.model_dump())
+    payload = data.model_dump()
+    # Tag the source so admin can list quote submissions reliably.
+    if not payload.get("form_source"):
+        payload["form_source"] = "quote_form"
+    lead = LeadSubmission(**payload)
     db.add(lead)
     await db.commit()
     await db.refresh(lead)
