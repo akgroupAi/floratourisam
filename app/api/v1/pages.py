@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 
 from app.api.deps import DatabaseSession, CurrentUser
-from app.models.site import Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember, HeroSlider
+from app.models.site import Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember, HeroSlider, ImpactStat
 from app.models.apartment import Apartment
 from app.models.restaurant import Restaurant
 from app.models.hotel import Hotel
@@ -26,7 +26,8 @@ from app.schemas.site import (
     BlogPostListResponse, BlogPostResponse,
     BlogCommentCreate, BlogCommentResponse,
     TestimonialListResponse, FAQResponse, TeamMemberResponse,
-    DoctorPublicListResponse, DoctorPublicDetailResponse, HeroSliderResponse
+    DoctorPublicListResponse, DoctorPublicDetailResponse, HeroSliderResponse,
+    ImpactStatResponse
 )
 from app.services.blog_comment_service import BlogCommentService
 
@@ -2232,6 +2233,17 @@ async def get_impact_numbers(db: DatabaseSession):
             {"value": "50+", "label": "Partner Hospitals", "icon": "building"}
         ]
     }
+
+
+@router.get("/impact-stats", response_model=List[ImpactStatResponse])
+async def list_impact_stats(db: DatabaseSession):
+    """Public: list active "Our Impact in Numbers" stats, ordered for display. Open API."""
+    result = await db.execute(
+        select(ImpactStat)
+        .where(ImpactStat.is_active == True, ImpactStat.is_deleted == False)
+        .order_by(ImpactStat.display_order.asc())
+    )
+    return result.scalars().all()
 
 
 # ============== NAVIGATION & SETTINGS ==============

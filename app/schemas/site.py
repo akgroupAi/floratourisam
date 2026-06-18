@@ -590,3 +590,37 @@ class HeroSliderReorder(BaseModel):
     id: UUID
     display_order: int
 
+
+# ---------------- Impact Stats ("Our Impact in Numbers") ----------------
+
+class ImpactStatCreate(BaseModel):
+    value: str = Field(..., max_length=50, description='Display value, e.g. "5,000+" or "98%"')
+    label: str = Field(..., max_length=255, description='Caption, e.g. "Patients Served"')
+    icon: Optional[str] = Field(None, max_length=100, description='Icon name, e.g. "users"')
+    display_order: int = 0
+    is_active: bool = True
+
+
+class ImpactStatUpdate(BaseModel):
+    value: Optional[str] = Field(None, max_length=50)
+    label: Optional[str] = Field(None, max_length=255)
+    icon: Optional[str] = Field(None, max_length=100)
+    display_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class ImpactStatResponse(BaseSchema):
+    id: UUID
+    value: str
+    label: str
+    icon: Optional[str] = None
+    display_order: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ImpactStatReorder(BaseModel):
+    id: UUID
+    display_order: int
+

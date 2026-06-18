@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.models.site import (
-    Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember, LeadSubmission, HeroSlider
+    Destination, Treatment, BlogPost, BlogComment, Testimonial, FAQ, TeamMember, LeadSubmission, HeroSlider, ImpactStat
 )
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.schemas.site import (
@@ -23,6 +23,7 @@ from app.schemas.site import (
     TeamMemberCreate, TeamMemberUpdate, TeamMemberResponse,
     LeadSubmissionResponse,
     HeroSliderCreate, HeroSliderUpdate, HeroSliderResponse, HeroSliderReorder,
+    ImpactStatCreate, ImpactStatUpdate, ImpactStatResponse, ImpactStatReorder,
 )
 from app.services.blog_comment_service import BlogCommentService
 
@@ -115,6 +116,93 @@ async def delete_hero_slider(slider_id: UUID, current_user: CurrentUser, db: Dat
     slider.soft_delete(current_user.id)
     await db.commit()
     return {"message": "Hero slider deleted"}
+
+
+# ============== IMPACT STATS ADMIN ("Our Impact in Numbers") ==============
+
+@router.get("/impact-stats", response_model=List[ImpactStatResponse], dependencies=[RequireAdmin])
+async def admin_list_impact_stats(db: DatabaseSession, is_active: Optional[bool] = None):
+    """List all impact stats (admin)."""
+    query = select(ImpactStat).where(ImpactStat.is_deleted == False)
+    if is_active is not None:
+        query = query.where(ImpactStat.is_active == is_active)
+    query = query.order_by(ImpactStat.display_order.asc())
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.post("/impact-stats", response_model=ImpactStatResponse, dependencies=[RequireAdmin], status_code=201)
+async def create_impact_stat(data: ImpactStatCreate, current_user: CurrentUser, db: DatabaseSession):
+    """Create a new impact stat."""
+    stat = ImpactStat(**data.model_dump(), created_by=current_user.id)
+    db.add(stat)
+    await db.commit()
+    await db.refresh(stat)
+    return stat
+
+
+@router.get("/impact-stats/{stat_id}", response_model=ImpactStatResponse, dependencies=[RequireAdmin])
+async def get_impact_stat(stat_id: UUID, db: DatabaseSession):
+    """Get an impact stat by ID."""
+    result = await db.execute(select(ImpactStat).where(ImpactStat.id == stat_id))
+    stat = result.scalar_one_or_none()
+    if not stat or stat.is_deleted:
+        raise HTTPException(status_code=404, detail="Impact stat not found")
+    return stat
+
+
+@router.put("/impact-stats/{stat_id}", response_model=ImpactStatResponse, dependencies=[RequireAdmin])
+async def update_impact_stat(stat_id: UUID, data: ImpactStatUpdate, current_user: CurrentUser, db: DatabaseSession):
+    """Update an impact stat."""
+    result = await db.execute(select(ImpactStat).where(ImpactStat.id == stat_id))
+    stat = result.scalar_one_or_none()
+    if not stat or stat.is_deleted:
+        raise HTTPException(status_code=404, detail="Impact stat not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(stat, field, value)
+    stat.updated_by = current_user.id
+    await db.commit()
+    await db.refresh(stat)
+    return stat
+
+
+@router.put("/impact-stats/{stat_id}/toggle", response_model=ImpactStatResponse, dependencies=[RequireAdmin])
+async def toggle_impact_stat_active(stat_id: UUID, current_user: CurrentUser, db: DatabaseSession):
+    """Toggle the active status of an impact stat."""
+    result = await db.execute(select(ImpactStat).where(ImpactStat.id == stat_id))
+    stat = result.scalar_one_or_none()
+    if not stat or stat.is_deleted:
+        raise HTTPException(status_code=404, detail="Impact stat not found")
+    stat.is_active = not stat.is_active
+    stat.updated_by = current_user.id
+    await db.commit()
+    await db.refresh(stat)
+    return stat
+
+
+@router.post("/impact-stats/reorder", dependencies=[RequireAdmin])
+async def reorder_impact_stats(data: List[ImpactStatReorder], current_user: CurrentUser, db: DatabaseSession):
+    """Reorder impact stats."""
+    for item in data:
+        result = await db.execute(select(ImpactStat).where(ImpactStat.id == item.id))
+        stat = result.scalar_one_or_none()
+        if stat:
+            stat.display_order = item.display_order
+            stat.updated_by = current_user.id
+    await db.commit()
+    return {"message": "Impact stats reordered successfully"}
+
+
+@router.delete("/impact-stats/{stat_id}", dependencies=[RequireAdmin])
+async def delete_impact_stat(stat_id: UUID, current_user: CurrentUser, db: DatabaseSession):
+    """Soft-delete an impact stat."""
+    result = await db.execute(select(ImpactStat).where(ImpactStat.id == stat_id))
+    stat = result.scalar_one_or_none()
+    if not stat:
+        raise HTTPException(status_code=404, detail="Impact stat not found")
+    stat.soft_delete(current_user.id)
+    await db.commit()
+    return {"message": "Impact stat deleted"}
 
 
 # ============== DESTINATIONS ADMIN ==============

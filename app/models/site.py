@@ -430,3 +430,20 @@ class HeroSlider(BaseModel):
 
     def __repr__(self) -> str:
         return f"HeroSlider(id={self.id}, title={self.title!r}, order={self.display_order})"
+
+
+class ImpactStat(BaseModel):
+    """A single "Our Impact in Numbers" stat card — managed by admin, rendered on homepage."""
+
+    __tablename__ = "impact_stats"
+
+    value: Mapped[str] = mapped_column(String(50), nullable=False)  # e.g. "5,000+", "98%"
+    label: Mapped[str] = mapped_column(String(255), nullable=False)  # e.g. "Patients Served"
+    icon: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # icon name, e.g. "users", "stethoscope"
+
+    # Display control
+    display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"ImpactStat(id={self.id}, value={self.value!r}, label={self.label!r})"
