@@ -31,7 +31,7 @@ router = APIRouter()
 
 # ============== HERO SLIDERS ADMIN ==============
 
-@router.get("/hero-sliders", response_model=List[HeroSliderResponse], dependencies=[RequireAdmin])
+@router.get("/hero-sliders", response_model=List[HeroSliderResponse])
 async def admin_list_hero_sliders(db: DatabaseSession, is_active: Optional[bool] = None):
     """List all hero slides (admin)."""
     query = select(HeroSlider).where(HeroSlider.is_deleted == False)
