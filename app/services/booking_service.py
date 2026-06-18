@@ -441,7 +441,7 @@ class BookingService:
 
         nights = max((data.check_out_date - data.check_in_date).days, 1)
         base_price = round(room.price_per_night * nights, 2)
-        taxes = round(base_price * 0.10, 2)
+        taxes = 0.0
 
         booking = Booking(
             patient_id=patient_id,
@@ -586,7 +586,7 @@ class BookingService:
         else:
             raise ValueError("Apartment has no pricing configured")
 
-        taxes = round(base_price * 0.10, 2)
+        taxes = 0.0
         address = f"{apartment.address_line1}, {apartment.city}, {apartment.country}"
 
         booking = Booking(
@@ -726,8 +726,8 @@ class BookingService:
             ordered_items_summary = ", ".join(summary_parts) if summary_parts else None
 
             booking.base_price = round(estimated_cost or 0.0, 2)
-            booking.taxes = round((estimated_cost or 0.0) * 0.05, 2)
-            booking.total_price = round(booking.base_price + booking.taxes, 2)
+            booking.taxes = 0.0
+            booking.total_price = round(booking.base_price, 2)
 
         meal_booking = MealBooking(
             restaurant_id=data.restaurant_id,

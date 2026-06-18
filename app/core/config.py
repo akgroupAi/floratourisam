@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_ID: Optional[str] = None
     RAZORPAY_KEY_SECRET: Optional[str] = None
     RAZORPAY_WEBHOOK_SECRET: Optional[str] = None
-    RAZORPAY_CURRENCY: str = "INR"
+    RAZORPAY_CURRENCY: str = "USD"
 
     # AI / RAG Chatbot
     AI_SERVICE_URL: Optional[str] = None
