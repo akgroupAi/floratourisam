@@ -552,7 +552,9 @@ class ReviewService:
         rows = list(
             (await self.db.execute(base.order_by(Review.created_at.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
         )
-        return await self._enrich(rows), total
+        enriched = await self._enrich(rows)
+        enriched = await self._attach_entity_names(enriched)
+        return enriched, total
 
     async def admin_approve(
         self,

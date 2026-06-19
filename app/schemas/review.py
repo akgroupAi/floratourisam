@@ -116,6 +116,7 @@ class ReviewResponse(BaseSchema):
     id: UUID
     entity_type: str
     entity_id: UUID
+    entity_name: Optional[str] = None
     patient_id: UUID
     rating: int
     title: Optional[str] = None
