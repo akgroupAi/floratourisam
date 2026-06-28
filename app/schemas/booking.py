@@ -101,6 +101,7 @@ class BookingListResponse(BaseSchema):
     reference_number: str
     booking_type: str
     status: str
+    status_label: Optional[str] = None
     booking_date: datetime
     check_in_date: Optional[date] = None
     check_out_date: Optional[date] = None

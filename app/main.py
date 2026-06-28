@@ -3,7 +3,8 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api.v1.api_router import api_router
@@ -18,6 +19,7 @@ from app.core.middleware import (
 from app.db.session import close_db, engine
 from app.db.base import Base
 from app.utils.constants import API_V1_PREFIX
+from app.utils.validation_messages import format_validation_errors, primary_validation_message
 from fastapi.staticfiles import StaticFiles
 import os
 
@@ -65,7 +67,26 @@ app = FastAPI(
 # Setup middleware
 setup_middleware(app)
 
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Return user-friendly validation error messages."""
+    request_id = getattr(request.state, "request_id", "unknown")
+    errors = format_validation_errors(exc.errors())
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "success": False,
+            "message": primary_validation_message(exc.errors()),
+            "error_code": "VALIDATION_ERROR",
+            "errors": errors,
+            "request_id": request_id,
+        },
+    )
+
+
 # Exception handlers
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 app.add_exception_handler(CustomHTTPException, http_exception_handler)
 

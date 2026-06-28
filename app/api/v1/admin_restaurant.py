@@ -5,7 +5,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, or_, select
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireRestaurantManager
@@ -203,7 +203,7 @@ class MenuCategoryResponse(BaseModel):
 class MenuItemCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=255)
     description: Optional[str] = None
-    category: str = Field(..., description="Category label string (e.g. Appetizer, Main)")
+    category: Optional[str] = Field(None, description="Category label string (e.g. Appetizer, Main)")
     category_id: Optional[UUID] = None
     price: float = Field(..., gt=0)
     image_url: Optional[str] = None
@@ -222,6 +222,12 @@ class MenuItemCreate(BaseModel):
     tags: Optional[List[str]] = None
     currency: str = "USD"
     display_order: int = 0
+
+    @model_validator(mode="after")
+    def require_category_reference(self) -> "MenuItemCreate":
+        if not self.category and not self.category_id:
+            raise ValueError("Please select a menu category.")
+        return self
 
 
 class MenuItemUpdate(BaseModel):
@@ -733,14 +739,28 @@ async def create_menu_item(
 ):
     """Create a menu item."""
     await _get_restaurant_or_404(restaurant_id, db)
+
+    payload = data.model_dump()
+    category_name = payload.get("category")
+
     if data.category_id:
-        cat = await db.execute(
-            select(MenuCategory).where(MenuCategory.id == data.category_id, MenuCategory.is_deleted == False)
+        cat_result = await db.execute(
+            select(MenuCategory).where(
+                MenuCategory.id == data.category_id,
+                MenuCategory.restaurant_id == restaurant_id,
+                MenuCategory.is_deleted == False,
+            )
         )
-        if not cat.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Menu category not found")
+        menu_category = cat_result.scalar_one_or_none()
+        if not menu_category:
+            raise HTTPException(status_code=404, detail="Menu category not found for this restaurant")
+        payload["category_id"] = menu_category.id
+        payload["category"] = category_name or menu_category.name
+    elif not category_name:
+        raise HTTPException(status_code=400, detail="Please select a menu category.")
+
     item = MenuItem(
-        restaurant_id=restaurant_id, **data.model_dump(), created_by=current_user.id
+        restaurant_id=restaurant_id, **payload, created_by=current_user.id
     )
     db.add(item)
     await db.commit()
@@ -772,7 +792,22 @@ async def update_menu_item(
     if not item:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+    if "category_id" in update_data and update_data["category_id"]:
+        cat_result = await db.execute(
+            select(MenuCategory).where(
+                MenuCategory.id == update_data["category_id"],
+                MenuCategory.restaurant_id == restaurant_id,
+                MenuCategory.is_deleted == False,
+            )
+        )
+        menu_category = cat_result.scalar_one_or_none()
+        if not menu_category:
+            raise HTTPException(status_code=404, detail="Menu category not found for this restaurant")
+        if not update_data.get("category"):
+            update_data["category"] = menu_category.name
+
+    for field, value in update_data.items():
         setattr(item, field, value)
 
     item.updated_by = current_user.id

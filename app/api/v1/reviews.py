@@ -34,6 +34,7 @@ from app.schemas.review import (
     AdminReviewResponse,
     AllReviewsPaginatedResponse,
     EntityType,
+    ReviewActionResponse,
     ReviewCreate,
     ReviewHelpfulRequest,
     ReviewListItem,
@@ -77,7 +78,8 @@ async def submit_review(
 ):
     service = ReviewService(db)
     try:
-        return await service.submit_review(current_user.id, data, current_user.id)
+        review = await service.submit_review(current_user.id, data, current_user.id)
+        return await service.serialize_review(review)
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except ValueError as exc:
@@ -116,7 +118,8 @@ async def update_review(
 ):
     service = ReviewService(db)
     try:
-        return await service.update_review(review_id, current_user.id, data, current_user.id)
+        review = await service.update_review(review_id, current_user.id, data, current_user.id)
+        return await service.serialize_review(review)
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except ValueError as exc:
@@ -157,7 +160,8 @@ async def mark_helpful(
 ):
     service = ReviewService(db)
     try:
-        return await service.mark_helpful(review_id, data.helpful)
+        review = await service.mark_helpful(review_id, data.helpful)
+        return await service.serialize_review(review)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -288,13 +292,19 @@ async def admin_list_all_reviews(
 
 @router.put(
     "/admin/{review_id}/approve",
-    response_model=ReviewResponse,
+    response_model=ReviewActionResponse,
     dependencies=[RequireAdmin],
     summary="[Admin] Approve or reject a review",
     description=(
         "Approve → review goes live and entity rating is recalculated.\n"
-        "Reject → `rejection_reason` is required and stored (not shown publicly)."
+        "Reject → optional `rejection_reason` is stored (not shown publicly)."
     ),
+)
+@router.patch(
+    "/admin/{review_id}/approve",
+    response_model=ReviewActionResponse,
+    dependencies=[RequireAdmin],
+    include_in_schema=False,
 )
 async def admin_approve_review(
     review_id: UUID,

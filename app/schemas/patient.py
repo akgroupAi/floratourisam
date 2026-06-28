@@ -4,16 +4,28 @@ from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import BaseSchema
 from app.utils.enums import BloodGroup, Gender
+
+
+def _empty_date_to_none(value: object) -> Optional[date]:
+    """Convert empty strings to None for optional date fields."""
+    if value == "" or value is None:
+        return None
+    return value  # type: ignore[return-value]
 
 
 class PatientBase(BaseModel):
     """Base patient schema."""
 
     date_of_birth: Optional[date] = None
+
+    @field_validator("date_of_birth", "passport_expiry", mode="before")
+    @classmethod
+    def normalize_optional_dates(cls, value: object) -> Optional[date]:
+        return _empty_date_to_none(value)
     gender: Optional[Gender] = None
     nationality: Optional[str] = Field(default=None, max_length=100)
     passport_number: Optional[str] = Field(default=None, max_length=50)

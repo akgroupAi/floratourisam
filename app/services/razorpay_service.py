@@ -15,7 +15,8 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.booking import Booking
 from app.models.payment import Payment, PaymentTransaction
-from app.utils.enums import PaymentStatus
+from app.services.booking_service import BookingService
+from app.utils.enums import BookingStatus, BookingType, PaymentStatus
 from app.utils.helpers import generate_reference_id
 
 logger = get_logger(__name__)
@@ -223,6 +224,9 @@ class RazorpayService:
             gateway_transaction_id=razorpay_payment_id,
         )
         self.db.add(txn)
+
+        await self._finalize_booking_payment(payment)
+
         await self.db.commit()
         await self.db.refresh(payment)
 
@@ -415,6 +419,52 @@ class RazorpayService:
         )
         return result.scalar_one_or_none()
 
+    async def _finalize_booking_payment(self, payment: Payment) -> None:
+        """Confirm linked bookings and activate related purchases after payment."""
+        if not payment.booking_id:
+            return
+
+        booking = await self._get_booking(payment.booking_id)
+        if not booking:
+            logger.warning("razorpay_booking_not_found", booking_id=str(payment.booking_id))
+            return
+
+        if booking.booking_type in (BookingType.HOTEL.value, BookingType.APARTMENT.value):
+            booking_service = BookingService(self.db)
+            try:
+                await booking_service.confirm_after_payment(booking, payment.id)
+            except ValueError as exc:
+                logger.error(
+                    "booking_confirmation_after_payment_failed",
+                    booking_id=str(booking.id),
+                    payment_id=str(payment.id),
+                    error=str(exc),
+                )
+                raise
+        elif booking.booking_metadata and booking.booking_metadata.get("type") == "dining_pass":
+            booking.is_paid = True
+            booking.paid_at = datetime.now(timezone.utc)
+            booking.payment_id = payment.id
+            booking.status = BookingStatus.CONFIRMED.value
+            booking.confirmed_at = datetime.now(timezone.utc)
+            await self._activate_dining_pass_purchase(booking)
+
+    async def _activate_dining_pass_purchase(self, booking: Booking) -> None:
+        """Activate a dining pass purchase linked to a paid booking."""
+        from app.models.restaurant import DiningPassPurchase
+
+        purchase_id = (booking.booking_metadata or {}).get("dining_pass_purchase_id")
+        if not purchase_id:
+            return
+
+        result = await self.db.execute(
+            select(DiningPassPurchase).where(DiningPassPurchase.id == UUID(str(purchase_id)))
+        )
+        purchase = result.scalar_one_or_none()
+        if purchase and purchase.status == "pending":
+            purchase.status = "active"
+            logger.info("dining_pass_activated", purchase_id=str(purchase.id))
+
     async def _handle_payment_authorized(self, data: dict) -> None:
         """Handle payment.authorized webhook."""
         order_id = data.get("order_id")
@@ -425,6 +475,7 @@ class RazorpayService:
             payment.status = PaymentStatus.COMPLETED.value
             payment.gateway_transaction_id = payment_id
             payment.completed_at = datetime.now(timezone.utc)
+            await self._finalize_booking_payment(payment)
             await self.db.commit()
             logger.info("razorpay_payment_authorized", payment_id=str(payment.id))
 

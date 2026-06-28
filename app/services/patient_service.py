@@ -108,6 +108,11 @@ class PatientService:
         """Update patient profile."""
         update_data = data.model_dump(exclude_unset=True)
 
+        # Normalize empty strings to NULL for optional date fields
+        for date_field in ("date_of_birth", "passport_expiry"):
+            if date_field in update_data and update_data[date_field] == "":
+                update_data[date_field] = None
+
         # Handle enum conversion
         if "gender" in update_data and update_data["gender"]:
             update_data["gender"] = update_data["gender"].value

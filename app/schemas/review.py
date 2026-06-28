@@ -102,7 +102,7 @@ class AdminReviewApprove(BaseModel):
     @model_validator(mode="after")
     def reason_required_on_reject(self) -> "AdminReviewApprove":
         if not self.approve and not self.rejection_reason:
-            raise ValueError("rejection_reason is required when rejecting a review")
+            self.rejection_reason = "Rejected by administrator"
         return self
 
 
@@ -135,11 +135,18 @@ class ReviewResponse(BaseSchema):
 
     # Reviewer display info (populated by service join)
     reviewer_name: Optional[str] = None
+    reviewer_email: Optional[str] = None
     reviewer_avatar: Optional[str] = None
 
     rejection_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+
+class ReviewActionResponse(ReviewResponse):
+    """Review response with an action message (approve/reject)."""
+
+    message: Optional[str] = None
 
 
 class ReviewPublicResponse(BaseSchema):
@@ -158,6 +165,7 @@ class ReviewPublicResponse(BaseSchema):
     response_date: Optional[datetime] = None
 
     reviewer_name: Optional[str] = None
+    reviewer_email: Optional[str] = None
     reviewer_avatar: Optional[str] = None
 
     created_at: datetime
@@ -175,7 +183,9 @@ class ReviewListItem(BaseSchema):
     is_verified: bool
     is_approved: bool
     helpful_count: int
+    entity_name: Optional[str] = None
     reviewer_name: Optional[str] = None
+    reviewer_email: Optional[str] = None
     created_at: datetime
 
 
@@ -242,6 +252,7 @@ class AllReviewItem(BaseSchema):
     response_date: Optional[datetime] = None
 
     reviewer_name: Optional[str] = None
+    reviewer_email: Optional[str] = None
     reviewer_avatar: Optional[str] = None
 
     created_at: datetime

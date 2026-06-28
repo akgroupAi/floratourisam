@@ -47,6 +47,7 @@ from app.utils.email_sender import (
 from app.utils.enums import BookingStatus, BookingType
 from app.utils.helpers import generate_reference_id
 from app.utils.notifications import notify
+from app.utils.booking_helpers import OCCUPIED_BOOKING_STATUSES, booking_status_label
 from sqlalchemy.orm import selectinload, joinedload
 
 logger = get_logger(__name__)
@@ -134,6 +135,7 @@ class BookingService:
                 reference_number=b.reference_number,
                 booking_type=b.booking_type,
                 status=b.status,
+                status_label=booking_status_label(b.status, b.is_paid, b.booking_type),
                 booking_date=b.booking_date,
                 check_in_date=b.check_in_date,
                 check_out_date=b.check_out_date,
@@ -460,9 +462,7 @@ class BookingService:
             currency=hotel.currency if hotel else "USD",
             special_requests=data.special_requests,
             notes=data.notes,
-            status=BookingStatus.CONFIRMED.value,
-            confirmed_at=datetime.now(timezone.utc),
-            confirmed_by=created_by,
+            status=BookingStatus.PENDING.value,
             created_by=created_by,
             booking_metadata={
                 "price_per_night": room.price_per_night,
@@ -474,36 +474,7 @@ class BookingService:
         self.db.add(booking)
         await self.db.commit()
         await self.db.refresh(booking)
-        logger.info("hotel_booking_created", booking_id=str(booking.id), ref=booking.reference_number)
-
-        # Send confirmation email (best-effort)
-        if user:
-            try:
-                html = render_hotel_booking_confirmation_html(
-                    guest_name=user.full_name,
-                    hotel_name=hotel.name if hotel else "Hotel",
-                    room_name=room.name,
-                    room_type=room.room_type,
-                    check_in_date=data.check_in_date.strftime("%B %d, %Y"),
-                    check_out_date=data.check_out_date.strftime("%B %d, %Y"),
-                    nights=nights,
-                    guest_count=data.guest_count,
-                    total_price=booking.total_price,
-                    currency=booking.currency,
-                    reference_number=booking.reference_number,
-                    special_requests=data.special_requests,
-                )
-                await send_email(
-                    db=self.db,
-                    to_email=user.email,
-                    to_name=user.full_name,
-                    subject=f"Hotel Booking Confirmed — {booking.reference_number}",
-                    body_html=html,
-                    category="booking",
-                    user_id=user.id,
-                )
-            except Exception as exc:
-                logger.error("hotel_booking_email_failed", error=str(exc))
+        logger.info("hotel_booking_created_pending_payment", booking_id=str(booking.id), ref=booking.reference_number)
 
         return booking
 
@@ -530,7 +501,7 @@ class BookingService:
                 and_(
                     Booking.apartment_id == apartment_id,
                     Booking.is_deleted == False,
-                    Booking.status.notin_([BookingStatus.CANCELLED.value]),
+                    Booking.status.in_(OCCUPIED_BOOKING_STATUSES),
                     Booking.check_in_date < check_out,
                     Booking.check_out_date > check_in,
                 )
@@ -563,7 +534,7 @@ class BookingService:
                 and_(
                     Booking.apartment_id == data.apartment_id,
                     Booking.is_deleted == False,
-                    Booking.status.notin_([BookingStatus.CANCELLED.value]),
+                    Booking.status.in_(OCCUPIED_BOOKING_STATUSES),
                     Booking.check_in_date < data.check_out_date,
                     Booking.check_out_date > data.check_in_date,
                 )
@@ -606,43 +577,13 @@ class BookingService:
             currency=apartment.currency,
             special_requests=data.special_requests,
             notes=data.notes,
-            status=BookingStatus.CONFIRMED.value,
-            confirmed_at=datetime.now(timezone.utc),
-            confirmed_by=created_by,
+            status=BookingStatus.PENDING.value,
             created_by=created_by,
         )
         self.db.add(booking)
         await self.db.commit()
         await self.db.refresh(booking)
-        logger.info("apartment_booking_created", booking_id=str(booking.id), ref=booking.reference_number)
-
-        if user:
-            try:
-                html = render_apartment_booking_confirmation_html(
-                    guest_name=user.full_name,
-                    apartment_name=apartment.name,
-                    bedroom_type=apartment.bedroom_type,
-                    check_in_date=data.check_in_date.strftime("%B %d, %Y"),
-                    check_out_date=data.check_out_date.strftime("%B %d, %Y"),
-                    nights=nights,
-                    guest_count=data.guest_count,
-                    total_price=booking.total_price,
-                    currency=booking.currency,
-                    reference_number=booking.reference_number,
-                    address=address,
-                    special_requests=data.special_requests,
-                )
-                await send_email(
-                    db=self.db,
-                    to_email=user.email,
-                    to_name=user.full_name,
-                    subject=f"Apartment Booking Confirmed — {booking.reference_number}",
-                    body_html=html,
-                    category="booking",
-                    user_id=user.id,
-                )
-            except Exception as exc:
-                logger.error("apartment_booking_email_failed", error=str(exc))
+        logger.info("apartment_booking_created_pending_payment", booking_id=str(booking.id), ref=booking.reference_number)
 
         return booking
 
@@ -1069,9 +1010,13 @@ class BookingService:
     # ------------------------------------------------------------------
 
     async def _assert_room_available(
-        self, room_id: UUID, check_in: date, check_out: date
+        self,
+        room_id: UUID,
+        check_in: date,
+        check_out: date,
+        exclude_booking_id: Optional[UUID] = None,
     ) -> None:
-        """Raise ValueError if the room is blocked for any night in the range."""
+        """Raise ValueError if the room is blocked for any night in the date range."""
         from sqlalchemy import between
         import datetime as _dt
 
@@ -1088,16 +1033,146 @@ class BookingService:
             raise ValueError("The room is not available for the selected dates")
 
         # Also check for existing confirmed bookings overlapping these dates
-        conflict = await self.db.execute(
-            select(Booking.id).where(
-                and_(
-                    Booking.hotel_room_id == room_id,
-                    Booking.is_deleted == False,
-                    Booking.status.notin_([BookingStatus.CANCELLED.value]),
-                    Booking.check_in_date < check_out,
-                    Booking.check_out_date > check_in,
-                )
+        conflict_query = select(Booking.id).where(
+            and_(
+                Booking.hotel_room_id == room_id,
+                Booking.is_deleted == False,
+                Booking.status.in_(OCCUPIED_BOOKING_STATUSES),
+                Booking.check_in_date < check_out,
+                Booking.check_out_date > check_in,
             )
         )
+        if exclude_booking_id:
+            conflict_query = conflict_query.where(Booking.id != exclude_booking_id)
+        conflict = await self.db.execute(conflict_query)
         if conflict.scalar_one_or_none():
             raise ValueError("The room is already booked for the selected dates")
+
+    async def confirm_after_payment(
+        self,
+        booking: Booking,
+        payment_id: UUID,
+    ) -> Booking:
+        """Confirm a hotel/apartment booking after successful payment verification."""
+        if booking.is_paid and booking.status == BookingStatus.CONFIRMED.value:
+            return booking
+
+        if booking.booking_type == BookingType.HOTEL.value:
+            if not booking.hotel_room_id or not booking.check_in_date or not booking.check_out_date:
+                raise ValueError("Invalid hotel booking details")
+            await self._assert_room_available(
+                booking.hotel_room_id,
+                booking.check_in_date,
+                booking.check_out_date,
+                exclude_booking_id=booking.id,
+            )
+        elif booking.booking_type == BookingType.APARTMENT.value:
+            if not booking.apartment_id or not booking.check_in_date or not booking.check_out_date:
+                raise ValueError("Invalid apartment booking details")
+            conflict = await self.db.execute(
+                select(Booking.id).where(
+                    and_(
+                        Booking.apartment_id == booking.apartment_id,
+                        Booking.id != booking.id,
+                        Booking.is_deleted == False,
+                        Booking.status.in_(OCCUPIED_BOOKING_STATUSES),
+                        Booking.check_in_date < booking.check_out_date,
+                        Booking.check_out_date > booking.check_in_date,
+                    )
+                )
+            )
+            if conflict.scalar_one_or_none():
+                raise ValueError("The apartment is no longer available for the selected dates")
+
+        booking.is_paid = True
+        booking.paid_at = datetime.now(timezone.utc)
+        booking.payment_id = payment_id
+        booking.status = BookingStatus.CONFIRMED.value
+        booking.confirmed_at = datetime.now(timezone.utc)
+
+        await self.db.commit()
+        await self.db.refresh(booking)
+        logger.info(
+            "booking_confirmed_after_payment",
+            booking_id=str(booking.id),
+            payment_id=str(payment_id),
+        )
+
+        await self._send_booking_confirmation_email(booking)
+        return booking
+
+    async def _send_booking_confirmation_email(self, booking: Booking) -> None:
+        """Send confirmation email after payment is verified."""
+        from app.models.patient import Patient
+
+        patient_result = await self.db.execute(
+            select(Patient).options(joinedload(Patient.user)).where(Patient.id == booking.patient_id)
+        )
+        patient = patient_result.scalar_one_or_none()
+        user = patient.user if patient else None
+        if not user:
+            return
+
+        try:
+            if booking.booking_type == BookingType.HOTEL.value and booking.hotel_room_id:
+                room_res = await self.db.execute(
+                    select(Room).options(joinedload(Room.hotel)).where(Room.id == booking.hotel_room_id)
+                )
+                room = room_res.scalar_one_or_none()
+                if not room:
+                    return
+                hotel = room.hotel
+                nights = max((booking.check_out_date - booking.check_in_date).days, 1) if booking.check_out_date and booking.check_in_date else 1
+                html = render_hotel_booking_confirmation_html(
+                    guest_name=user.full_name,
+                    hotel_name=hotel.name if hotel else "Hotel",
+                    room_name=room.name,
+                    room_type=room.room_type,
+                    check_in_date=booking.check_in_date.strftime("%B %d, %Y") if booking.check_in_date else "",
+                    check_out_date=booking.check_out_date.strftime("%B %d, %Y") if booking.check_out_date else "",
+                    nights=nights,
+                    guest_count=booking.guest_count,
+                    total_price=booking.total_price,
+                    currency=booking.currency,
+                    reference_number=booking.reference_number,
+                    special_requests=booking.special_requests,
+                )
+                subject = f"Hotel Booking Confirmed — {booking.reference_number}"
+            elif booking.booking_type == BookingType.APARTMENT.value and booking.apartment_id:
+                apt_res = await self.db.execute(
+                    select(Apartment).where(Apartment.id == booking.apartment_id)
+                )
+                apartment = apt_res.scalar_one_or_none()
+                if not apartment:
+                    return
+                nights = max((booking.check_out_date - booking.check_in_date).days, 1) if booking.check_out_date and booking.check_in_date else 1
+                address = f"{apartment.address_line1}, {apartment.city}, {apartment.country}"
+                html = render_apartment_booking_confirmation_html(
+                    guest_name=user.full_name,
+                    apartment_name=apartment.name,
+                    bedroom_type=apartment.bedroom_type,
+                    check_in_date=booking.check_in_date.strftime("%B %d, %Y") if booking.check_in_date else "",
+                    check_out_date=booking.check_out_date.strftime("%B %d, %Y") if booking.check_out_date else "",
+                    nights=nights,
+                    guest_count=booking.guest_count,
+                    total_price=booking.total_price,
+                    currency=booking.currency,
+                    reference_number=booking.reference_number,
+                    address=address,
+                    special_requests=booking.special_requests,
+                )
+                subject = f"Apartment Booking Confirmed — {booking.reference_number}"
+            else:
+                return
+
+            await send_email(
+                db=self.db,
+                to_email=user.email,
+                to_name=user.full_name,
+                subject=subject,
+                body_html=html,
+                category="booking",
+                user_id=user.id,
+            )
+        except Exception as exc:
+            logger.error("booking_confirmation_email_failed", booking_id=str(booking.id), error=str(exc))

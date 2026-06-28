@@ -85,9 +85,8 @@ async def check_apartment_availability(
     summary="Book a hotel room",
     description=(
         "Books a hotel room for the patient. Validates date-range availability against "
-        "RoomAvailability and existing bookings. "
-        "Price = room.price_per_night × nights + 10% tax. "
-        "Confirmation email sent immediately."
+        "RoomAvailability and existing confirmed bookings. "
+        "Creates a pending booking; inventory is reserved and confirmation is sent only after payment verification."
     ),
 )
 async def create_hotel_booking(
@@ -121,7 +120,7 @@ async def create_hotel_booking(
     description=(
         "Books an apartment for the patient. "
         "Price uses monthly rate (≥28 nights), weekly rate (≥7 nights), or nightly rate. "
-        "Confirmation email sent immediately."
+        "Creates a pending booking; confirmation is sent only after payment verification."
     ),
 )
 async def create_apartment_booking(

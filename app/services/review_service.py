@@ -151,27 +151,38 @@ class ReviewService:
             )
 
     async def _enrich(self, reviews: List[Review]) -> List[dict]:
-        """Attach reviewer display name + avatar to each review dict."""
+        """Attach reviewer display name, email, and avatar to each review dict."""
         if not reviews:
             return []
         patient_ids = list({r.patient_id for r in reviews})
         rows = (
             await self.db.execute(
-                select(Patient.id, User.full_name, User.avatar_url)
+                select(Patient.id, User.full_name, User.avatar_url, User.email)
                 .join(User, Patient.user_id == User.id)
                 .where(Patient.id.in_(patient_ids))
             )
         ).all()
-        info = {pid: (name, avatar) for pid, name, avatar in rows}
+        info = {pid: (name, avatar, email) for pid, name, avatar, email in rows}
 
         result = []
         for r in reviews:
-            name, avatar = info.get(r.patient_id, (None, None))
+            name, avatar, email = info.get(r.patient_id, (None, None, None))
             d = {c.key: getattr(r, c.key) for c in r.__table__.columns}
             d["reviewer_name"] = name
+            d["reviewer_email"] = email
             d["reviewer_avatar"] = avatar
             result.append(d)
         return result
+
+    async def serialize_reviews(self, reviews: List[Review]) -> List[dict]:
+        """Enrich reviews with reviewer and entity display fields."""
+        enriched = await self._enrich(reviews)
+        return await self._attach_entity_names(enriched)
+
+    async def serialize_review(self, review: Review) -> dict:
+        """Serialize a single review with reviewer and entity display fields."""
+        items = await self.serialize_reviews([review])
+        return items[0] if items else {}
 
     # -----------------------------------------------------------------------
     # Public API
@@ -289,7 +300,7 @@ class ReviewService:
         )
         average_rating = round(float(avg_result.scalar() or 0), 2)
 
-        return await self._enrich(reviews), total, average_rating
+        return await self.serialize_reviews(reviews), total, average_rating
 
     async def _attach_entity_names(self, reviews: List[dict]) -> List[dict]:
         """Attach the reviewed entity's display name to each enriched review dict."""
@@ -458,7 +469,7 @@ class ReviewService:
         rows = list(
             (await self.db.execute(base.order_by(Review.created_at.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
         )
-        return await self._enrich(rows), total
+        return await self.serialize_reviews(rows), total
 
     async def update_review(
         self,
@@ -552,16 +563,14 @@ class ReviewService:
         rows = list(
             (await self.db.execute(base.order_by(Review.created_at.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
         )
-        enriched = await self._enrich(rows)
-        enriched = await self._attach_entity_names(enriched)
-        return enriched, total
+        return await self.serialize_reviews(rows), total
 
     async def admin_approve(
         self,
         review_id: UUID,
         data: AdminReviewApprove,
         admin_id: UUID,
-    ) -> Review:
+    ) -> dict:
         review = await self.get_review(review_id)
         if not review:
             raise ValueError("Review not found")
@@ -576,7 +585,11 @@ class ReviewService:
         await self._recalculate_entity_rating(review.entity_type, review.entity_id)
         await self.db.commit()
         await self.db.refresh(review)
-        return review
+
+        message = "Review approved successfully." if data.approve else "Review rejected successfully."
+        serialized = await self.serialize_review(review)
+        serialized["message"] = message
+        return serialized
 
     async def admin_respond(
         self,
