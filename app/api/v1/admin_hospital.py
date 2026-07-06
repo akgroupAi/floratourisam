@@ -1,6 +1,6 @@
 """Hospital management endpoints for admin panel."""
 
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -32,6 +32,9 @@ class HospitalCreate(BaseModel):
     state: Optional[str] = None
     country: str = Field(..., min_length=2)
     postal_code: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    logo_url: Optional[str] = None
+    gallery: Optional[List[str]] = None
     is_active: bool = True
 
 
@@ -49,6 +52,9 @@ class HospitalUpdate(BaseModel):
     state: Optional[str] = None
     country: Optional[str] = None
     postal_code: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    logo_url: Optional[str] = None
+    gallery: Optional[List[str]] = None
     is_active: Optional[bool] = None
 
 
@@ -67,6 +73,9 @@ class HospitalResponse(BaseModel):
     state: Optional[str] = None
     country: str
     postal_code: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    logo_url: Optional[str] = None
+    gallery: Optional[List[str]] = None
     is_active: bool
     total_doctors: int = 0
     
