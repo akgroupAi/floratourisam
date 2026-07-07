@@ -18,6 +18,7 @@ from app.models.doctor import Doctor
 from app.models.patient import Patient
 from app.models.hospital import Hospital
 from app.models.hotel import Hotel, Room
+from app.models.apartment import Apartment
 from app.utils.enums import UserRole
 
 from app.services.dashboard_service import DashboardService
@@ -541,11 +542,10 @@ async def get_todays_schedule(db: DatabaseSession):
 
 @router.get("/apartments/totalrooms", dependencies=[RequireAdmin])
 async def get_apartment_total_rooms(db: DatabaseSession):
-    """Get total apartment rooms count."""
+    """Get total apartment units count."""
     result = await db.execute(
-        select(func.sum(Room.total_rooms)).where(
-            Room.is_deleted == False,
-            Room.room_type == "apartment"
+        select(func.count(Apartment.id)).where(
+            Apartment.is_deleted == False
         )
     )
     return {"total_rooms": int(result.scalar() or 0)}
@@ -553,12 +553,11 @@ async def get_apartment_total_rooms(db: DatabaseSession):
 
 @router.get("/apartments/availablerooms", dependencies=[RequireAdmin])
 async def get_apartment_available_rooms(db: DatabaseSession):
-    """Get total available apartment rooms."""
+    """Get total available apartment units."""
     result = await db.execute(
-        select(func.sum(Room.total_rooms)).where(
-            Room.is_deleted == False,
-            Room.room_type == "apartment",
-            Room.is_available == True
+        select(func.count(Apartment.id)).where(
+            Apartment.is_deleted == False,
+            Apartment.is_available == True
         )
     )
     return {"available_rooms": int(result.scalar() or 0)}
@@ -566,20 +565,18 @@ async def get_apartment_available_rooms(db: DatabaseSession):
 
 @router.get("/apartments/occupancy", dependencies=[RequireAdmin])
 async def get_apartment_occupancy(db: DatabaseSession):
-    """Get apartment occupied rooms and occupancy percentage."""
+    """Get apartment occupied units and occupancy percentage."""
     total_result = await db.execute(
-        select(func.sum(Room.total_rooms)).where(
-            Room.is_deleted == False,
-            Room.room_type == "apartment"
+        select(func.count(Apartment.id)).where(
+            Apartment.is_deleted == False
         )
     )
     total_rooms = int(total_result.scalar() or 0)
 
     available_result = await db.execute(
-        select(func.sum(Room.total_rooms)).where(
-            Room.is_deleted == False,
-            Room.room_type == "apartment",
-            Room.is_available == True
+        select(func.count(Apartment.id)).where(
+            Apartment.is_deleted == False,
+            Apartment.is_available == True
         )
     )
     available_rooms = int(available_result.scalar() or 0)
@@ -598,11 +595,10 @@ async def get_apartment_occupancy(db: DatabaseSession):
 
 @router.get("/hotels/totalrooms", dependencies=[RequireAdmin])
 async def get_hotel_total_rooms(db: DatabaseSession):
-    """Get total hotel rooms count (excluding apartments)."""
+    """Get total hotel rooms count."""
     result = await db.execute(
         select(func.sum(Room.total_rooms)).where(
-            Room.is_deleted == False,
-            Room.room_type != "apartment"
+            Room.is_deleted == False
         )
     )
     return {"total_rooms": int(result.scalar() or 0)}
@@ -614,7 +610,6 @@ async def get_hotel_available_rooms(db: DatabaseSession):
     result = await db.execute(
         select(func.sum(Room.total_rooms)).where(
             Room.is_deleted == False,
-            Room.room_type != "apartment",
             Room.is_available == True
         )
     )
@@ -626,8 +621,7 @@ async def get_hotel_occupancy(db: DatabaseSession):
     """Get hotel occupied rooms and occupancy percentage."""
     total_result = await db.execute(
         select(func.sum(Room.total_rooms)).where(
-            Room.is_deleted == False,
-            Room.room_type != "apartment"
+            Room.is_deleted == False
         )
     )
     total_rooms = int(total_result.scalar() or 0)
@@ -635,7 +629,6 @@ async def get_hotel_occupancy(db: DatabaseSession):
     available_result = await db.execute(
         select(func.sum(Room.total_rooms)).where(
             Room.is_deleted == False,
-            Room.room_type != "apartment",
             Room.is_available == True
         )
     )

@@ -16,6 +16,7 @@ from app.models.doctor import Doctor
 from app.models.patient import Patient
 from app.models.hospital import Hospital
 from app.models.hotel import Hotel, Room
+from app.models.apartment import Apartment
 from app.models.shared_document import SharedDocument
 from app.models.chat import ChatMessage, ChatParticipant
 from app.utils.enums import UserRole
@@ -357,16 +358,30 @@ class DashboardService:
             ))
         today_schedule = TodaySchedule(date=today_start.date(), total=len(schedule_items), schedule=schedule_items)
 
-        # 10. Apartment Occupancy
-        apt_total = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False, Room.room_type == "apartment")) or 0
-        apt_avail = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False, Room.room_type == "apartment", Room.is_available == True)) or 0
+        # 10. Apartment Occupancy (apartments live in their own table, one row per unit)
+        apt_total = await self.db.scalar(
+            select(func.count(Apartment.id)).where(Apartment.is_deleted == False)
+        ) or 0
+        apt_avail = await self.db.scalar(
+            select(func.count(Apartment.id)).where(
+                Apartment.is_deleted == False,
+                Apartment.is_available == True,
+            )
+        ) or 0
         apt_occupied = max(0, int(apt_total) - int(apt_avail))
         apt_perc = round((apt_occupied / apt_total * 100), 2) if apt_total > 0 else 0.0
         apartments = RoomOccupancy(total_rooms=int(apt_total), available_rooms=int(apt_avail), occupied_rooms=apt_occupied, occupancy_percentage=apt_perc)
 
-        # 11. Hotel Occupancy
-        hotel_total = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False, Room.room_type != "apartment")) or 0
-        hotel_avail = await self.db.scalar(select(func.sum(Room.total_rooms)).where(Room.is_deleted == False, Room.room_type != "apartment", Room.is_available == True)) or 0
+        # 11. Hotel Occupancy (all rooms belong to hotels)
+        hotel_total = await self.db.scalar(
+            select(func.sum(Room.total_rooms)).where(Room.is_deleted == False)
+        ) or 0
+        hotel_avail = await self.db.scalar(
+            select(func.sum(Room.total_rooms)).where(
+                Room.is_deleted == False,
+                Room.is_available == True,
+            )
+        ) or 0
         hotel_occupied = max(0, int(hotel_total) - int(hotel_avail))
         hotel_perc = round((hotel_occupied / hotel_total * 100), 2) if hotel_total > 0 else 0.0
         hotels = RoomOccupancy(total_rooms=int(hotel_total), available_rooms=int(hotel_avail), occupied_rooms=hotel_occupied, occupancy_percentage=hotel_perc)
