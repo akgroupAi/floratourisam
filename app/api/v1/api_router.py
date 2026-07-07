@@ -18,6 +18,8 @@ from app.api.v1 import (
     admin_hospitality,
     rbac_admin,
     admin_bookings,
+    contact,
+    admin_contact,
 )
 
 api_router = APIRouter()
@@ -107,6 +109,10 @@ api_router.include_router(favorites.router, prefix="/favorites", tags=["Favorite
 
 # Lead Generation
 api_router.include_router(leads.router, prefix="/leads", tags=["Lead Generation"])
+
+# Contact Us
+api_router.include_router(contact.router, prefix="/contact", tags=["Contact"])
+api_router.include_router(admin_contact.router, prefix="/admin/contacts", tags=["Admin - Contacts"])
 
 # System & Infrastructure
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])

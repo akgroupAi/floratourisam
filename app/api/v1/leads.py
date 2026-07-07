@@ -1,11 +1,12 @@
 """Lead submission endpoints."""
 
 from fastapi import APIRouter
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DatabaseSession, OptionalUser
+from app.api.deps import DatabaseSession
 from app.models.site import LeadSubmission
-from app.schemas.site import LeadSubmissionCreate, ContactSubmission
+from app.schemas.contact import ContactCreate, ContactSubmitResponse
+from app.schemas.site import LeadSubmissionCreate
+from app.services.contact_service import ContactService
 
 router = APIRouter()
 
@@ -29,48 +30,15 @@ async def submit_quote_request(data: LeadSubmissionCreate, db: DatabaseSession):
     }
 
 
-@router.post("/contact")
-async def submit_contact_form(data: ContactSubmission, db: DatabaseSession):
-    """Submit contact form (public) and notify admin."""
-    from app.utils.email_sender import send_email, render_contact_lead_email_html
-    from app.core.config import settings
-
-    # 1. Save to DB
-    lead = LeadSubmission(
-        email=data.email,
-        name=data.name,
-        phone=data.phone,
-        country=data.country,
-        treatment_interest=data.treatment_interest or data.subject,
-        message=data.message,
-        form_source="contact_page",
+@router.post("/contact", response_model=ContactSubmitResponse, deprecated=True)
+async def submit_contact_form_legacy(data: ContactCreate, db: DatabaseSession):
+    """Submit contact form (legacy path — prefer POST /api/v1/contact)."""
+    service = ContactService(db)
+    lead = await service.submit(data)
+    return ContactSubmitResponse(
+        message="Thank you for contacting us. We'll respond within 24 hours.",
+        reference_id=lead.id,
     )
-    db.add(lead)
-    await db.flush() # Flush to get ID if needed
-    
-    # 2. Notify Admin via Email
-    await send_email(
-        db=db,
-        to_email=settings.FIRST_SUPERUSER_EMAIL,
-        to_name="Admin",
-        subject=f"New Contact Lead: {data.name}",
-        body_html=render_contact_lead_email_html(
-            name=data.name,
-            email=data.email,
-            phone=data.phone,
-            country=data.country,
-            treatment=data.treatment_interest or data.subject,
-            message=data.message
-        ),
-        category="lead_notification"
-    )
-    
-    await db.commit()
-    
-    return {
-        "success": True,
-        "message": "Thank you for contacting us. We'll respond within 24 hours.",
-    }
 
 
 @router.post("/newsletter")

@@ -173,6 +173,14 @@ class CMSPageStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class ContactStatus(str, Enum):
+    """Status workflow for contact form submissions."""
+
+    PENDING = "pending"
+    IN_PROCESS = "in_process"
+    COMPLETED = "completed"
+
+
 class NotificationType(str, Enum):
     """Types of notifications."""
 
