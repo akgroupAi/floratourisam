@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from typing import Any, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.schemas.common import BaseSchema
 
@@ -89,11 +89,68 @@ class DoctorCreate(DoctorBase):
     specializations: Optional[List[DoctorSpecializationCreate]] = None
 
 
+class AdminDoctorCreate(BaseModel):
+    """Admin doctor registration — creates user + doctor profile (no email verification)."""
+
+    # Account credentials
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=100)
+    full_name: str = Field(..., min_length=2, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=20)
+
+    # Professional profile (mirrors GET /doctors/me fields)
+    hospital_id: Optional[UUID] = None
+    title: Optional[str] = Field(default=None, max_length=50)
+    license_number: Optional[str] = Field(default=None, max_length=100)
+    license_expiry: Optional[date] = None
+    primary_specialty: Optional[str] = Field(default=None, max_length=100)
+    years_of_experience: Optional[int] = Field(default=None, ge=0, le=70)
+    qualifications: Optional[List[str]] = None
+    education: Optional[List[dict]] = None
+    certifications: Optional[List[dict]] = None
+    bio: Optional[str] = None
+    languages_spoken: Optional[List[str]] = None
+    consultation_fee: Optional[float] = Field(default=None, ge=0)
+    consultation_duration_minutes: int = Field(default=30, ge=15, le=120)
+    video_consultation_enabled: bool = True
+    chat_consultation_enabled: bool = True
+    in_person_enabled: bool = True
+
+    # Address
+    address_line1: Optional[str] = Field(default=None, max_length=255)
+    address_line2: Optional[str] = Field(default=None, max_length=255)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=100)
+    country: Optional[str] = Field(default=None, max_length=100)
+    postal_code: Optional[str] = Field(default=None, max_length=20)
+
+    specializations: Optional[List[DoctorSpecializationCreate]] = None
+    availability: Optional[List[DoctorAvailabilityCreate]] = None
+
+    # Admin-created doctors are verified by default (email + profile)
+    is_verified: bool = True
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """Validate password strength (same rules as public registration)."""
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
+        if not any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in v):
+            raise ValueError("Password must contain at least one special character")
+        return v
+
+
 class DoctorUpdate(BaseModel):
     """Doctor update schema."""
 
     title: Optional[str] = Field(default=None, max_length=50)
     hospital_id: Optional[UUID] = None
+    license_number: Optional[str] = Field(default=None, max_length=100)
     license_expiry: Optional[date] = None
     years_of_experience: Optional[int] = Field(default=None, ge=0)
     primary_specialty: Optional[str] = Field(default=None, max_length=100)
@@ -115,6 +172,17 @@ class DoctorUpdate(BaseModel):
     state: Optional[str] = Field(default=None, max_length=100)
     country: Optional[str] = Field(default=None, max_length=100)
     postal_code: Optional[str] = Field(default=None, max_length=20)
+
+
+class AdminDoctorUpdate(DoctorUpdate):
+    """Admin doctor update — also allows updating user contact fields and schedule."""
+
+    full_name: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(default=None, max_length=20)
+    is_verified: Optional[bool] = None
+    specializations: Optional[List[DoctorSpecializationCreate]] = None
+    availability: Optional[List[DoctorAvailabilityCreate]] = None
 
 
 class DoctorListResponse(BaseSchema):

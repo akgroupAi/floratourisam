@@ -1,19 +1,31 @@
 """Admin doctor management endpoints."""
 
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload, joinedload
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
-from app.models.doctor import Doctor, DoctorSpecialization, DoctorAssignment
+from app.core.security import get_password_hash
+from app.models.doctor import (
+    Doctor,
+    DoctorAvailability,
+    DoctorSpecialization,
+    DoctorAssignment,
+)
 from app.models.hospital import Hospital, Department
 from app.models.user import User
-from app.schemas.common import PaginatedResponse, MessageResponse, BasicResponse
-from app.schemas.doctor import DoctorCreate, DoctorUpdate, DoctorResponse
-from pydantic import BaseModel, Field
+from app.schemas.common import PaginatedResponse, MessageResponse
+from app.schemas.doctor import (
+    AdminDoctorCreate,
+    AdminDoctorUpdate,
+    DoctorResponse,
+)
+from app.utils.enums import UserRole
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -267,6 +279,20 @@ async def unassign_doctor(assignment_id: UUID, current_user: CurrentUser, db: Da
 # ============== DOCTOR CRUD ==============
 
 
+async def _get_doctor_or_404(db: DatabaseSession, doctor_id: UUID) -> Doctor:
+    """Load doctor with relations or raise 404."""
+    result = await db.execute(
+        select(Doctor).options(
+            joinedload(Doctor.user),
+            joinedload(Doctor.hospital),
+            selectinload(Doctor.specializations),
+            selectinload(Doctor.availability),
+        ).where(Doctor.id == doctor_id, Doctor.is_deleted == False)
+    )
+    doctor = result.scalar_one_or_none()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+    return doctor
 
 
 @router.get("", response_model=PaginatedResponse[DoctorResponse], dependencies=[RequireAdmin])
@@ -279,193 +305,290 @@ async def list_doctors(
     specialization: Optional[str] = None,
 ):
     """List all doctors with filtering."""
-    
+
     query = select(Doctor).options(
         joinedload(Doctor.user),
         joinedload(Doctor.hospital),
         selectinload(Doctor.specializations),
         selectinload(Doctor.availability),
     ).where(Doctor.is_deleted == False)
-    
+
     if search:
         query = query.join(Doctor.user).where(
             or_(
                 User.full_name.ilike(f"%{search}%"),
-                User.email.ilike(f"%{search}%")
+                User.email.ilike(f"%{search}%"),
             )
         )
-    
+
     if hospital_id:
         query = query.where(Doctor.hospital_id == hospital_id)
-    
+
     if specialization:
         query = query.join(Doctor.specializations).where(
             DoctorSpecialization.specialization.ilike(f"%{specialization}%")
         )
-    
-    # Count
+
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = count_result.scalar() or 0
-    
-    # Paginate
+
     query = query.offset((page - 1) * page_size).limit(page_size)
-    
+
     result = await db.execute(query)
     doctors = result.scalars().unique().all()
-    
+
     return PaginatedResponse.create(doctors, total, page, page_size)
 
 
-@router.post("", response_model=DoctorResponse, dependencies=[RequireAdmin])
-async def create_doctor(data: DoctorCreate, current_user: CurrentUser, db: DatabaseSession):
-    """Create a new doctor (admin only)."""
-    
-    # Verify user_id if provided
-    if data.user_id:
-        user_result = await db.execute(
-            select(User).where(User.id == data.user_id, User.is_deleted == False)
-        )
-        user = user_result.scalar_one_or_none()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        # Check if doctor profile already exists for this user
-        existing_result = await db.execute(
-            select(Doctor).where(Doctor.user_id == data.user_id)
-        )
-        if existing_result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Doctor profile already exists for this user"
-            )
-        
-        user_id = data.user_id
-    else:
+@router.post("", response_model=DoctorResponse, status_code=status.HTTP_201_CREATED, dependencies=[RequireAdmin])
+async def create_doctor(data: AdminDoctorCreate, current_user: CurrentUser, db: DatabaseSession):
+    """
+    Register a doctor from admin (user + profile in one call).
+
+    - Creates the user with role=doctor
+    - Skips email verification (user is marked verified immediately)
+    - Creates the full doctor profile matching GET /doctors/me fields
+    - Optionally sets specializations and availability
+    """
+
+    # Email uniqueness
+    existing_user = await db.execute(
+        select(User).where(User.email == data.email, User.is_deleted == False)
+    )
+    if existing_user.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="user_id is required for admin doctor creation"
+            detail="Email already registered",
         )
-    
-    # Verify hospital if provided
+
+    # License uniqueness (when provided)
+    if data.license_number:
+        existing_license = await db.execute(
+            select(Doctor).where(
+                Doctor.license_number == data.license_number,
+                Doctor.is_deleted == False,
+            )
+        )
+        if existing_license.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="License number already registered",
+            )
+
     if data.hospital_id:
         hospital_result = await db.execute(
             select(Hospital).where(
                 Hospital.id == data.hospital_id,
-                Hospital.is_deleted == False
+                Hospital.is_deleted == False,
             )
         )
         if not hospital_result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Hospital not found")
-    
-    # Create doctor
-    doctor_data = data.model_dump(exclude={"specializations"})
-    doctor_data["user_id"] = user_id
-    doctor = Doctor(**doctor_data, created_by=current_user.id)
-    
+
+    # Create verified user — no verification email
+    user = User(
+        email=data.email,
+        hashed_password=get_password_hash(data.password),
+        full_name=data.full_name,
+        phone=data.phone,
+        role=UserRole.DOCTOR.value,
+        is_active=True,
+        is_verified=True,
+        verification_token=None,
+        created_by=current_user.id,
+    )
+    db.add(user)
+    await db.flush()
+
+    doctor = Doctor(
+        user_id=user.id,
+        hospital_id=data.hospital_id,
+        title=data.title,
+        license_number=data.license_number,
+        license_expiry=data.license_expiry,
+        primary_specialty=data.primary_specialty,
+        years_of_experience=data.years_of_experience,
+        qualifications=data.qualifications,
+        education=data.education,
+        certifications=data.certifications,
+        bio=data.bio,
+        languages_spoken=data.languages_spoken,
+        consultation_fee=data.consultation_fee,
+        consultation_duration_minutes=data.consultation_duration_minutes,
+        video_consultation_enabled=data.video_consultation_enabled,
+        chat_consultation_enabled=data.chat_consultation_enabled,
+        in_person_enabled=data.in_person_enabled,
+        address_line1=data.address_line1,
+        address_line2=data.address_line2,
+        city=data.city,
+        state=data.state,
+        country=data.country,
+        postal_code=data.postal_code,
+        is_verified=data.is_verified,
+        verification_date=datetime.now(timezone.utc) if data.is_verified else None,
+        created_by=current_user.id,
+    )
     db.add(doctor)
     await db.flush()
-    
-    # Add specializations if provided
+
     if data.specializations:
         for spec_data in data.specializations:
-            specialization = DoctorSpecialization(
-                doctor_id=doctor.id,
-                **spec_data.model_dump(),
-                created_by=current_user.id
+            db.add(
+                DoctorSpecialization(
+                    doctor_id=doctor.id,
+                    **spec_data.model_dump(),
+                    created_by=current_user.id,
+                )
             )
-            db.add(specialization)
-    
+
+    if data.availability:
+        for avail_data in data.availability:
+            db.add(
+                DoctorAvailability(
+                    doctor_id=doctor.id,
+                    **avail_data.model_dump(),
+                    created_by=current_user.id,
+                )
+            )
+
     await db.commit()
-    
-    # Re-fetch with eager loading for response serialization
-    result = await db.execute(
-        select(Doctor).options(
-            joinedload(Doctor.user),
-            joinedload(Doctor.hospital),
-            selectinload(Doctor.specializations),
-            selectinload(Doctor.availability),
-        ).where(Doctor.id == doctor.id)
-    )
-    doctor = result.scalar_one()
-    
-    return doctor
+    return await _get_doctor_or_404(db, doctor.id)
+
+
+@router.get("/{doctor_id}", response_model=DoctorResponse, dependencies=[RequireAdmin])
 async def get_doctor(doctor_id: UUID, db: DatabaseSession):
     """Get doctor details."""
-    
-    result = await db.execute(
-        select(Doctor).options(
-            joinedload(Doctor.user),
-            joinedload(Doctor.hospital),
-            selectinload(Doctor.specializations),
-            selectinload(Doctor.availability),
-        ).where(Doctor.id == doctor_id, Doctor.is_deleted == False)
-    )
-    doctor = result.scalar_one_or_none()
-    
-    if not doctor:
-        raise HTTPException(status_code=404, detail="Doctor not found")
-    
-    return doctor
+    return await _get_doctor_or_404(db, doctor_id)
 
 
 @router.put("/{doctor_id}", response_model=DoctorResponse, dependencies=[RequireAdmin])
 async def update_doctor(
     doctor_id: UUID,
-    data: DoctorUpdate,
+    data: AdminDoctorUpdate,
     current_user: CurrentUser,
-    db: DatabaseSession
+    db: DatabaseSession,
 ):
-    """Update doctor."""
-    
-    result = await db.execute(
-        select(Doctor).options(
-            joinedload(Doctor.user),
-            joinedload(Doctor.hospital),
-            selectinload(Doctor.specializations),
-            selectinload(Doctor.availability),
-        ).where(Doctor.id == doctor_id, Doctor.is_deleted == False)
-    )
-    doctor = result.scalar_one_or_none()
-    
-    if not doctor:
-        raise HTTPException(status_code=404, detail="Doctor not found")
-    
-    # Verify hospital if being updated
+    """Update doctor profile, account contact fields, specializations, and availability."""
+
+    doctor = await _get_doctor_or_404(db, doctor_id)
+
     if data.hospital_id:
         hospital_result = await db.execute(
             select(Hospital).where(
                 Hospital.id == data.hospital_id,
-                Hospital.is_deleted == False
+                Hospital.is_deleted == False,
             )
         )
         if not hospital_result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Hospital not found")
-    
-    # Update fields
-    for field, value in data.model_dump(exclude_unset=True).items():
+
+    update_data = data.model_dump(
+        exclude_unset=True,
+        exclude={"full_name", "email", "phone", "specializations", "availability"},
+    )
+
+    if "is_verified" in update_data:
+        if update_data["is_verified"] and not doctor.is_verified:
+            update_data["verification_date"] = datetime.now(timezone.utc)
+        elif not update_data["is_verified"]:
+            update_data["verification_date"] = None
+
+    if "license_number" in update_data and update_data["license_number"]:
+        existing_license = await db.execute(
+            select(Doctor).where(
+                Doctor.license_number == update_data["license_number"],
+                Doctor.id != doctor_id,
+                Doctor.is_deleted == False,
+            )
+        )
+        if existing_license.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="License number already registered",
+            )
+
+    for field, value in update_data.items():
         setattr(doctor, field, value)
-    
+
+    # Update linked user account fields
+    if doctor.user:
+        if data.full_name is not None:
+            doctor.user.full_name = data.full_name
+        if data.phone is not None:
+            doctor.user.phone = data.phone
+        if data.email is not None:
+            email_check = await db.execute(
+                select(User).where(
+                    User.email == data.email,
+                    User.id != doctor.user_id,
+                    User.is_deleted == False,
+                )
+            )
+            if email_check.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already registered",
+                )
+            doctor.user.email = data.email
+        doctor.user.updated_by = current_user.id
+
+    if data.specializations is not None:
+        await db.execute(
+            DoctorSpecialization.__table__.delete().where(
+                DoctorSpecialization.doctor_id == doctor.id
+            )
+        )
+        for spec_data in data.specializations:
+            db.add(
+                DoctorSpecialization(
+                    doctor_id=doctor.id,
+                    **spec_data.model_dump(),
+                    created_by=current_user.id,
+                )
+            )
+
+    if data.availability is not None:
+        await db.execute(
+            DoctorAvailability.__table__.delete().where(
+                DoctorAvailability.doctor_id == doctor.id
+            )
+        )
+        for avail_data in data.availability:
+            db.add(
+                DoctorAvailability(
+                    doctor_id=doctor.id,
+                    **avail_data.model_dump(),
+                    created_by=current_user.id,
+                )
+            )
+
     doctor.updated_by = current_user.id
     await db.commit()
-    await db.refresh(doctor)
-    
-    return doctor
+    return await _get_doctor_or_404(db, doctor.id)
 
 
 @router.delete("/{doctor_id}", response_model=MessageResponse, dependencies=[RequireAdmin])
 async def delete_doctor(doctor_id: UUID, current_user: CurrentUser, db: DatabaseSession):
-    """Soft delete doctor."""
-    
+    """Soft delete doctor (and deactivate linked user account)."""
+
     result = await db.execute(
-        select(Doctor).where(Doctor.id == doctor_id, Doctor.is_deleted == False)
+        select(Doctor).options(joinedload(Doctor.user)).where(
+            Doctor.id == doctor_id,
+            Doctor.is_deleted == False,
+        )
     )
     doctor = result.scalar_one_or_none()
-    
+
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
-    
+
     doctor.is_deleted = True
     doctor.deleted_by = current_user.id
+
+    if doctor.user:
+        doctor.user.is_active = False
+        doctor.user.updated_by = current_user.id
+
     await db.commit()
-    
+
     return MessageResponse(message="Doctor deleted successfully")
