@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func, select, cast, Date
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireDoctor
@@ -36,8 +37,16 @@ async def list_doctors_basic(db: DatabaseSession):
     return [BasicResponse(id=row.id, name=row.name) for row in result.all()]
 
 
-@router.get("/category")
-@router.get("/categories", include_in_schema=False)
+class DoctorCategoryResponse(BaseModel):
+    """Doctor specialty/category filter item."""
+
+    id: str
+    name: str
+    count: int = 0
+
+
+@router.get("/category", response_model=list[DoctorCategoryResponse], tags=["Doctors"])
+@router.get("/categories", response_model=list[DoctorCategoryResponse], include_in_schema=False)
 async def list_doctor_categories(db: DatabaseSession):
     """
     List distinct doctor specialty categories (used by public doctor pages).
@@ -88,7 +97,7 @@ async def list_doctor_categories(db: DatabaseSession):
         counts[name] = max(counts.get(name, 0), int(count or 0))
 
     return [
-        {"id": name, "name": name, "count": counts[name]}
+        DoctorCategoryResponse(id=name, name=name, count=counts[name])
         for name in sorted(counts.keys(), key=str.lower)
     ]
 

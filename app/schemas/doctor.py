@@ -276,7 +276,10 @@ class DoctorResponse(BaseSchema):
     created_at: datetime
 
     # Related data
-    specializations: List[DoctorSpecializationResponse] = []
+    # Public/frontend doctor pages render these as text chips — return names only.
+    specializations: List[str] = []
+    # Full specialization records for admin / portal consumers that need metadata.
+    specialization_details: List[DoctorSpecializationResponse] = []
     availability: List[DoctorAvailabilityResponse] = []
 
     # User info
@@ -293,6 +296,24 @@ class DoctorResponse(BaseSchema):
     def flatten_doctor_detail(cls, obj: Any) -> Any:
         """Flatten doctor detail data."""
         if hasattr(obj, 'user') and obj.user:
+            specs = list(obj.specializations or [])
+            spec_details = [
+                DoctorSpecializationResponse.model_validate(s) for s in specs
+            ]
+            # Support already-serialized dict payloads too
+            spec_names: List[str] = []
+            for s in specs:
+                if isinstance(s, str):
+                    spec_names.append(s)
+                elif isinstance(s, dict):
+                    name = s.get("specialization") or s.get("name")
+                    if name:
+                        spec_names.append(name)
+                else:
+                    name = getattr(s, "specialization", None)
+                    if name:
+                        spec_names.append(name)
+
             return {
                 'id': obj.id,
                 'user_id': obj.user_id,
@@ -323,9 +344,8 @@ class DoctorResponse(BaseSchema):
                 'is_verified': obj.is_verified,
                 'verification_date': obj.verification_date,
                 'created_at': obj.created_at,
-                'specializations': [
-                    DoctorSpecializationResponse.model_validate(s) for s in (obj.specializations or [])
-                ],
+                'specializations': spec_names,
+                'specialization_details': spec_details,
                 'availability': [
                     DoctorAvailabilityResponse.model_validate(a) for a in (obj.availability or [])
                 ],
