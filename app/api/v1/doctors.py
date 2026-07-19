@@ -36,6 +36,63 @@ async def list_doctors_basic(db: DatabaseSession):
     return [BasicResponse(id=row.id, name=row.name) for row in result.all()]
 
 
+@router.get("/category")
+@router.get("/categories", include_in_schema=False)
+async def list_doctor_categories(db: DatabaseSession):
+    """
+    List distinct doctor specialty categories (used by public doctor pages).
+
+    Must be registered before `/{doctor_id}` so paths like `/doctors/category`
+    are not treated as a doctor UUID.
+    """
+    from app.models.doctor import DoctorSpecialization
+
+    # Prefer specialization rows; also include primary_specialty when present
+    spec_rows = (
+        await db.execute(
+            select(
+                DoctorSpecialization.specialization,
+                func.count(func.distinct(Doctor.id)).label("count"),
+            )
+            .join(Doctor, Doctor.id == DoctorSpecialization.doctor_id)
+            .where(
+                Doctor.is_deleted == False,
+                Doctor.is_verified == True,
+                DoctorSpecialization.is_deleted == False,
+            )
+            .group_by(DoctorSpecialization.specialization)
+            .order_by(DoctorSpecialization.specialization)
+        )
+    ).all()
+
+    primary_rows = (
+        await db.execute(
+            select(
+                Doctor.primary_specialty,
+                func.count(Doctor.id).label("count"),
+            )
+            .where(
+                Doctor.is_deleted == False,
+                Doctor.is_verified == True,
+                Doctor.primary_specialty.isnot(None),
+                Doctor.primary_specialty != "",
+            )
+            .group_by(Doctor.primary_specialty)
+        )
+    ).all()
+
+    counts: dict[str, int] = {}
+    for name, count in [*spec_rows, *primary_rows]:
+        if not name:
+            continue
+        counts[name] = max(counts.get(name, 0), int(count or 0))
+
+    return [
+        {"id": name, "name": name, "count": counts[name]}
+        for name in sorted(counts.keys(), key=str.lower)
+    ]
+
+
 @router.get("", response_model=PaginatedResponse[DoctorListResponse])
 async def list_doctors(
     db: DatabaseSession, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
