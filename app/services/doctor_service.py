@@ -386,59 +386,56 @@ class DoctorService:
         data,
         updated_by: Optional[UUID] = None,
     ):
-        """Update the doctor's hospital information or change hospital association."""
+        """Update the doctor's hospital information or change hospital association.
+
+        Media fields (`cover_image_url`, `gallery`, `logo_url`) are always applied
+        to the target hospital so public hospital pages reflect the latest images.
+        """
         from app.models.hospital import Hospital
         
         if not doctor.hospital_id and not data.hospital_id:
             raise ValueError("Doctor does not have a hospital. Please add one first or provide hospital_id.")
         
-        # Case 1: Change to a different hospital
-        if data.hospital_id and data.hospital_id != doctor.hospital_id:
-            result = await self.db.execute(
-                select(Hospital)
-                .where(Hospital.id == data.hospital_id, Hospital.is_deleted == False)
-            )
-            hospital = result.scalar_one_or_none()
-            
-            if not hospital:
-                raise ValueError(f"Hospital with ID {data.hospital_id} not found.")
-            
-            # Update doctor's hospital association
-            doctor.hospital_id = hospital.id
-            doctor.updated_by = updated_by
-            doctor.updated_at = datetime.now(timezone.utc)
-            
-            await self.db.commit()
-            
-            logger.info("doctor_hospital_changed", doctor_id=str(doctor.id), hospital_id=str(hospital.id))
-            
-            return hospital
-        
-        # Case 2: Update current hospital's information
-        hospital_id = data.hospital_id if data.hospital_id else doctor.hospital_id
-        
+        # Resolve target hospital (link change and/or field update)
+        target_hospital_id = data.hospital_id if data.hospital_id else doctor.hospital_id
+
         result = await self.db.execute(
             select(Hospital)
-            .where(Hospital.id == hospital_id, Hospital.is_deleted == False)
+            .where(Hospital.id == target_hospital_id, Hospital.is_deleted == False)
         )
         hospital = result.scalar_one_or_none()
         
         if not hospital:
-            raise ValueError("Hospital not found.")
-        
-        # Update hospital fields that were provided
-        update_data = data.model_dump(exclude_unset=True, exclude={'doctor_id', 'hospital_id'})
-        
+            raise ValueError(f"Hospital with ID {target_hospital_id} not found.")
+
+        # Relink doctor if hospital changed
+        if data.hospital_id and data.hospital_id != doctor.hospital_id:
+            doctor.hospital_id = hospital.id
+            doctor.updated_by = updated_by
+            doctor.updated_at = datetime.now(timezone.utc)
+            logger.info(
+                "doctor_hospital_changed",
+                doctor_id=str(doctor.id),
+                hospital_id=str(hospital.id),
+            )
+
+        # Apply provided hospital fields (including cover/gallery) to the linked hospital
+        update_data = data.model_dump(exclude_unset=True, exclude={"doctor_id", "hospital_id"})
         for field, value in update_data.items():
             setattr(hospital, field, value)
-        
-        hospital.updated_by = updated_by
-        hospital.updated_at = datetime.now(timezone.utc)
-        
+
+        if update_data:
+            hospital.updated_by = updated_by
+            hospital.updated_at = datetime.now(timezone.utc)
+            logger.info(
+                "doctor_hospital_updated",
+                doctor_id=str(doctor.id),
+                hospital_id=str(hospital.id),
+                fields=list(update_data.keys()),
+            )
+
         await self.db.commit()
         await self.db.refresh(hospital)
-        
-        logger.info("doctor_hospital_updated", doctor_id=str(doctor.id), hospital_id=str(hospital.id))
         
         return hospital
 

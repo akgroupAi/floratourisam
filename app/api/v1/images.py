@@ -25,6 +25,10 @@ ALLOWED_IMAGE_TYPES = {
     "image/gif",
     "image/webp",
     "image/svg+xml",
+    "video/mp4",
+    "video/webm",
+    "video/quicktime",
+    "video/x-m4v",
     "application/pdf",
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -39,9 +43,12 @@ ALLOWED_IMAGE_TYPES = {
 
 ALLOWED_EXTENSIONS = {
     "jpg", "jpeg", "png", "gif", "webp", "svg",
+    "mp4", "webm", "mov", "m4v",
     "pdf", "doc", "docx", "xls", "xlsx", "txt", "csv",
     "zip", "rar", "dicom", "dcm",
 }
+
+VIDEO_EXTENSIONS = {"mp4", "webm", "mov", "m4v"}
 
 
 def _ensure_images_dir() -> None:
@@ -62,9 +69,11 @@ async def upload_image(
     Upload a file. Requires authentication (any role).
 
     - Accepts: images (`jpg`, `jpeg`, `png`, `gif`, `webp`, `svg`),
+      videos (`mp4`, `webm`, `mov`, `m4v`),
       documents (`pdf`, `doc`, `docx`, `xls`, `xlsx`, `txt`, `csv`),
       archives (`zip`, `rar`), medical (`dicom`, `dcm`)
-    - Max size: configured by `MAX_UPLOAD_SIZE_MB` (default 10 MB)
+    - Max size: configured by `MAX_UPLOAD_SIZE_MB` (default 10 MB);
+      videos allow up to 50 MB
     - Returns the public URL that anyone can use to access the file.
     """
     # --- validate extension first (more reliable than content-type) ---
@@ -83,10 +92,12 @@ async def upload_image(
     # --- read & validate size ---
     content = await file.read()
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if ext in VIDEO_EXTENSIONS:
+        max_bytes = max(max_bytes, 50 * 1024 * 1024)
     if len(content) > max_bytes:
         raise HTTPException(
             status_code=400,
-            detail=f"File too large. Maximum allowed size is {settings.MAX_UPLOAD_SIZE_MB} MB.",
+            detail=f"File too large. Maximum allowed size is {max_bytes // (1024 * 1024)} MB.",
         )
 
     # --- persist ---
@@ -193,6 +204,10 @@ async def get_image(filename: str):
         "gif": "image/gif",
         "webp": "image/webp",
         "svg": "image/svg+xml",
+        "mp4": "video/mp4",
+        "webm": "video/webm",
+        "mov": "video/quicktime",
+        "m4v": "video/x-m4v",
         "pdf": "application/pdf",
         "doc": "application/msword",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

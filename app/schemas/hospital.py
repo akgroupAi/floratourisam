@@ -1,11 +1,16 @@
 """Hospital schemas."""
 
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, HttpUrl
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.schemas.common import BaseSchema
+
+
+def _none_to_list(value: Any) -> list:
+    """Coerce NULL DB array columns to empty lists for response schemas."""
+    return [] if value is None else value
 
 
 class HospitalCreate(BaseModel):
@@ -85,10 +90,17 @@ class HospitalListResponse(BaseSchema):
     city: str
     country: str
     logo_url: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    gallery: List[str] = []
     phone: Optional[str] = None
     rating: Optional[float] = None
     total_reviews: int = 0
     is_verified: bool = False
+
+    @field_validator("gallery", mode="before")
+    @classmethod
+    def coerce_gallery(cls, value: Any) -> list:
+        return _none_to_list(value)
 
 
 class HospitalResponse(BaseSchema):
@@ -133,3 +145,14 @@ class HospitalResponse(BaseSchema):
 
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
+
+    @field_validator(
+        "gallery",
+        "specialties",
+        "languages_supported",
+        "accreditations",
+        mode="before",
+    )
+    @classmethod
+    def coerce_null_lists(cls, value: Any) -> list:
+        return _none_to_list(value)
