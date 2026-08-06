@@ -31,20 +31,35 @@ logger = get_logger(__name__)
 class AuthService:
     """Service for authentication operations."""
 
+    # Roles allowed to use the admin panel login
+    ADMIN_PORTAL_ROLES = {
+        UserRole.SUPER_ADMIN.value,
+        UserRole.ADMIN.value,
+    }
+
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def login(self, request: LoginRequest) -> Optional[AuthResponse]:
+    async def login(
+        self,
+        request: LoginRequest,
+        *,
+        portal: str = "public",
+    ) -> Optional[AuthResponse]:
         """Authenticate user and return tokens.
 
         Args:
             request: Login request with email and password.
+            portal: ``public`` (website) or ``admin`` (admin panel).
+                - public: rejects admin/super_admin so they cannot enter the
+                  public site session and get redirected to admin dashboard.
+                - admin: only allows admin/super_admin.
 
         Returns:
             Auth response with user info and tokens, or None if invalid.
         """
         from sqlalchemy.orm import selectinload
-        
+
         # Find user by email with roles
         result = await self.db.execute(
             select(User)
@@ -65,10 +80,40 @@ class AuthService:
             logger.warning("login_failed", reason="user_inactive", email=request.email)
             return None
 
-        # Generate tokens
+        is_admin_user = user.role in self.ADMIN_PORTAL_ROLES
+
+        if portal == "admin" and not is_admin_user:
+            logger.warning(
+                "login_failed",
+                reason="not_admin_portal",
+                email=request.email,
+                role=user.role,
+            )
+            raise PermissionError(
+                "This account is not allowed to access the admin panel. "
+                "Please use the public website login."
+            )
+
+        if portal == "public" and is_admin_user:
+            logger.warning(
+                "login_failed",
+                reason="admin_on_public_portal",
+                email=request.email,
+                role=user.role,
+            )
+            raise PermissionError(
+                "Admin accounts must sign in via the admin login. "
+                "Use POST /api/v1/auth/admin/login or the admin panel."
+            )
+
+        # Generate tokens (portal claim helps frontends isolate sessions)
         access_token = create_access_token(
             subject=str(user.id),
-            additional_claims={"role": user.role, "email": user.email},
+            additional_claims={
+                "role": user.role,
+                "email": user.email,
+                "portal": portal,
+            },
         )
         refresh_token = create_refresh_token(subject=str(user.id))
 
@@ -77,7 +122,12 @@ class AuthService:
         user.refresh_token = refresh_token
         await self.db.commit()
 
-        logger.info("login_success", user_id=str(user.id), email=user.email)
+        logger.info(
+            "login_success",
+            user_id=str(user.id),
+            email=user.email,
+            portal=portal,
+        )
 
         # Get role names and permissions
         role_names = [role.name for role in user.roles]

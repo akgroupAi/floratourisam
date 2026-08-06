@@ -42,7 +42,12 @@ class Settings(BaseSettings):
     REDIS_ENABLED: bool = False
 
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://floramedcare.com",
+        "https://www.floramedcare.com"
+    ]
     CORS_ALLOW_CREDENTIALS: bool = True
 
     @field_validator("CORS_ORIGINS", mode="before")

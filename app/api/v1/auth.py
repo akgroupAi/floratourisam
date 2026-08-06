@@ -105,9 +105,33 @@ def _build_reset_email_html(full_name: str, token: str) -> str:
 
 @router.post("/login", response_model=AuthResponse)
 async def login(request: LoginRequest, db: DatabaseSession):
-    """Authenticate user and return tokens."""
+    """Authenticate a public-site user (patients, doctors, managers).
+
+    Admin / super_admin accounts are rejected here so the public website
+    cannot create an admin session and redirect users to the admin dashboard.
+    Admins must use ``POST /auth/admin/login``.
+    """
     service = AuthService(db)
-    result = await service.login(request)
+    try:
+        result = await service.login(request, portal="public")
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    if not result:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    return result
+
+
+@router.post("/admin/login", response_model=AuthResponse)
+async def admin_login(request: LoginRequest, db: DatabaseSession):
+    """Authenticate an admin panel user (admin / super_admin only).
+
+    Use this endpoint from the admin frontend only. Non-admin accounts are rejected.
+    """
+    service = AuthService(db)
+    try:
+        result = await service.login(request, portal="admin")
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     if not result:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return result

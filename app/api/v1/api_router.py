@@ -7,7 +7,7 @@ from app.api.v1 import (
     hotels, restaurants, bookings, apartments, stays, payments, chat, ai, cms,
     pages, admin_site, leads, notifications, email, events, config, documents,
     patient_documents, patient_medical_records, patient_medical_reports, rbac, dashboard,
-    admin_hospital, admin_department, admin_doctor,
+    admin_hospital, admin_department, admin_doctor, admin_patient,
     admin_hotel, admin_apartment, admin_restaurant,
     admin_forex, admin_package, forex,
     hospitals, departments, reviews,
@@ -81,6 +81,9 @@ api_router.include_router(admin_department.router, prefix="/admin/departments", 
 
 # Admin - Doctor Management
 api_router.include_router(admin_doctor.router, prefix="/admin/doctors", tags=["Admin - Doctors"])
+
+# Admin - Patient Management
+api_router.include_router(admin_patient.router, prefix="/admin/patients", tags=["Admin - Patients"])
 
 # Admin - Hotel Management
 api_router.include_router(admin_hotel.router, prefix="/admin/hotels", tags=["Admin - Hotels"])

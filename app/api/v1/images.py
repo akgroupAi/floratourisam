@@ -115,6 +115,51 @@ async def upload_image(
     }
 
 
+# ── Public: serve hospital media ─────────────────────────────────────────────
+
+@public_router.get(
+    "/hospitals/{hospital_id}/{filename}",
+    summary="Get hospital media file (public)",
+    response_class=FileResponse,
+)
+async def get_hospital_media(hospital_id: str, filename: str):
+    """Serve hospital cover/gallery media files."""
+    safe_hospital_id = os.path.basename(hospital_id)
+    safe_filename = os.path.basename(filename)
+    if safe_hospital_id != hospital_id or safe_filename != filename or ".." in hospital_id or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid path.")
+
+    ext = safe_filename.rsplit(".", 1)[-1].lower() if "." in safe_filename else ""
+    allowed = {
+        "jpg", "jpeg", "png", "gif", "webp", "svg",
+        "mp4", "webm", "mov", "m4v",
+    }
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid file type.")
+
+    file_path = os.path.join(settings.UPLOAD_DIR, "hospitals", safe_hospital_id, safe_filename)
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    media_type_map = {
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "gif": "image/gif",
+        "webp": "image/webp",
+        "svg": "image/svg+xml",
+        "mp4": "video/mp4",
+        "webm": "video/webm",
+        "mov": "video/quicktime",
+        "m4v": "video/x-m4v",
+    }
+    return FileResponse(
+        path=file_path,
+        media_type=media_type_map.get(ext, "application/octet-stream"),
+        filename=safe_filename,
+    )
+
+
 # ── Public: serve an image ───────────────────────────────────────────────────
 
 @public_router.get(
