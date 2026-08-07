@@ -54,26 +54,26 @@ async def lifespan(app: FastAPI):
     logger.info("application_stopped")
 
 
-# app = FastAPI(
-#     title=settings.APP_NAME,
-#     version=settings.APP_VERSION,
-#     description="Medical Tourism Platform API",
-#     openapi_url=f"{API_V1_PREFIX}/openapi.json",
-#     docs_url="/docs",
-#     redoc_url="/redoc",
-#     lifespan=lifespan,
-# )
-
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="Medical Tourism Platform API",
-    root_path="/apis",
     openapi_url=f"{API_V1_PREFIX}/openapi.json",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+# app = FastAPI(
+#     title=settings.APP_NAME,
+#     version=settings.APP_VERSION,
+#     description="Medical Tourism Platform API",
+#     root_path="/apis",
+#     openapi_url=f"{API_V1_PREFIX}/openapi.json",
+#     docs_url="/docs",
+#     redoc_url="/redoc",
+#     lifespan=lifespan,
+# )
 
 # Setup middleware
 setup_middleware(app)
