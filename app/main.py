@@ -18,7 +18,7 @@ from app.core.middleware import (
 )
 from app.db.session import close_db, engine
 from app.db.base import Base
-from app.utils.constants import API_V1_PREFIX
+from app.utils.constants import API_V1_PREFIX, WS_HEARTBEAT_INTERVAL
 from app.utils.validation_messages import format_validation_errors, primary_validation_message
 from fastapi.staticfiles import StaticFiles
 import os
@@ -152,5 +152,9 @@ if __name__ == "__main__":
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG,
+        # Keep chat sockets alive through proxies that drop idle connections
+        # (Cloudflare closes at ~100s, nginx proxy_read_timeout defaults to 60s).
+        ws_ping_interval=WS_HEARTBEAT_INTERVAL,
+        ws_ping_timeout=WS_HEARTBEAT_INTERVAL,
     )
     # Trigger reload for swagger update
