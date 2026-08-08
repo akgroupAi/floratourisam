@@ -66,6 +66,7 @@ Prefix: `/admin/doctors`
 | Action | Method | Endpoint |
 |--------|--------|----------|
 | Create doctor (user + profile) | `POST` | `/admin/doctors` |
+| Resend set-password email | `POST` | `/admin/doctors/{doctor_id}/resend-invite` |
 | List doctors | `GET` | `/admin/doctors` |
 | Get doctor detail | `GET` | `/admin/doctors/{doctor_id}` |
 | Update doctor (all edit tabs) | `PUT` | `/admin/doctors/{doctor_id}` |
@@ -89,11 +90,17 @@ Prefix: `/admin/doctors`
 
 ### Create doctor
 
+Full walkthrough of this flow, including the email the doctor receives:
+[ADMIN_DOCTOR_ONBOARDING.md](ADMIN_DOCTOR_ONBOARDING.md).
+
 ```http
 POST /api/v1/admin/doctors
 Authorization: Bearer <admin_token>
 Content-Type: application/json
 ```
+
+`password` is **optional**. Omit it and the doctor receives an emailed
+set-password link instead — no plaintext password is transmitted.
 
 ```json
 {
@@ -145,7 +152,8 @@ Content-Type: application/json
       "max_appointments": 8
     }
   ],
-  "is_verified": true
+  "is_verified": true,
+  "send_welcome_email": true
 }
 ```
 
@@ -153,7 +161,10 @@ Notes:
 
 - Creates user with `role=doctor`
 - Skips email verification (`is_verified=true` on user)
-- Password rules: min 8 chars, upper, lower, digit, special character
+- `password` optional — omit it to send an invite link instead of a password
+- Password rules (when supplied): min 8 chars, upper, lower, digit, special character
+- `send_welcome_email: false` creates the account silently; use `resend-invite` later
+- `is_verified: false` puts the doctor in the pending queue instead of publishing them
 - `day_of_week`: `0=Monday` … `6=Sunday`
 
 ### Update doctor

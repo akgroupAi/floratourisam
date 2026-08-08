@@ -1,5 +1,6 @@
 """Admin doctor management endpoints."""
 
+import secrets
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
@@ -9,6 +10,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload, joinedload
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireSuperAdmin
+from app.core.logging import get_logger
 from app.core.security import get_password_hash
 from app.models.doctor import (
     Doctor,
@@ -29,6 +31,7 @@ from app.utils.enums import DoctorApprovalStatus, UserRole
 from pydantic import BaseModel, Field
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 class DoctorRejectRequest(BaseModel):
@@ -408,6 +411,9 @@ async def create_doctor(data: AdminDoctorCreate, current_user: CurrentUser, db: 
     - Skips email verification (user is marked verified immediately)
     - Creates the full doctor profile matching GET /doctors/me fields
     - Optionally sets specializations and availability
+    - Emails the doctor a set-password link unless ``send_welcome_email`` is false.
+      If ``password`` is omitted the account has no usable password and that link
+      is the only way in.
     """
 
     # Email uniqueness
@@ -444,10 +450,12 @@ async def create_doctor(data: AdminDoctorCreate, current_user: CurrentUser, db: 
         if not hospital_result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Hospital not found")
 
-    # Create verified user — no verification email
+    # Create verified user — no verification email.
+    # Without an admin-supplied password the account gets an unguessable random
+    # hash, so the only way in is the emailed set-password link.
     user = User(
         email=data.email,
-        hashed_password=get_password_hash(data.password),
+        hashed_password=get_password_hash(data.password or secrets.token_urlsafe(48)),
         full_name=data.full_name,
         phone=data.phone,
         role=UserRole.DOCTOR.value,
@@ -518,7 +526,52 @@ async def create_doctor(data: AdminDoctorCreate, current_user: CurrentUser, db: 
             )
 
     await db.commit()
+
+    if data.send_welcome_email:
+        # Never fail the creation because SMTP is down — the admin can resend.
+        try:
+            await DoctorService(db).send_account_setup_email(
+                user, temp_password=data.password
+            )
+        except Exception as exc:
+            logger.warning(
+                "doctor_welcome_email_failed", user_id=str(user.id), error=str(exc)
+            )
+
     return await _get_doctor_or_404(db, doctor.id)
+
+
+@router.post(
+    "/{doctor_id}/resend-invite",
+    response_model=MessageResponse,
+    dependencies=[RequireAdmin],
+)
+async def resend_doctor_invite(doctor_id: UUID, db: DatabaseSession):
+    """Re-issue the set-password link and email it to the doctor.
+
+    Invalidates any previously issued link. Never returns the temporary password,
+    so the mail only carries the set-password link.
+    """
+    doctor = await _get_doctor_or_404(db, doctor_id)
+
+    if not doctor.user:
+        raise HTTPException(status_code=404, detail="Doctor has no linked user account")
+
+    if not doctor.user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Doctor account is inactive",
+        )
+
+    sent = await DoctorService(db).send_account_setup_email(doctor.user)
+
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not send the email. Check SMTP settings and try again.",
+        )
+
+    return MessageResponse(message=f"Set-password email sent to {doctor.user.email}")
 
 
 @router.get("/{doctor_id}", response_model=DoctorResponse, dependencies=[RequireAdmin])

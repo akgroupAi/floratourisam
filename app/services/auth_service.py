@@ -1,6 +1,6 @@
 """Authentication service."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -449,7 +449,9 @@ class AuthService:
         # Generate reset token
         reset_token = generate_token()
         user.reset_token = reset_token
-        user.reset_token_expires = datetime.now(timezone.utc)
+        user.reset_token_expires = datetime.now(timezone.utc) + timedelta(
+            hours=settings.PASSWORD_RESET_TOKEN_EXPIRE_HOURS
+        )
         await self.db.commit()
 
         logger.info("password_reset_requested", user_id=str(user.id))
@@ -475,7 +477,21 @@ class AuthService:
             logger.warning("password_reset_failed", reason="invalid_token")
             return None
 
+        expires = user.reset_token_expires
+        if expires is None:
+            logger.warning("password_reset_failed", reason="token_missing_expiry")
+            return None
+
+        # Stored value may be naive depending on the DB backend (SQLite)
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+
+        if expires < datetime.now(timezone.utc):
+            logger.warning("password_reset_failed", reason="token_expired")
+            return None
+
         user.hashed_password = get_password_hash(new_password)
+        user.is_verified = True  # Redeeming a mailed token proves email ownership
         user.reset_token = None
         user.reset_token_expires = None
         user.refresh_token = None  # Invalidate all sessions

@@ -287,6 +287,51 @@ class DoctorService:
         )
         return result.scalar_one()
 
+    async def send_account_setup_email(
+        self,
+        user: User,
+        temp_password: Optional[str] = None,
+    ) -> bool:
+        """Issue a set-password token and email it to an admin-created doctor.
+
+        Reuses the standard ``reset_token`` so the doctor lands on the existing
+        ``/reset-password`` frontend page and redeems via ``POST /auth/reset-password``.
+        Returns True if the mail was dispatched.
+        """
+        from datetime import timedelta
+
+        from app.core.config import settings
+        from app.utils.email_sender import render_doctor_welcome_email_html, send_email
+        from app.utils.helpers import generate_token
+
+        expire_hours = settings.DOCTOR_INVITE_TOKEN_EXPIRE_HOURS
+        token = generate_token()
+        user.reset_token = token
+        user.reset_token_expires = datetime.now(timezone.utc) + timedelta(hours=expire_hours)
+        await self.db.flush()
+
+        base_url = settings.FRONTEND_URL.rstrip("/")
+        sent = await send_email(
+            db=self.db,
+            to_email=user.email,
+            to_name=user.full_name,
+            subject="Your Flora Medical doctor account",
+            body_html=render_doctor_welcome_email_html(
+                doctor_name=user.full_name,
+                doctor_email=user.email,
+                set_password_url=f"{base_url}/reset-password?token={token}",
+                expire_hours=expire_hours,
+                temp_password=temp_password,
+                login_url=f"{base_url}/login",
+            ),
+            category="doctor_account_setup",
+            user_id=user.id,
+        )
+        await self.db.commit()
+
+        logger.info("doctor_account_setup_email", user_id=str(user.id), sent=sent)
+        return sent
+
     async def approve(self, doctor: Doctor, approved_by: UUID) -> Doctor:
         """Approve doctor for public visibility and email the doctor."""
         from app.core.config import settings

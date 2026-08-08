@@ -580,6 +580,81 @@ def render_doctor_approval_email_html(*, doctor_name: str, login_url: str) -> st
     """
 
 
+def render_doctor_welcome_email_html(
+    *,
+    doctor_name: str,
+    doctor_email: str,
+    set_password_url: str,
+    expire_hours: int,
+    temp_password: Optional[str] = None,
+    login_url: str,
+) -> str:
+    """Email to a doctor whose account was created by an admin/super admin.
+
+    When ``temp_password`` is given the admin chose the password, so the mail
+    shows it once and still offers a "set your own password" link. Otherwise the
+    account has no usable password and the link is the only way in.
+    """
+    if temp_password:
+        credentials_section = f"""
+          <div style="padding:15px;background:#f8fafc;border-radius:6px;border-left:4px solid #13bba4;margin:20px 0;">
+            <p style="font-size:14px;color:#4a5568;margin:0 0 8px;"><strong>Email:</strong> {doctor_email}</p>
+            <p style="font-size:14px;color:#4a5568;margin:0;"><strong>Temporary password:</strong>
+              <code style="background:#edf2f7;padding:2px 6px;border-radius:4px;">{temp_password}</code>
+            </p>
+          </div>
+          <p style="font-size:14px;color:#718096;">
+            Please change this password as soon as you sign in.
+          </p>"""
+        cta_label = "Change Password"
+    else:
+        credentials_section = f"""
+          <div style="padding:15px;background:#f8fafc;border-radius:6px;border-left:4px solid #13bba4;margin:20px 0;">
+            <p style="font-size:14px;color:#4a5568;margin:0;"><strong>Email:</strong> {doctor_email}</p>
+          </div>
+          <p style="font-size:14px;color:#718096;">
+            Set your password using the button below to activate your account.
+          </p>"""
+        cta_label = "Set Your Password"
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px;">
+      <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <div style="background:#13bba4;padding:24px;text-align:center;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">Welcome to Flora Medical</h1>
+          <p style="color:#e0f2f1;margin:5px 0 0;">Your doctor account is ready</p>
+        </div>
+        <div style="padding:32px;">
+          <p style="font-size:15px;color:#4a5568;line-height:1.6;">Dear {doctor_name},</p>
+          <p style="font-size:15px;color:#4a5568;line-height:1.6;">
+            An administrator has created a doctor account for you on the Flora Medical platform.
+          </p>
+          {credentials_section}
+          <div style="text-align:center;margin-top:28px;">
+            <a href="{set_password_url}" style="display:inline-block;background:#13bba4;color:#fff;text-decoration:none;padding:12px 28px;border-radius:6px;font-size:14px;font-weight:bold;">
+              {cta_label}
+            </a>
+          </div>
+          <p style="font-size:12px;color:#999;word-break:break-all;margin-top:20px;">
+            Or copy this link into your browser:<br>{set_password_url}
+          </p>
+          <p style="font-size:13px;color:#888;margin-top:20px;">
+            This link expires in {expire_hours} hours. After that, use
+            <a href="{login_url}" style="color:#13bba4;">the login page</a> and choose "Forgot password".
+          </p>
+        </div>
+        <div style="background:#f9f9f9;padding:16px;text-align:center;">
+          <p style="font-size:12px;color:#aaa;margin:0;">Flora Medical</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+
 def render_doctor_rejection_email_html(
     *,
     doctor_name: str,

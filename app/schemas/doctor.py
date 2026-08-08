@@ -94,7 +94,16 @@ class AdminDoctorCreate(BaseModel):
 
     # Account credentials
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=100)
+    password: Optional[str] = Field(
+        default=None,
+        min_length=8,
+        max_length=100,
+        description=(
+            "Optional. Omit to create the account without a usable password — the "
+            "doctor then sets their own via the emailed link. When supplied, the "
+            "password is included once in the welcome email."
+        ),
+    )
     full_name: str = Field(..., min_length=2, max_length=255)
     phone: Optional[str] = Field(default=None, max_length=20)
 
@@ -130,10 +139,15 @@ class AdminDoctorCreate(BaseModel):
     # Admin-created doctors are verified by default (email + profile)
     is_verified: bool = True
 
+    # Send the doctor a welcome / set-password email on creation
+    send_welcome_email: bool = True
+
     @field_validator("password")
     @classmethod
-    def validate_password(cls, v: str) -> str:
+    def validate_password(cls, v: Optional[str]) -> Optional[str]:
         """Validate password strength (same rules as public registration)."""
+        if v is None:
+            return v
         if not any(c.isupper() for c in v):
             raise ValueError("Password must contain at least one uppercase letter")
         if not any(c.islower() for c in v):
