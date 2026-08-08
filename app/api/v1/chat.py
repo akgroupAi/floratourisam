@@ -4,6 +4,7 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
+from starlette.websockets import WebSocketState
 
 from app.api.deps import CurrentUser, DatabaseSession
 from app.core.security import verify_token
@@ -173,6 +174,109 @@ async def mark_messages_read(
     await service.mark_read(room_id, current_user.id)
 
 
+async def _safe_send(websocket: WebSocket, message: dict) -> None:
+    """Send to a single socket without letting a dead peer raise."""
+    if websocket.client_state != WebSocketState.CONNECTED:
+        return
+    try:
+        await websocket.send_json(message)
+    except Exception as exc:
+        logger.warning("websocket_direct_send_failed", error=str(exc))
+
+
+async def _reject(websocket: WebSocket, code: int, reason: str) -> None:
+    """Accept the handshake, report the reason, then close.
+
+    Closing before accept() makes the server answer the upgrade with a bare
+    HTTP 403 — the close code and reason never reach the browser, so the client
+    only ever sees an opaque connection failure. Accepting first means the
+    frontend receives both an 'error' frame and a real close code.
+    """
+    try:
+        await websocket.accept()
+        await _safe_send(websocket, {"type": "error", "data": {"message": reason}})
+        await websocket.close(code=code, reason=reason)
+    except Exception as exc:
+        logger.warning("websocket_reject_failed", reason=reason, error=str(exc))
+
+
+async def _persist_and_broadcast(
+    websocket: WebSocket,
+    room_id: str,
+    room_uuid: UUID,
+    sender_uuid: UUID,
+    data: dict,
+) -> None:
+    """Store an incoming chat message, then fan the stored row out to the room."""
+    payload = data.get("data")
+    if not isinstance(payload, dict):
+        payload = {}
+
+    content = (payload.get("content") or "").strip()
+    if not content and not payload.get("file_url"):
+        await _safe_send(
+            websocket,
+            {"type": "error", "data": {"message": "Message content is required"}},
+        )
+        return
+
+    try:
+        async with async_session_factory() as session:
+            try:
+                service = ChatService(session)
+                msg_create = ChatMessageCreate(
+                    room_id=room_uuid,
+                    content=content,
+                    message_type=payload.get("message_type") or "text",
+                    reply_to_id=payload.get("reply_to_id"),
+                    file_url=payload.get("file_url"),
+                    file_name=payload.get("file_name"),
+                    file_type=payload.get("file_type"),
+                    file_size_bytes=payload.get("file_size_bytes"),
+                )
+                # Use the authenticated sender from the token, never the payload
+                msg_dict = await service.send_message(room_uuid, sender_uuid, msg_create)
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+    except ValueError as val_err:
+        # Covers pydantic validation and the service's participant guard
+        logger.error(
+            "websocket_message_validation_failed",
+            error=str(val_err),
+            sender=str(sender_uuid),
+            room=room_id,
+        )
+        await _safe_send(
+            websocket,
+            {
+                "type": "error",
+                "data": {"message": "Failed to send message", "detail": str(val_err)},
+            },
+        )
+        return
+    except Exception as exc:
+        logger.error(
+            "chat_message_persist_failed",
+            room_id=room_id,
+            sender=str(sender_uuid),
+            error=str(exc),
+        )
+        # Never broadcast an unsaved message — it would show up live for everyone
+        # and then vanish on the next reload.
+        await _safe_send(
+            websocket,
+            {"type": "error", "data": {"message": "Failed to send message"}},
+        )
+        return
+
+    # Broadcast the persisted row (carries the real DB id and created_at)
+    await notification_service.manager.broadcast(
+        room_id, {"type": "message", "data": msg_dict}
+    )
+
+
 @router.websocket("/ws/{room_id}")
 async def websocket_chat(websocket: WebSocket, room_id: str):
     """WebSocket endpoint for real-time chat.
@@ -182,123 +286,145 @@ async def websocket_chat(websocket: WebSocket, room_id: str):
     Messages with type 'message' are persisted to the database.
     Typing indicators and read events are broadcast only (not persisted).
     """
+    # Validate the room id shape before spending a database round trip on it
+    try:
+        room_uuid = UUID(room_id)
+    except (ValueError, AttributeError, TypeError):
+        logger.warning("websocket_rejected", room_id=room_id, reason="invalid_room_id")
+        await _reject(websocket, status.WS_1008_POLICY_VIOLATION, "Invalid room id")
+        return
+
     # Extract and verify JWT token from query params
     token = websocket.query_params.get("token")
     if not token:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing token")
+        logger.warning("websocket_rejected", room_id=room_id, reason="missing_token")
+        await _reject(websocket, status.WS_1008_POLICY_VIOLATION, "Missing token")
         return
 
     sender_id = verify_token(token, token_type="access")
     if not sender_id:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+        logger.warning("websocket_rejected", room_id=room_id, reason="invalid_token")
+        await _reject(websocket, status.WS_1008_POLICY_VIOLATION, "Invalid token")
+        return
+
+    try:
+        sender_uuid = UUID(sender_id)
+    except (ValueError, AttributeError, TypeError):
+        logger.warning(
+            "websocket_rejected",
+            room_id=room_id,
+            reason="token_subject_not_a_uuid",
+            jwt_sender_id=sender_id,
+        )
+        await _reject(websocket, status.WS_1008_POLICY_VIOLATION, "Invalid token")
         return
 
     # Verify user is a participant in the room
     try:
         async with async_session_factory() as session:
             service = ChatService(session)
-            
-            # DEBUG: Check room participants
-            from sqlalchemy import select
-            from app.models.chat import ChatParticipant
-            
-            logger.info(
-                "websocket_connect_debug",
-                room_id=room_id,
-                jwt_sender_id=sender_id
-            )
-            
-            participants_result = await session.execute(
-                select(ChatParticipant.user_id).where(
-                    ChatParticipant.room_id == room_id,
-                    ChatParticipant.is_deleted == False,
+
+            if not await service.is_participant(room_uuid, sender_uuid):
+                # Report the room's roster so the mismatch is visible in the logs.
+                # is_active matters here — is_participant requires it, so a member
+                # who left still appears on the roster but is correctly refused.
+                from sqlalchemy import select
+
+                from app.models.chat import ChatParticipant
+
+                participants_result = await session.execute(
+                    select(ChatParticipant.user_id, ChatParticipant.is_active).where(
+                        ChatParticipant.room_id == room_uuid,
+                        ChatParticipant.is_deleted == False,
+                    )
                 )
-            )
-            room_participants = [str(row.user_id) for row in participants_result.all()]
-            
-            logger.info(
-                "websocket_room_participants",
-                room_id=room_id,
-                jwt_sender_id=sender_id,
-                room_participants=room_participants
-            )
-            
-            if not await service.is_participant(UUID(room_id), UUID(sender_id)):
+                room_participants = [
+                    {"user_id": str(row.user_id), "is_active": row.is_active}
+                    for row in participants_result.all()
+                ]
+
                 logger.error(
                     "websocket_sender_not_in_room",
                     room_id=room_id,
                     jwt_sender_id=sender_id,
-                    room_participants=room_participants
+                    room_participants=room_participants,
                 )
-                await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Not a participant")
+                await _reject(
+                    websocket, status.WS_1008_POLICY_VIOLATION, "Not a participant"
+                )
                 return
     except Exception as exc:
-        logger.error("websocket_participant_check_failed", room_id=room_id, error=str(exc))
-        await websocket.close(code=status.WS_1011_SERVER_ERROR, reason="Internal error")
+        logger.error(
+            "websocket_participant_check_failed",
+            room_id=room_id,
+            jwt_sender_id=sender_id,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        await _reject(websocket, status.WS_1011_SERVER_ERROR, "Internal error")
         return
 
     await notification_service.manager.connect(websocket, room_id)
     logger.info("websocket_connected", room_id=room_id, sender_id=sender_id)
-    
+
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = await websocket.receive_json()
+            except (ValueError, TypeError):
+                # Malformed frame — tell the sender but keep the socket open,
+                # otherwise one bad payload ends the session.
+                await _safe_send(
+                    websocket,
+                    {"type": "error", "data": {"message": "Invalid JSON payload"}},
+                )
+                continue
+
+            if not isinstance(data, dict):
+                await _safe_send(
+                    websocket,
+                    {"type": "error", "data": {"message": "Expected a JSON object"}},
+                )
+                continue
+
             msg_type = data.get("type", "")
 
+            # Keepalive — answer the sender only, never fan out to the room
+            if msg_type == "ping":
+                await _safe_send(websocket, {"type": "pong"})
+                continue
+            if msg_type == "pong":
+                continue
+
             if msg_type == "message":
-                # Persist the message to the database
-                payload = data.get("data", {})
-                content = payload.get("content", "")
+                await _persist_and_broadcast(
+                    websocket, room_id, room_uuid, sender_uuid, data
+                )
+                continue
 
-                if content:
-                    try:
-                        async with async_session_factory() as session:
-                            try:
-                                service = ChatService(session)
-                                msg_create = ChatMessageCreate(
-                                    room_id=room_id,
-                                    content=content,
-                                    message_type=payload.get("message_type", "text"),
-                                    reply_to_id=payload.get("reply_to_id"),
-                                    file_url=payload.get("file_url"),
-                                    file_name=payload.get("file_name"),
-                                    file_type=payload.get("file_type"),
-                                    file_size_bytes=payload.get("file_size_bytes"),
-                                )
-                                # Use authenticated sender_id from token, not from payload
-                                msg_dict = await service.send_message(
-                                    UUID(room_id), UUID(sender_id), msg_create
-                                )
-                                await session.commit()
-                                # Broadcast the persisted message (with DB id)
-                                await notification_service.manager.broadcast(
-                                    room_id, {"type": "message", "data": msg_dict}
-                                )
-                                continue
-                            except ValueError as val_err:
-                                logger.error("websocket_message_validation_failed", error=str(val_err), sender=sender_id, room=room_id)
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "data": {
-                                        "message": "Failed to send message",
-                                        "detail": str(val_err)
-                                    }
-                                })
-                                await session.rollback()
-                                continue
-                            except Exception:
-                                await session.rollback()
-                                raise
-                    except Exception as exc:
-                        logger.error("chat_message_persist_failed", room_id=room_id, sender=sender_id, error=str(exc))
-                        # If DB save fails, still broadcast the raw message
-                        await notification_service.manager.broadcast(room_id, data)
-                        continue
-
-            # Non-message events (typing, read) — broadcast without persisting
-            await notification_service.manager.broadcast(room_id, data)
+            # Non-message events (typing, read) — broadcast without persisting.
+            # Stamp the authenticated sender so peers cannot be impersonated.
+            event = dict(data)
+            event_data = event.get("data")
+            if isinstance(event_data, dict):
+                stamped = dict(event_data)
+                stamped["sender_id"] = sender_id
+                stamped.setdefault("user_id", sender_id)
+                event["data"] = stamped
+            await notification_service.manager.broadcast(room_id, event)
 
     except WebSocketDisconnect:
         logger.info("websocket_disconnected", room_id=room_id, sender_id=sender_id)
+    except Exception as exc:
+        logger.error(
+            "websocket_loop_failed",
+            room_id=room_id,
+            sender_id=sender_id,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+    finally:
+        # Always deregister. A socket left behind here would break delivery for
+        # every other member of the room on the next broadcast.
         notification_service.manager.disconnect(websocket, room_id)
 

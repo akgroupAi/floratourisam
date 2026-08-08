@@ -7,8 +7,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -219,8 +219,6 @@ class AuthService:
         # Send verification email
         from app.utils.email_sender import send_email, render_verification_email_html
         
-        # In a real app, this URL would point to the frontend verify page
-        # For now, we'll use a placeholder or the API endpoint
         verification_url = f"{settings.FRONTEND_URL.rstrip('/')}/verify-email?token={user.verification_token}"
         
         email_html = render_verification_email_html(
