@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.core.config import settings
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -187,15 +188,19 @@ class AuthService:
         # Create role-specific profile
         if request.role.value == UserRole.DOCTOR.value:
             from app.models.doctor import Doctor
+            from app.utils.enums import DoctorApprovalStatus
             
             # Create doctor profile with placeholder license number
             doctor = Doctor(
                 user_id=user.id,
                 license_number=None,  # Will be updated later by the doctor
+                is_verified=False,
+                approval_status=DoctorApprovalStatus.PENDING.value,
                 created_by=user.id,
             )
             self.db.add(doctor)
-            logger.info("doctor_profile_created", user_id=str(user.id))
+            await self.db.flush()
+            logger.info("doctor_profile_created", user_id=str(user.id), doctor_id=str(doctor.id))
             
         elif request.role.value == UserRole.PATIENT.value:
             from app.models.patient import Patient
@@ -216,7 +221,7 @@ class AuthService:
         
         # In a real app, this URL would point to the frontend verify page
         # For now, we'll use a placeholder or the API endpoint
-        verification_url = f"http://localhost:3000/verify-email?token={user.verification_token}"
+        verification_url = f"{settings.FRONTEND_URL.rstrip('/')}/verify-email?token={user.verification_token}"
         
         email_html = render_verification_email_html(
             full_name=user.full_name,
@@ -233,9 +238,101 @@ class AuthService:
             user_id=user.id
         )
 
+        # Notify super admins when a doctor self-registers
+        if request.role.value == UserRole.DOCTOR.value:
+            await self._notify_super_admins_of_doctor_registration(user)
+
         logger.info("user_registered", user_id=str(user.id), email=user.email, role=user.role)
 
         return user
+
+    async def _notify_super_admins_of_doctor_registration(self, user: User) -> None:
+        """Email + in-app notify all super admins about a new doctor registration."""
+        from app.models.doctor import Doctor
+        from app.utils.email_sender import (
+            render_doctor_registration_admin_email_html,
+            send_email,
+        )
+        from app.utils.notifications import notify
+
+        result = await self.db.execute(
+            select(Doctor).where(Doctor.user_id == user.id, Doctor.is_deleted == False)
+        )
+        doctor = result.scalar_one_or_none()
+        if not doctor:
+            return
+
+        admins_result = await self.db.execute(
+            select(User).where(
+                User.role == UserRole.SUPER_ADMIN.value,
+                User.is_active == True,
+                User.is_deleted == False,
+            )
+        )
+        super_admins = list(admins_result.scalars().all())
+
+        review_url = f"{settings.FRONTEND_URL.rstrip('/')}/admin/doctors/{doctor.id}"
+        email_html = render_doctor_registration_admin_email_html(
+            doctor_name=user.full_name,
+            doctor_email=user.email,
+            doctor_phone=user.phone,
+            doctor_id=str(doctor.id),
+            review_url=review_url,
+        )
+
+        recipients: list[User] = list(super_admins)
+        # Fallback if no super_admin users exist in DB
+        if not recipients:
+            class _Fallback:
+                id = None
+                email = settings.FIRST_SUPERUSER_EMAIL
+                full_name = "Super Admin"
+
+            recipients = [_Fallback()]  # type: ignore[list-item]
+
+        for admin in recipients:
+            try:
+                await send_email(
+                    db=self.db,
+                    to_email=admin.email,
+                    to_name=getattr(admin, "full_name", None) or "Admin",
+                    subject=f"New doctor registration: {user.full_name}",
+                    body_html=email_html,
+                    category="doctor_registration",
+                    user_id=getattr(admin, "id", None),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "doctor_registration_admin_email_failed",
+                    admin_email=admin.email,
+                    error=str(exc),
+                )
+
+            if getattr(admin, "id", None):
+                try:
+                    await notify(
+                        db=self.db,
+                        user_id=admin.id,
+                        title="New doctor registration",
+                        message=f"{user.full_name} ({user.email}) registered and awaits approval.",
+                        notification_type="doctor_registration",
+                        entity_type="doctor",
+                        entity_id=doctor.id,
+                        action_url=f"/admin/doctors/{doctor.id}",
+                        action_text="Review doctor",
+                        created_by=user.id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "doctor_registration_admin_notify_failed",
+                        admin_id=str(admin.id),
+                        error=str(exc),
+                    )
+
+        try:
+            await self.db.commit()
+        except Exception as exc:
+            logger.warning("doctor_registration_notify_commit_failed", error=str(exc))
 
 
     async def refresh_tokens(self, refresh_token: str) -> Optional[TokenResponse]:

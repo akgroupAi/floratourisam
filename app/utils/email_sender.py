@@ -498,3 +498,119 @@ def render_contact_lead_email_html(
     </body>
     </html>
     """
+
+
+def render_doctor_registration_admin_email_html(
+    *,
+    doctor_name: str,
+    doctor_email: str,
+    doctor_phone: Optional[str] = None,
+    doctor_id: str,
+    review_url: str,
+) -> str:
+    """Email to super admins when a doctor self-registers."""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px;">
+      <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <div style="background:#13bba4;padding:24px;text-align:center;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">New Doctor Registration</h1>
+          <p style="color:#e0f2f1;margin:5px 0 0;">Pending your review and approval</p>
+        </div>
+        <div style="padding:32px;">
+          <p style="font-size:15px;color:#4a5568;line-height:1.6;">
+            A new doctor has registered on the platform and is waiting for approval.
+          </p>
+          <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+            <tr><td style="padding:8px 0;width:140px;color:#718096;font-size:14px;">Name:</td>
+                <td style="padding:8px 0;font-size:14px;color:#1a202c;font-weight:bold;">{doctor_name}</td></tr>
+            <tr><td style="padding:8px 0;color:#718096;font-size:14px;">Email:</td>
+                <td style="padding:8px 0;font-size:14px;color:#0066cc;">{doctor_email}</td></tr>
+            <tr><td style="padding:8px 0;color:#718096;font-size:14px;">Phone:</td>
+                <td style="padding:8px 0;font-size:14px;color:#1a202c;">{doctor_phone or 'N/A'}</td></tr>
+            <tr><td style="padding:8px 0;color:#718096;font-size:14px;">Doctor ID:</td>
+                <td style="padding:8px 0;font-size:14px;color:#1a202c;">{doctor_id}</td></tr>
+          </table>
+          <div style="text-align:center;margin-top:28px;">
+            <a href="{review_url}" style="display:inline-block;background:#13bba4;color:#fff;text-decoration:none;padding:12px 28px;border-radius:6px;font-size:14px;font-weight:bold;">
+              Review Doctor
+            </a>
+          </div>
+        </div>
+        <div style="background:#f9f9f9;padding:16px;text-align:center;">
+          <p style="font-size:12px;color:#aaa;margin:0;">Flora Medical | Admin Notification</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+
+def render_doctor_approval_email_html(*, doctor_name: str, login_url: str) -> str:
+    """Email to doctor when profile is approved."""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px;">
+      <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <div style="background:#13bba4;padding:24px;text-align:center;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">Profile Approved</h1>
+        </div>
+        <div style="padding:32px;">
+          <p style="font-size:15px;color:#4a5568;line-height:1.6;">Dear {doctor_name},</p>
+          <p style="font-size:15px;color:#4a5568;line-height:1.6;">
+            Your doctor profile has been verified and approved. You are now visible on the
+            Flora Medical platform and can start receiving consultations.
+          </p>
+          <div style="text-align:center;margin-top:28px;">
+            <a href="{login_url}" style="display:inline-block;background:#13bba4;color:#fff;text-decoration:none;padding:12px 28px;border-radius:6px;font-size:14px;font-weight:bold;">
+              Go to Dashboard
+            </a>
+          </div>
+        </div>
+        <div style="background:#f9f9f9;padding:16px;text-align:center;">
+          <p style="font-size:12px;color:#aaa;margin:0;">Flora Medical</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+
+def render_doctor_rejection_email_html(
+    *,
+    doctor_name: str,
+    reason: str,
+) -> str:
+    """Email to doctor when registration is rejected."""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px;">
+      <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <div style="background:#e53e3e;padding:24px;text-align:center;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">Registration Not Approved</h1>
+        </div>
+        <div style="padding:32px;">
+          <p style="font-size:15px;color:#4a5568;line-height:1.6;">Dear {doctor_name},</p>
+          <p style="font-size:15px;color:#4a5568;line-height:1.6;">
+            Unfortunately your doctor registration was not approved at this time.
+          </p>
+          <div style="padding:15px;background:#fff5f5;border-radius:6px;border-left:4px solid #e53e3e;margin-top:16px;">
+            <p style="font-size:14px;color:#4a5568;line-height:1.6;margin:0;"><strong>Reason:</strong> {reason}</p>
+          </div>
+          <p style="font-size:14px;color:#718096;margin-top:24px;">
+            If you believe this is a mistake, please contact support with updated credentials.
+          </p>
+        </div>
+        <div style="background:#f9f9f9;padding:16px;text-align:center;">
+          <p style="font-size:12px;color:#aaa;margin:0;">Flora Medical</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """

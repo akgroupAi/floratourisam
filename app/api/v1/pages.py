@@ -277,6 +277,7 @@ async def get_service_doctors(
         .options(selectinload(Doctor.user))
         .where(
             Doctor.is_verified == True,
+            Doctor.approval_status == "approved",
             or_(
                 DoctorSpecialization.specialization == treatment.category,
                 DoctorSpecialization.specialization == treatment.name
@@ -343,7 +344,11 @@ async def list_doctors(
         .options(selectinload(Doctor.user))
         .options(selectinload(Doctor.specializations))
         .options(selectinload(Doctor.hospital))
-        .where(Doctor.is_verified == True, Doctor.is_deleted == False)
+        .where(
+            Doctor.is_verified == True,
+            Doctor.approval_status == "approved",
+            Doctor.is_deleted == False,
+        )
     )
     
     # Filters
@@ -422,7 +427,11 @@ async def get_doctor_detail(doctor_id: UUID, db: DatabaseSession):
         .options(selectinload(Doctor.user))
         .options(selectinload(Doctor.specializations))
         .options(selectinload(Doctor.hospital))
-        .where(Doctor.id == doctor_id, Doctor.is_verified == True)
+        .where(
+            Doctor.id == doctor_id,
+            Doctor.is_verified == True,
+            Doctor.approval_status == "approved",
+        )
     )
     
     result = await db.execute(query)

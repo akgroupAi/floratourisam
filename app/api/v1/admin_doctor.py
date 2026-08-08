@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload, joinedload
 
-from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
+from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireSuperAdmin
 from app.core.security import get_password_hash
 from app.models.doctor import (
     Doctor,
@@ -24,10 +24,17 @@ from app.schemas.doctor import (
     AdminDoctorUpdate,
     DoctorResponse,
 )
-from app.utils.enums import UserRole
-from pydantic import BaseModel
+from app.services.doctor_service import DoctorService
+from app.utils.enums import DoctorApprovalStatus, UserRole
+from pydantic import BaseModel, Field
 
 router = APIRouter()
+
+
+class DoctorRejectRequest(BaseModel):
+    """Payload for rejecting a doctor registration."""
+
+    reason: str = Field(..., min_length=5, max_length=2000)
 
 
 # ============== SCHEMAS ==============
@@ -303,8 +310,13 @@ async def list_doctors(
     search: Optional[str] = None,
     hospital_id: Optional[UUID] = None,
     specialization: Optional[str] = None,
+    status: Optional[str] = Query(
+        default=None,
+        description="Filter by approval_status: pending | approved | rejected | suspended",
+    ),
+    is_verified: Optional[bool] = Query(default=None),
 ):
-    """List all doctors with filtering."""
+    """List all doctors with filtering. Pending doctors sort first when no status filter."""
 
     query = select(Doctor).options(
         joinedload(Doctor.user),
@@ -329,15 +341,62 @@ async def list_doctors(
             DoctorSpecialization.specialization.ilike(f"%{specialization}%")
         )
 
+    if status:
+        allowed = {s.value for s in DoctorApprovalStatus}
+        if status not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status. Allowed: {', '.join(sorted(allowed))}",
+            )
+        query = query.where(Doctor.approval_status == status)
+
+    if is_verified is not None:
+        query = query.where(Doctor.is_verified == is_verified)
+
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = count_result.scalar() or 0
 
-    query = query.offset((page - 1) * page_size).limit(page_size)
+    # Pending first, then newest
+    query = query.order_by(
+        (Doctor.approval_status == DoctorApprovalStatus.PENDING.value).desc(),
+        Doctor.created_at.desc(),
+    ).offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
     doctors = result.scalars().unique().all()
 
     return PaginatedResponse.create(doctors, total, page, page_size)
+
+
+@router.get("/pending", response_model=PaginatedResponse[DoctorResponse], dependencies=[RequireAdmin])
+async def list_pending_doctors(
+    db: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """List doctors awaiting super-admin approval."""
+    return await list_doctors(
+        db=db,
+        page=page,
+        page_size=page_size,
+        search=None,
+        hospital_id=None,
+        specialization=None,
+        status=DoctorApprovalStatus.PENDING.value,
+        is_verified=None,
+    )
+
+
+@router.get("/pending/count", dependencies=[RequireAdmin])
+async def get_pending_doctors_count(db: DatabaseSession):
+    """Badge count of pending doctor registrations."""
+    result = await db.execute(
+        select(func.count(Doctor.id)).where(
+            Doctor.is_deleted == False,
+            Doctor.approval_status == DoctorApprovalStatus.PENDING.value,
+        )
+    )
+    return {"pending_count": result.scalar() or 0}
 
 
 @router.post("", response_model=DoctorResponse, status_code=status.HTTP_201_CREATED, dependencies=[RequireAdmin])
@@ -426,6 +485,13 @@ async def create_doctor(data: AdminDoctorCreate, current_user: CurrentUser, db: 
         postal_code=data.postal_code,
         is_verified=data.is_verified,
         verification_date=datetime.now(timezone.utc) if data.is_verified else None,
+        approval_status=(
+            DoctorApprovalStatus.APPROVED.value
+            if data.is_verified
+            else DoctorApprovalStatus.PENDING.value
+        ),
+        reviewed_at=datetime.now(timezone.utc) if data.is_verified else None,
+        reviewed_by=current_user.id if data.is_verified else None,
         created_by=current_user.id,
     )
     db.add(doctor)
@@ -461,6 +527,46 @@ async def get_doctor(doctor_id: UUID, db: DatabaseSession):
     return await _get_doctor_or_404(db, doctor_id)
 
 
+@router.post(
+    "/{doctor_id}/approve",
+    response_model=DoctorResponse,
+    dependencies=[RequireSuperAdmin],
+)
+async def approve_doctor(
+    doctor_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Approve a doctor (super_admin only). Makes the profile visible on the public frontend."""
+    doctor = await _get_doctor_or_404(db, doctor_id)
+    if doctor.approval_status == DoctorApprovalStatus.APPROVED.value and doctor.is_verified:
+        return doctor
+    service = DoctorService(db)
+    return await service.approve(doctor, current_user.id)
+
+
+@router.post(
+    "/{doctor_id}/reject",
+    response_model=DoctorResponse,
+    dependencies=[RequireSuperAdmin],
+)
+async def reject_doctor(
+    doctor_id: UUID,
+    data: DoctorRejectRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """Reject a doctor registration (super_admin only). Profile stays hidden from public frontend."""
+    doctor = await _get_doctor_or_404(db, doctor_id)
+    if doctor.approval_status == DoctorApprovalStatus.APPROVED.value and doctor.is_verified:
+        raise HTTPException(
+            status_code=400,
+            detail="Doctor is already approved. Suspend or unverify via update instead.",
+        )
+    service = DoctorService(db)
+    return await service.reject(doctor, current_user.id, data.reason.strip())
+
+
 @router.put("/{doctor_id}", response_model=DoctorResponse, dependencies=[RequireAdmin])
 async def update_doctor(
     doctor_id: UUID,
@@ -490,8 +596,17 @@ async def update_doctor(
     if "is_verified" in update_data:
         if update_data["is_verified"] and not doctor.is_verified:
             update_data["verification_date"] = datetime.now(timezone.utc)
+            update_data["approval_status"] = DoctorApprovalStatus.APPROVED.value
+            update_data["reviewed_at"] = datetime.now(timezone.utc)
+            update_data["reviewed_by"] = current_user.id
+            update_data["rejection_reason"] = None
         elif not update_data["is_verified"]:
             update_data["verification_date"] = None
+            # Only force pending if not already rejected/suspended
+            if doctor.approval_status == DoctorApprovalStatus.APPROVED.value:
+                update_data["approval_status"] = DoctorApprovalStatus.PENDING.value
+            update_data["reviewed_at"] = datetime.now(timezone.utc)
+            update_data["reviewed_by"] = current_user.id
 
     if "license_number" in update_data and update_data["license_number"]:
         existing_license = await db.execute(

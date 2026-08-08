@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select, cast, Date
 
-from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireDoctor
+from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireDoctor, RequireSuperAdmin
 from app.models.consultation import Consultation
 from app.models.doctor import Doctor
 from app.models.user import User
@@ -30,8 +30,19 @@ router = APIRouter()
 
 @router.get("/basic", response_model=list[BasicResponse])
 async def list_doctors_basic(db: DatabaseSession):
-    """List basic doctor details (ID and Name) for dropdowns."""
-    query = select(Doctor.id, User.full_name.label("name")).join(Doctor.user).where(Doctor.is_deleted == False).order_by(User.full_name)
+    """List basic doctor details (ID and Name) for dropdowns — approved doctors only."""
+    from app.utils.enums import DoctorApprovalStatus
+
+    query = (
+        select(Doctor.id, User.full_name.label("name"))
+        .join(Doctor.user)
+        .where(
+            Doctor.is_deleted == False,
+            Doctor.is_verified == True,
+            Doctor.approval_status == DoctorApprovalStatus.APPROVED.value,
+        )
+        .order_by(User.full_name)
+    )
     result = await db.execute(query)
     
     return [BasicResponse(id=row.id, name=row.name) for row in result.all()]
@@ -55,6 +66,7 @@ async def list_doctor_categories(db: DatabaseSession):
     are not treated as a doctor UUID.
     """
     from app.models.doctor import DoctorSpecialization
+    from app.utils.enums import DoctorApprovalStatus
 
     # Prefer specialization rows; also include primary_specialty when present
     spec_rows = (
@@ -67,6 +79,7 @@ async def list_doctor_categories(db: DatabaseSession):
             .where(
                 Doctor.is_deleted == False,
                 Doctor.is_verified == True,
+                Doctor.approval_status == DoctorApprovalStatus.APPROVED.value,
                 DoctorSpecialization.is_deleted == False,
             )
             .group_by(DoctorSpecialization.specialization)
@@ -83,6 +96,7 @@ async def list_doctor_categories(db: DatabaseSession):
             .where(
                 Doctor.is_deleted == False,
                 Doctor.is_verified == True,
+                Doctor.approval_status == DoctorApprovalStatus.APPROVED.value,
                 Doctor.primary_specialty.isnot(None),
                 Doctor.primary_specialty != "",
             )
@@ -107,9 +121,15 @@ async def list_doctors(
     db: DatabaseSession, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     specialization: Optional[str] = None, hospital_id: Optional[UUID] = None, search: Optional[str] = None,
 ):
-    """List doctors with filters."""
+    """List approved/verified doctors with filters (public)."""
     service = DoctorService(db)
-    doctors, total = await service.get_list(PaginationParams(page=page, page_size=page_size), specialization, hospital_id, search=search)
+    doctors, total = await service.get_list(
+        PaginationParams(page=page, page_size=page_size),
+        specialization,
+        hospital_id,
+        search=search,
+        public_only=True,
+    )
     return PaginatedResponse.create(doctors, total, page, page_size)
 
 
@@ -413,19 +433,25 @@ async def delete_doctor_hospital(
 
 @router.get("/{doctor_id}", response_model=DoctorResponse)
 async def get_doctor(doctor_id: UUID, db: DatabaseSession):
-    """Get doctor by ID."""
+    """Get approved doctor by ID (public)."""
+    from app.utils.enums import DoctorApprovalStatus
+
     service = DoctorService(db)
     doctor = await service.get_by_id(doctor_id)
-    if not doctor:
+    if (
+        not doctor
+        or not doctor.is_verified
+        or doctor.approval_status != DoctorApprovalStatus.APPROVED.value
+    ):
         raise HTTPException(status_code=404, detail="Doctor not found")
     return doctor
 
 
-@router.post("/{doctor_id}/verify", response_model=DoctorResponse, dependencies=[RequireAdmin])
+@router.post("/{doctor_id}/verify", response_model=DoctorResponse, dependencies=[RequireSuperAdmin])
 async def verify_doctor(doctor_id: UUID, current_user: CurrentUser, db: DatabaseSession):
-    """Verify a doctor (admin only)."""
+    """Approve/verify a doctor (super_admin only). Prefer POST /admin/doctors/{id}/approve."""
     service = DoctorService(db)
     doctor = await service.get_by_id(doctor_id)
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
-    return await service.verify(doctor, current_user.id)
+    return await service.approve(doctor, current_user.id)

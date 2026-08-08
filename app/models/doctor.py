@@ -161,7 +161,7 @@ class Doctor(BaseModel):
         nullable=False,
     )
 
-    # Verification
+    # Verification / admin approval
     is_verified: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -169,6 +169,26 @@ class Doctor(BaseModel):
     )
     verification_date: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
+        nullable=True,
+    )
+    # pending | approved | rejected | suspended
+    approval_status: Mapped[str] = mapped_column(
+        String(20),
+        default="pending",
+        nullable=False,
+        index=True,
+    )
+    rejection_reason: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    reviewed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
 

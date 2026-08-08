@@ -102,6 +102,15 @@ class ConsultationStatus(str, Enum):
     MISSED = "missed"
 
 
+class DoctorApprovalStatus(str, Enum):
+    """Admin approval status for doctor profiles."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    SUSPENDED = "suspended"
+
+
 class Gender(str, Enum):
     """Gender definitions."""
 

@@ -200,6 +200,7 @@ class DoctorListResponse(BaseSchema):
     rating: Optional[float] = None
     total_reviews: int = 0
     is_verified: bool = False
+    approval_status: str = "pending"
     avatar_url: Optional[str] = None
     video_consultation_enabled: bool = True
     chat_consultation_enabled: bool = True
@@ -227,6 +228,7 @@ class DoctorListResponse(BaseSchema):
                 'rating': obj.rating,
                 'total_reviews': obj.total_reviews,
                 'is_verified': obj.is_verified,
+                'approval_status': getattr(obj, "approval_status", None) or "pending",
                 'avatar_url': obj.user.avatar_url,
                 'video_consultation_enabled': obj.video_consultation_enabled,
                 'chat_consultation_enabled': obj.chat_consultation_enabled,
@@ -273,6 +275,10 @@ class DoctorResponse(BaseSchema):
     total_consultations: int = 0
     is_verified: bool = False
     verification_date: Optional[datetime] = None
+    approval_status: str = "pending"
+    rejection_reason: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[UUID] = None
     created_at: datetime
 
     # Related data
@@ -343,6 +349,10 @@ class DoctorResponse(BaseSchema):
                 'total_consultations': obj.total_consultations,
                 'is_verified': obj.is_verified,
                 'verification_date': obj.verification_date,
+                'approval_status': getattr(obj, "approval_status", None) or "pending",
+                'rejection_reason': getattr(obj, "rejection_reason", None),
+                'reviewed_at': getattr(obj, "reviewed_at", None),
+                'reviewed_by': getattr(obj, "reviewed_by", None),
                 'created_at': obj.created_at,
                 'specializations': spec_names,
                 'specialization_details': spec_details,

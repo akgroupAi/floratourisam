@@ -63,8 +63,12 @@ class DoctorService:
         hospital_id: Optional[UUID] = None,
         is_verified: Optional[bool] = None,
         search: Optional[str] = None,
+        approval_status: Optional[str] = None,
+        public_only: bool = False,
     ) -> tuple[List[Doctor], int]:
         """Get paginated list of doctors."""
+        from app.utils.enums import DoctorApprovalStatus
+
         query = (
             select(Doctor)
             .options(
@@ -80,6 +84,13 @@ class DoctorService:
             query = query.where(Doctor.hospital_id == hospital_id)
         if is_verified is not None:
             query = query.where(Doctor.is_verified == is_verified)
+        if approval_status:
+            query = query.where(Doctor.approval_status == approval_status)
+        if public_only:
+            query = query.where(
+                Doctor.is_verified == True,
+                Doctor.approval_status == DoctorApprovalStatus.APPROVED.value,
+            )
         if specialization:
             query = query.join(DoctorSpecialization).where(
                 DoctorSpecialization.specialization.ilike(f"%{specialization}%")
@@ -248,15 +259,139 @@ class DoctorService:
         return availability_list
 
     async def verify(self, doctor: Doctor, verified_by: UUID) -> Doctor:
-        """Verify doctor profile."""
+        """Approve/verify doctor profile (sets is_verified + approval_status)."""
+        from app.utils.enums import DoctorApprovalStatus
+
+        now = datetime.now(timezone.utc)
         doctor.is_verified = True
-        doctor.verification_date = datetime.now(timezone.utc)
+        doctor.verification_date = now
+        doctor.approval_status = DoctorApprovalStatus.APPROVED.value
+        doctor.rejection_reason = None
+        doctor.reviewed_at = now
+        doctor.reviewed_by = verified_by
         doctor.updated_by = verified_by
         await self.db.commit()
 
         logger.info("doctor_verified", doctor_id=str(doctor.id))
 
         # Re-fetch with eager loading for response serialization
+        result = await self.db.execute(
+            select(Doctor)
+            .options(
+                selectinload(Doctor.user),
+                selectinload(Doctor.specializations),
+                selectinload(Doctor.availability),
+                selectinload(Doctor.hospital),
+            )
+            .where(Doctor.id == doctor.id)
+        )
+        return result.scalar_one()
+
+    async def approve(self, doctor: Doctor, approved_by: UUID) -> Doctor:
+        """Approve doctor for public visibility and email the doctor."""
+        from app.core.config import settings
+        from app.utils.email_sender import render_doctor_approval_email_html, send_email
+        from app.utils.enums import DoctorApprovalStatus
+        from app.utils.notifications import notify
+
+        doctor = await self.verify(doctor, approved_by)
+
+        if doctor.user:
+            try:
+                await send_email(
+                    db=self.db,
+                    to_email=doctor.user.email,
+                    to_name=doctor.user.full_name,
+                    subject="Your doctor profile has been approved",
+                    body_html=render_doctor_approval_email_html(
+                        doctor_name=doctor.user.full_name,
+                        login_url=f"{settings.FRONTEND_URL.rstrip('/')}/login",
+                    ),
+                    category="doctor_approval",
+                    user_id=doctor.user_id,
+                )
+            except Exception as exc:
+                logger.warning("doctor_approval_email_failed", error=str(exc))
+
+            try:
+                await notify(
+                    db=self.db,
+                    user_id=doctor.user_id,
+                    title="Profile approved",
+                    message="Your doctor profile is now live on the platform.",
+                    notification_type="doctor_approval",
+                    entity_type="doctor",
+                    entity_id=doctor.id,
+                    action_url="/doctor/dashboard",
+                    action_text="Open dashboard",
+                    created_by=approved_by,
+                )
+                await self.db.commit()
+            except Exception as exc:
+                logger.warning("doctor_approval_notify_failed", error=str(exc))
+
+        logger.info(
+            "doctor_approved",
+            doctor_id=str(doctor.id),
+            status=DoctorApprovalStatus.APPROVED.value,
+        )
+        return doctor
+
+    async def reject(
+        self,
+        doctor: Doctor,
+        rejected_by: UUID,
+        reason: str,
+    ) -> Doctor:
+        """Reject doctor registration — remains hidden from public frontend."""
+        from app.utils.email_sender import render_doctor_rejection_email_html, send_email
+        from app.utils.enums import DoctorApprovalStatus
+        from app.utils.notifications import notify
+
+        now = datetime.now(timezone.utc)
+        doctor.is_verified = False
+        doctor.verification_date = None
+        doctor.approval_status = DoctorApprovalStatus.REJECTED.value
+        doctor.rejection_reason = reason
+        doctor.reviewed_at = now
+        doctor.reviewed_by = rejected_by
+        doctor.updated_by = rejected_by
+        await self.db.commit()
+
+        if doctor.user:
+            try:
+                await send_email(
+                    db=self.db,
+                    to_email=doctor.user.email,
+                    to_name=doctor.user.full_name,
+                    subject="Doctor registration update",
+                    body_html=render_doctor_rejection_email_html(
+                        doctor_name=doctor.user.full_name,
+                        reason=reason,
+                    ),
+                    category="doctor_rejection",
+                    user_id=doctor.user_id,
+                )
+            except Exception as exc:
+                logger.warning("doctor_rejection_email_failed", error=str(exc))
+
+            try:
+                await notify(
+                    db=self.db,
+                    user_id=doctor.user_id,
+                    title="Registration not approved",
+                    message=reason,
+                    notification_type="doctor_rejection",
+                    entity_type="doctor",
+                    entity_id=doctor.id,
+                    created_by=rejected_by,
+                )
+                await self.db.commit()
+            except Exception as exc:
+                logger.warning("doctor_rejection_notify_failed", error=str(exc))
+
+        logger.info("doctor_rejected", doctor_id=str(doctor.id), reason=reason)
+
         result = await self.db.execute(
             select(Doctor)
             .options(
