@@ -44,12 +44,18 @@ async def lifespan(app: FastAPI):
     from app.db.init_db import init_database
     async with async_session_factory() as session:
         await init_database(session)
-    
+
+    # Cross-worker chat fan-out. Without this every worker only reaches the
+    # sockets it holds itself, so chat appears to work only after a refresh.
+    from app.services.notification_service import notification_service
+    await notification_service.start()
+
     logger.info("application_started")
     yield
-    
+
     # Shutdown
     logger.info("application_shutting_down")
+    await notification_service.stop()
     await close_db()
     logger.info("application_stopped")
 

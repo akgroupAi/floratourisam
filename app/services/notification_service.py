@@ -1,12 +1,21 @@
-"""Notification service for WebSocket and push notifications."""
+"""Notification service for WebSocket and push notifications.
+
+Socket registries live in process memory, so with more than one worker a
+broadcast raised in worker A cannot reach a socket held by worker B. The
+Redis backplane below republishes every broadcast to all workers, which is
+what makes chat work under ``--workers N``. Without Redis the service still
+runs, but live delivery only spans a single worker.
+"""
 
 import asyncio
-from typing import Dict, List, Set, Union
+import json
+from typing import Awaitable, Callable, Dict, List, Optional, Set, Union
 from uuid import UUID
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
+from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -35,6 +44,9 @@ class ConnectionManager:
 
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = {}
+        # Set by ChatBackplane once Redis is live. While it is None every
+        # broadcast is delivered straight to this worker's own sockets.
+        self.publisher: Optional[Callable[[RoomId, dict], Awaitable[bool]]] = None
 
     async def connect(self, websocket: WebSocket, room_id: RoomId):
         await websocket.accept()
@@ -59,7 +71,20 @@ class ConnectionManager:
         return len(self.active_connections.get(room_key(room_id), ()))
 
     async def broadcast(self, room_id: RoomId, message: dict):
-        """Fan a message out to every live socket in the room.
+        """Deliver a message to the room across every worker.
+
+        With the backplane up the message is only published — this worker
+        receives its own publication back through the subscription and delivers
+        locally from there, so each socket is written to exactly once. If Redis
+        is disabled or unreachable we fall back to local-only delivery, which is
+        correct for a single worker and degraded (but not broken) for several.
+        """
+        if self.publisher is not None and await self.publisher(room_id, message):
+            return
+        await self.deliver_local(room_id, message)
+
+    async def deliver_local(self, room_id: RoomId, message: dict):
+        """Fan a message out to every live socket held by *this* worker.
 
         Each send is isolated: a socket that has already gone away is dropped
         from the registry instead of aborting delivery for everyone behind it.
@@ -93,9 +118,140 @@ class ConnectionManager:
             return False
 
 
+class ChatBackplane:
+    """Redis pub/sub fan-out so every uvicorn worker sees every broadcast.
+
+    One channel carries all rooms. Each worker receives every published
+    message and drops the ones for rooms it holds no sockets for — cheaper
+    than subscribing and unsubscribing as rooms come and go, and chat volume
+    is far below the point where that filtering costs anything.
+    """
+
+    CHANNEL = "chat:broadcast"
+
+    def __init__(self, manager: ConnectionManager):
+        self._manager = manager
+        self._redis = None
+        self._pubsub = None
+        self._task: Optional[asyncio.Task] = None
+
+    @property
+    def active(self) -> bool:
+        return (
+            self._redis is not None
+            and self._task is not None
+            and not self._task.done()
+        )
+
+    async def start(self) -> None:
+        """Connect to Redis and begin listening. Never raises."""
+        if not settings.REDIS_ENABLED:
+            logger.warning(
+                "chat_backplane_disabled",
+                reason="REDIS_ENABLED is false — live chat will not cross workers",
+            )
+            return
+
+        try:
+            import redis.asyncio as redis_asyncio
+
+            self._redis = redis_asyncio.from_url(
+                settings.REDIS_URL, decode_responses=True
+            )
+            await self._redis.ping()
+            self._pubsub = self._redis.pubsub(ignore_subscribe_messages=True)
+            await self._pubsub.subscribe(self.CHANNEL)
+            self._task = asyncio.create_task(self._listen())
+            self._manager.publisher = self.publish
+            logger.info("chat_backplane_started", channel=self.CHANNEL)
+        except Exception as exc:
+            logger.error(
+                "chat_backplane_start_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            await self.stop()
+
+    async def _listen(self) -> None:
+        """Deliver everything published on the channel to local sockets."""
+        try:
+            async for raw in self._pubsub.listen():
+                if not raw or raw.get("type") != "message":
+                    continue
+                try:
+                    envelope = json.loads(raw["data"])
+                    room = envelope["room"]
+                    message = envelope["message"]
+                except (ValueError, KeyError, TypeError) as exc:
+                    logger.warning("chat_backplane_bad_envelope", error=str(exc))
+                    continue
+                await self._manager.deliver_local(room, message)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # The subscription is gone; stop claiming we can publish so
+            # broadcasts fall back to local delivery instead of vanishing.
+            self._manager.publisher = None
+            logger.error(
+                "chat_backplane_listener_stopped",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+
+    async def publish(self, room_id: RoomId, message: dict) -> bool:
+        """Publish to all workers. Returns False so the caller can fall back."""
+        if not self.active:
+            return False
+        try:
+            await self._redis.publish(
+                self.CHANNEL,
+                json.dumps(
+                    {"room": room_key(room_id), "message": message}, default=str
+                ),
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "chat_backplane_publish_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return False
+
+    async def stop(self) -> None:
+        """Tear down on shutdown. Never raises."""
+        self._manager.publisher = None
+
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._task = None
+
+        for closer in (self._pubsub, self._redis):
+            if closer is None:
+                continue
+            try:
+                await closer.close()
+            except Exception as exc:
+                logger.warning("chat_backplane_close_failed", error=str(exc))
+
+        self._pubsub = None
+        self._redis = None
+
+
 class NotificationService:
     def __init__(self):
         self.manager = ConnectionManager()
+        self.backplane = ChatBackplane(self.manager)
+
+    async def start(self) -> None:
+        await self.backplane.start()
+
+    async def stop(self) -> None:
+        await self.backplane.stop()
 
     async def send_notification(self, user_id: UUID, notification: dict):
         """Push a notification to any socket registered under this user id.
