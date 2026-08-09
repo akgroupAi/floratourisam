@@ -129,22 +129,31 @@ class ChatBackplane:
 
     CHANNEL = "chat:broadcast"
 
+    # An idle pub/sub socket reports a read timeout; that is routine, not a
+    # failure. Poll on this interval so a quiet channel never looks like a
+    # dead one.
+    POLL_TIMEOUT = 1.0
+    RECONNECT_DELAY_MIN = 1.0
+    RECONNECT_DELAY_MAX = 30.0
+    # How long startup waits for the first subscription before moving on.
+    READY_TIMEOUT = 10.0
+
     def __init__(self, manager: ConnectionManager):
         self._manager = manager
         self._redis = None
         self._pubsub = None
         self._task: Optional[asyncio.Task] = None
+        self._subscribed = False
+        self._stopping = False
+        self._ready = asyncio.Event()
 
     @property
     def active(self) -> bool:
-        return (
-            self._redis is not None
-            and self._task is not None
-            and not self._task.done()
-        )
+        """True only while a live subscription is in place."""
+        return self._subscribed and self._redis is not None
 
     async def start(self) -> None:
-        """Connect to Redis and begin listening. Never raises."""
+        """Begin the supervised subscribe/listen loop. Never raises."""
         if not settings.REDIS_ENABLED:
             logger.warning(
                 "chat_backplane_disabled",
@@ -156,14 +165,14 @@ class ChatBackplane:
             import redis.asyncio as redis_asyncio
 
             self._redis = redis_asyncio.from_url(
-                settings.REDIS_URL, decode_responses=True
+                settings.REDIS_URL,
+                decode_responses=True,
+                # Keep the pub/sub connection healthy through idle periods and
+                # any proxy or firewall that reaps quiet sockets.
+                health_check_interval=30,
+                socket_keepalive=True,
             )
             await self._redis.ping()
-            self._pubsub = self._redis.pubsub(ignore_subscribe_messages=True)
-            await self._pubsub.subscribe(self.CHANNEL)
-            self._task = asyncio.create_task(self._listen())
-            self._manager.publisher = self.publish
-            logger.info("chat_backplane_started", channel=self.CHANNEL)
         except Exception as exc:
             logger.error(
                 "chat_backplane_start_failed",
@@ -171,32 +180,98 @@ class ChatBackplane:
                 error_type=type(exc).__name__,
             )
             await self.stop()
+            return
 
-    async def _listen(self) -> None:
-        """Deliver everything published on the channel to local sockets."""
+        self._stopping = False
+        self._ready.clear()
+        self._task = asyncio.create_task(self._run())
+
+        # Don't report success until the subscription is actually up, otherwise
+        # the startup log claims a backplane that may never have attached.
         try:
-            async for raw in self._pubsub.listen():
-                if not raw or raw.get("type") != "message":
-                    continue
-                try:
-                    envelope = json.loads(raw["data"])
-                    room = envelope["room"]
-                    message = envelope["message"]
-                except (ValueError, KeyError, TypeError) as exc:
-                    logger.warning("chat_backplane_bad_envelope", error=str(exc))
-                    continue
-                await self._manager.deliver_local(room, message)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            # The subscription is gone; stop claiming we can publish so
-            # broadcasts fall back to local delivery instead of vanishing.
-            self._manager.publisher = None
+            await asyncio.wait_for(self._ready.wait(), timeout=self.READY_TIMEOUT)
+            logger.info("chat_backplane_started", channel=self.CHANNEL)
+        except asyncio.TimeoutError:
             logger.error(
-                "chat_backplane_listener_stopped",
-                error=str(exc),
-                error_type=type(exc).__name__,
+                "chat_backplane_not_ready",
+                channel=self.CHANNEL,
+                timeout_seconds=self.READY_TIMEOUT,
+                detail="still retrying in the background; chat stays worker-local until it attaches",
             )
+
+    async def _run(self) -> None:
+        """Stay subscribed for the life of the process, reconnecting as needed.
+
+        A dropped subscription used to end the listener for good, which left the
+        worker publishing into a channel nobody read and delivering only to its
+        own sockets — chat looked broken but logged nothing after the first
+        error. The loop below always comes back.
+        """
+        delay = self.RECONNECT_DELAY_MIN
+
+        while not self._stopping:
+            try:
+                self._pubsub = self._redis.pubsub(ignore_subscribe_messages=True)
+                await self._pubsub.subscribe(self.CHANNEL)
+                self._subscribed = True
+                self._manager.publisher = self.publish
+                self._ready.set()
+                delay = self.RECONNECT_DELAY_MIN
+                logger.info("chat_backplane_subscribed", channel=self.CHANNEL)
+
+                await self._consume()
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "chat_backplane_reconnecting",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                    retry_in_seconds=delay,
+                )
+            finally:
+                self._subscribed = False
+                self._ready.clear()
+                self._manager.publisher = None
+                await self._close_pubsub()
+
+            if self._stopping:
+                break
+
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, self.RECONNECT_DELAY_MAX)
+
+    async def _consume(self) -> None:
+        """Read the channel until the subscription breaks or we shut down."""
+        while not self._stopping:
+            raw = await self._pubsub.get_message(
+                ignore_subscribe_messages=True, timeout=self.POLL_TIMEOUT
+            )
+            # No traffic in this window — the connection is fine, keep waiting.
+            if raw is None:
+                continue
+            if raw.get("type") != "message":
+                continue
+
+            try:
+                envelope = json.loads(raw["data"])
+                room = envelope["room"]
+                message = envelope["message"]
+            except (ValueError, KeyError, TypeError) as exc:
+                logger.warning("chat_backplane_bad_envelope", error=str(exc))
+                continue
+
+            await self._manager.deliver_local(room, message)
+
+    async def _close_pubsub(self) -> None:
+        if self._pubsub is None:
+            return
+        try:
+            await self._pubsub.close()
+        except Exception:
+            pass
+        self._pubsub = None
 
     async def publish(self, room_id: RoomId, message: dict) -> bool:
         """Publish to all workers. Returns False so the caller can fall back."""
@@ -220,26 +295,28 @@ class ChatBackplane:
 
     async def stop(self) -> None:
         """Tear down on shutdown. Never raises."""
+        self._stopping = True
+        self._subscribed = False
         self._manager.publisher = None
 
         if self._task is not None:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass
+            except Exception as exc:
+                logger.warning("chat_backplane_stop_failed", error=str(exc))
             self._task = None
 
-        for closer in (self._pubsub, self._redis):
-            if closer is None:
-                continue
+        await self._close_pubsub()
+
+        if self._redis is not None:
             try:
-                await closer.close()
+                await self._redis.close()
             except Exception as exc:
                 logger.warning("chat_backplane_close_failed", error=str(exc))
-
-        self._pubsub = None
-        self._redis = None
+            self._redis = None
 
 
 class NotificationService:
