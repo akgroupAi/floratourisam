@@ -190,6 +190,15 @@ class ContactStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class QuoteStatus(str, Enum):
+    """Sales funnel for 'Get a Free Medical Plan Quote' submissions."""
+
+    NEW = "new"
+    CONTACTED = "contacted"
+    QUALIFIED = "qualified"
+    CONVERTED = "converted"
+
+
 class NotificationType(str, Enum):
     """Types of notifications."""
 

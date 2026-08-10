@@ -960,9 +960,15 @@ async def submit_quote_form(
         )
         
         db.add(lead)
+        await db.flush()
+
+        from app.services.quote_service import QuoteService
+
+        await QuoteService(db).notify_admin(lead)
+
         await db.commit()
         await db.refresh(lead)
-        
+
         return {
             "success": True,
             "message": "Thank you! We've received your quote request. Our team will contact you within 24 hours.",

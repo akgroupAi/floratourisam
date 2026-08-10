@@ -7,6 +7,7 @@ from app.models.site import LeadSubmission
 from app.schemas.contact import ContactCreate, ContactSubmitResponse
 from app.schemas.site import LeadSubmissionCreate
 from app.services.contact_service import ContactService
+from app.services.quote_service import QuoteService
 
 router = APIRouter()
 
@@ -20,9 +21,13 @@ async def submit_quote_request(data: LeadSubmissionCreate, db: DatabaseSession):
         payload["form_source"] = "quote_form"
     lead = LeadSubmission(**payload)
     db.add(lead)
+    await db.flush()
+
+    await QuoteService(db).notify_admin(lead)
+
     await db.commit()
     await db.refresh(lead)
-    
+
     return {
         "success": True,
         "message": "Thank you! We've received your request and will contact you within 24 hours.",

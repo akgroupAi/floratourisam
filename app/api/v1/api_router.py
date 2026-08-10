@@ -20,6 +20,7 @@ from app.api.v1 import (
     admin_bookings,
     contact,
     admin_contact,
+    admin_quote,
 )
 
 api_router = APIRouter()
@@ -112,6 +113,9 @@ api_router.include_router(favorites.router, prefix="/favorites", tags=["Favorite
 
 # Lead Generation
 api_router.include_router(leads.router, prefix="/leads", tags=["Lead Generation"])
+
+# Medical Plan Quote Requests
+api_router.include_router(admin_quote.router, prefix="/admin/quotes", tags=["Admin - Quote Requests"])
 
 # Contact Us
 api_router.include_router(contact.router, prefix="/contact", tags=["Contact"])
