@@ -38,6 +38,23 @@ class DoctorSuggestion(BaseModel):
     recommendation: Optional[str] = None
 
 
+class ServiceRecommendation(BaseModel):
+    """A non-doctor service the assistant recommends — hotel, apartment, page, etc."""
+
+    type: str = Field(..., description="hotel | apartment | restaurant | package | hospital | treatment | page")
+    id: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = Field(None, description="One-line reason this result is relevant")
+    city: Optional[str] = None
+    country: Optional[str] = None
+    rating: Optional[float] = None
+    price: Optional[float] = None
+    currency: Optional[str] = None
+    image_url: Optional[str] = None
+    url: str = Field(..., description="Site-relative link, e.g. /hotels/some-slug")
+    relevance_score: Optional[float] = None
+
+
 class AIChatResponse(BaseModel):
     """AI chat response."""
 
@@ -45,7 +62,15 @@ class AIChatResponse(BaseModel):
     session_id: str
     conversation_id: Optional[str] = None
     doctor_suggestions: List[DoctorSuggestion] = []
+    recommendations: List[ServiceRecommendation] = Field(
+        default=[],
+        description="Hotels, apartments, restaurants, packages, and site pages relevant to the question",
+    )
     follow_up_questions: List[str] = []
+    in_scope: bool = Field(
+        default=True,
+        description="False when the question was off-topic and the assistant redirected instead of answering",
+    )
     tokens_used: int = 0
     response_time_ms: int = 0
 

@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import FileResponse
 
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
 from app.schemas.common import MessageResponse, PaginatedResponse
@@ -14,10 +15,18 @@ from app.schemas.quote import (
     QuoteStatsResponse,
     QuoteStatusUpdate,
 )
-from app.services.quote_service import QuoteService
+from app.services.quote_service import QuoteService, resolve_document_path
 from app.utils.enums import QuoteStatus
 
 router = APIRouter()
+
+# Quote uploads are restricted to these types at submission time.
+MEDIA_TYPES = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+}
 
 
 @router.get(
@@ -84,6 +93,33 @@ async def get_quote_detail(quote_id: UUID, db: DatabaseSession):
     if not quote:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found")
     return quote
+
+
+@router.get(
+    "/{quote_id}/documents/{filename}",
+    dependencies=[RequireAdmin],
+    response_class=FileResponse,
+    summary="Download a quote request document",
+)
+async def download_quote_document(quote_id: UUID, filename: str, db: DatabaseSession):
+    """
+    Download a medical document attached to a quote request.
+
+    Admin-only. The file is served through this endpoint rather than a public static
+    path because these are patients' medical records — the `documents` field holds
+    server-side storage paths and is not fetchable by the browser.
+    """
+    service = QuoteService(db)
+    lead = await service._get_quote(quote_id)
+    if not lead:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found")
+
+    path = resolve_document_path(lead, filename)
+    if not path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    media_type = MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path=str(path), media_type=media_type, filename=path.name)
 
 
 @router.patch(

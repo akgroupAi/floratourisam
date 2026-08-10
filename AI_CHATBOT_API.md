@@ -68,15 +68,103 @@ Auth: All endpoints require `Authorization: Bearer <JWT_TOKEN>` (except `/refres
       "recommendation": "Excellent alternative with 10+ years experience and great reviews."
     }
   ],
+  "recommendations": [
+    {
+      "type": "hotel",
+      "id": "9f8e7d6c-5b4a-3210-fedc-ba9876543210",
+      "name": "Grand Care Hotel",
+      "description": "0.8 km from Apollo Hospital · 4-star · medical amenities available · rated 4.6/5",
+      "city": "Ahmedabad",
+      "country": "India",
+      "rating": 4.6,
+      "price": 3500.0,
+      "currency": "INR",
+      "image_url": "/uploads/hotels/grand-care.jpg",
+      "url": "/hotels/grand-care-hotel",
+      "relevance_score": 0.7412
+    },
+    {
+      "type": "apartment",
+      "id": "1a2b3c4d-5e6f-7890-abcd-ef1234567890",
+      "name": "Serenity Serviced Apartments",
+      "description": "1.5 km from Apollo Hospital · 2BR · rated 4.4/5",
+      "city": "Ahmedabad",
+      "country": "India",
+      "rating": 4.4,
+      "price": 2800.0,
+      "currency": "INR",
+      "image_url": null,
+      "url": "/apartments/serenity-serviced-apartments",
+      "relevance_score": 0.6893
+    },
+    {
+      "type": "page",
+      "id": null,
+      "name": "Hotels",
+      "description": "Book hotel accommodation near partner hospitals for patients and accompanying family.",
+      "city": null,
+      "country": null,
+      "rating": null,
+      "price": null,
+      "currency": null,
+      "image_url": null,
+      "url": "/hotels",
+      "relevance_score": 0.5120
+    }
+  ],
   "follow_up_questions": [
     "What treatment options are available for knee replacement?",
     "How do I book a video consultation with a doctor?",
     "Can you help me compare doctors for my condition?"
   ],
+  "in_scope": true,
   "tokens_used": 487,
   "response_time_ms": 1243
 }
 ```
+
+### Output Fields
+
+| Field | Type | Notes |
+|---|---|---|
+| `response` | string | Markdown. Links are site-relative (`/hotels/slug`) — render them as internal routes. |
+| `doctor_suggestions` | array | Doctors only, with full profile detail. Unchanged. |
+| `recommendations` | array | **Everything else the assistant matched**: hotels, apartments, restaurants, packages, hospitals, treatments, and website sections. Render as cards. |
+| `follow_up_questions` | string[] | Exactly 3 suggested next questions. |
+| `in_scope` | bool | `false` when the question was off-topic and the assistant redirected instead of answering. |
+
+### `recommendations[].type`
+
+`hotel` · `apartment` · `restaurant` · `package` · `hospital` · `treatment` · `page`
+
+The array is **ordered by type** in exactly that sequence, so you can group it without sorting.
+`url` is always site-relative and always present; `description` is a pre-built one-line reason
+(distance to hospital first, since that is what matters to a patient) and may be `null`.
+`page` entries point at browse sections like `/hotels` — use them when the user is exploring
+rather than choosing.
+
+### Off-Topic Questions
+
+Ask the chatbot something unrelated to the website and it will not answer:
+
+```json
+{
+  "response": "I can only help with Flora Medical services — I can help you find a doctor, compare treatment packages, or book a hotel near your hospital.",
+  "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "doctor_suggestions": [],
+  "recommendations": [],
+  "follow_up_questions": [
+    "Which hospitals do you partner with?",
+    "How do I book a consultation?",
+    "What accommodation is available near the hospital?"
+  ],
+  "in_scope": false,
+  "tokens_used": 96,
+  "response_time_ms": 604
+}
+```
+
+Use `in_scope: false` to style the reply differently or to skip logging it as a real query.
 
 ### Continue Conversation (pass `session_id` back)
 
@@ -465,6 +553,59 @@ No request body needed.
 |------|---------------------|--------------------------|
 | 401  | Not authenticated   | Missing JWT              |
 | 403  | Forbidden           | Non-admin user           |
+
+### What the knowledge base contains
+
+Everything the chatbot is allowed to talk about is embedded here. Nothing else is available to it.
+
+| Source | Indexed when | Link the bot gives |
+|---|---|---|
+| Doctors | not deleted | `/doctors/{id}` |
+| Hospitals | active, not deleted | `/hospitals/{slug}` |
+| Departments | not deleted | `/hospitals/{slug}` |
+| Treatments | not deleted | `/treatments/{slug}` |
+| **Hotels** | active, not deleted | `/hotels/{slug}` |
+| **Apartments** | active, not deleted | `/apartments/{slug}` |
+| **Restaurants** | active, not deleted | `/restaurants/{slug}` |
+| **Medical packages** | active, not deleted | `/packages/{slug}` |
+| Admin knowledge documents | active, not deleted | — |
+| Platform facts + website sections | always | `/hotels`, `/doctors`, `/contact`, … |
+
+Accommodation and dining records are indexed with their **distance to the nearest hospital**, medical
+amenities, and price, so a patient asking "where can I stay near the hospital?" gets ranked, relevant
+results rather than a generic list.
+
+> **The knowledge base is an in-memory singleton built once per process.** A hotel, apartment,
+> restaurant, or package added through the admin panel will **not** be recommended until
+> `POST /api/v1/ai/refresh-knowledge` runs (or the app restarts). Call it after bulk content changes.
+> With multiple workers, each worker holds its own copy — restart or refresh them all.
+
+### How the chatbot is kept to website content
+
+Three layers, in order:
+
+1. **Retrieval.** Every answer is grounded in the documents retrieved for that message. The system
+   prompt states that names, prices, ratings, and links may come *only* from the retrieved block, that
+   URLs must never be guessed or constructed, and that a missing match must be admitted rather than
+   filled in with a plausible example.
+2. **Scope gate.** If the best match in the whole knowledge base scores below `RAG_SCOPE_THRESHOLD`,
+   the question is treated as off-topic. The assistant is switched to a restricted prompt that only
+   permits a one-line redirect, and the response comes back with `in_scope: false`. Greetings and small
+   talk land here too and get a friendly "here's what I can help with" reply.
+3. **Refusal rules.** The main prompt lists what is in scope and what is not, and instructs the
+   assistant to refuse out-of-scope requests even when the user insists, role-plays, claims to be
+   staff, or says the rules changed, and never to reveal its instructions.
+
+Tuning knobs in `.env`:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `RAG_TOP_K` | 8 | How many documents are fed as context. Raise for more variety across service types. |
+| `RAG_SIMILARITY_THRESHOLD` | 0.3 | Minimum score to be quoted as a result. Raise to cut weak matches. |
+| `RAG_SCOPE_THRESHOLD` | 0.15 | Below this, the question is off-topic. **Raise to make the bot stricter**, lower if it wrongly refuses real questions. |
+
+Layers 1 and 3 are prompt-level and therefore strong but not absolute; layer 2 is deterministic code.
+If you need a hard guarantee on a specific topic, add it to the scope gate rather than the prompt.
 
 ---
 

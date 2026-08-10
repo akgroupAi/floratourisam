@@ -98,8 +98,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
-    RAG_TOP_K: int = 5
+    RAG_TOP_K: int = 8
     RAG_SIMILARITY_THRESHOLD: float = 0.3
+    # Below this best-match score a question is treated as off-topic and the
+    # assistant redirects instead of answering from general world knowledge.
+    RAG_SCOPE_THRESHOLD: float = 0.15
 
     # SMTP Email
     SMTP_HOST: str = "smtp.gmail.com"

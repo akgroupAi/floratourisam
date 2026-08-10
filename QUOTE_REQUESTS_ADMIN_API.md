@@ -24,10 +24,11 @@ Public site "Get a Free Medical Plan Quote" form
         └── notification email sent to the admin address
         │
         ▼
-GET   /api/v1/admin/quotes                  ← admin panel list
-GET   /api/v1/admin/quotes/{id}             ← detail + attached documents
-PATCH /api/v1/admin/quotes/{id}/status      ← move through the funnel
-PATCH /api/v1/admin/quotes/{id}/assign      ← hand to a team member
+GET   /api/v1/admin/quotes                        ← admin panel list
+GET   /api/v1/admin/quotes/{id}                   ← detail + attached documents
+GET   /api/v1/admin/quotes/{id}/documents/{file}  ← download an attachment (admin auth)
+PATCH /api/v1/admin/quotes/{id}/status            ← move through the funnel
+PATCH /api/v1/admin/quotes/{id}/assign            ← hand to a team member
 ```
 
 Quote requests share the `lead_submissions` table with contact messages. The admin quote endpoints
@@ -178,6 +179,10 @@ Everything from the list item, plus attachments, assignment, and campaign tracki
     "uploads/quote_submissions/9b1c-....pdf",
     "uploads/quote_submissions/4d7a-....jpg"
   ],
+  "document_urls": [
+    "/api/v1/admin/quotes/3f9a1c2e-7b4d-4a91-9f0e-2c5d8b1a6e33/documents/9b1c-....pdf",
+    "/api/v1/admin/quotes/3f9a1c2e-7b4d-4a91-9f0e-2c5d8b1a6e33/documents/4d7a-....jpg"
+  ],
   "document_count": 2,
   "status": "contacted",
   "status_label": "Contacted",
@@ -194,7 +199,37 @@ Everything from the list item, plus attachments, assignment, and campaign tracki
 
 `404` if the id does not exist or was soft-deleted.
 
-### 2.4 Update status
+### 2.4 Download an attached document
+
+`GET /api/v1/admin/quotes/{quote_id}/documents/{filename}`
+
+Streams the file back with the right `Content-Type` (PDF, JPEG, or PNG). Admin auth required, same
+as every other endpoint here — send the `Authorization` header.
+
+**Use the `document_urls` values verbatim; do not build this URL from `documents`.** The `documents`
+field holds server-side storage paths (`uploads/quote_submissions/...`), which are *not* reachable
+from the browser. Fetching them directly returns `404 {"detail":"Not Found"}`, because the app has
+no `/uploads/*` route by design — these are patients' medical records and must not be served from a
+public static path.
+
+Because the endpoint needs an `Authorization` header, a bare `<a href>` or `<img src>` will not work.
+Fetch it and turn the response into a blob URL:
+
+```js
+const res = await fetch(`${API_BASE}${quote.document_urls[0]}`, {
+  headers: { Authorization: `Bearer ${token}` },
+});
+if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+const url = URL.createObjectURL(await res.blob());
+window.open(url);            // or <a href={url} download>
+// URL.revokeObjectURL(url) once you are done with it
+```
+
+`404` if the quote does not exist, the filename is not one this quote stored, or the file is missing
+from disk. A filename that is not a bare name (any path separator, `..`) is rejected, so one quote
+can never read another quote's attachment or reach outside the upload directory.
+
+### 2.5 Update status
 
 `PATCH /api/v1/admin/quotes/{quote_id}/status`
 
@@ -211,7 +246,7 @@ chars; omit it to leave existing notes untouched. Returns the full updated detai
 Moving a quote off `new` also assigns it to the acting admin **if it is not already assigned** —
 whoever works the lead owns it, without stealing it from an existing owner.
 
-### 2.5 Assign to a team member
+### 2.6 Assign to a team member
 
 `PATCH /api/v1/admin/quotes/{quote_id}/assign`
 
@@ -221,7 +256,7 @@ whoever works the lead owns it, without stealing it from an existing owner.
 
 Returns the full updated detail object. Use this to reassign or to assign without changing status.
 
-### 2.6 Delete
+### 2.7 Delete
 
 `DELETE /api/v1/admin/quotes/{quote_id}`
 
@@ -295,6 +330,10 @@ curl -X PATCH http://localhost:8000/api/v1/admin/quotes/$ID/assign \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"assigned_to": "8c1d4b77-2f3e-4a0b-91cc-77e5a2d90411"}'
+
+# Admin: download an attached document (filename comes from document_urls)
+curl -OJ "http://localhost:8000/api/v1/admin/quotes/$ID/documents/9b1c-....pdf" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
@@ -307,9 +346,14 @@ curl -X PATCH http://localhost:8000/api/v1/admin/quotes/$ID/assign \
   detail endpoint matches only `form_source = "quote_form"` while their list also returns legacy
   `NULL`-source rows, so a row visible in that list can `404` when opened. The new endpoints apply one
   consistent filter everywhere.
-- **`documents` holds server-side file paths**, not public URLs. They are written under
-  `uploads/quote_submissions/`. Serve them through an authenticated route — do not expose the raw path
-  to the browser.
+- **`documents` holds server-side file paths, not public URLs.** Use `document_urls` and the
+  [download endpoint](#24-download-an-attached-document). Prefixing the API base onto a `documents`
+  entry produces `/apis/uploads/quote_submissions/....pdf`, which returns
+  `404 {"detail":"Not Found"}` — the app deliberately has no `/uploads/*` route, since these are
+  patients' medical records. The only static mount is `/static/uploads`, and quote documents are
+  intentionally not served from it.
+- **The download endpoint needs an `Authorization` header**, so `<a href>` and `<img src>` will not
+  work. Fetch it and use a blob URL, as shown in section 2.4.
 - **The admin notification email is best-effort.** If SMTP fails, the submission is still saved and the
   public request still succeeds — the failure is only logged. Never treat "no email arrived" as "the
   request was lost"; check the list endpoint.

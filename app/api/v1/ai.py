@@ -20,6 +20,7 @@ from app.schemas.ai import (
     AIReportAnalysisResponse,
     DoctorSuggestion,
     RecommendedDoctor,
+    ServiceRecommendation,
 )
 from app.schemas.common import MessageResponse, PaginatedResponse
 from app.services.rag_service import RAGChatService, rebuild_knowledge_base
@@ -55,7 +56,11 @@ async def ai_chat(
             doctor_suggestions=[
                 DoctorSuggestion(**d) for d in result["doctor_suggestions"]
             ],
+            recommendations=[
+                ServiceRecommendation(**r) for r in result["recommendations"]
+            ],
             follow_up_questions=result["follow_up_questions"],
+            in_scope=result["in_scope"],
             tokens_used=result["tokens_used"],
             response_time_ms=result["response_time_ms"],
         )

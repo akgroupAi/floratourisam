@@ -1,6 +1,8 @@
 """Quote request service ('Get a Free Medical Plan Quote' form)."""
 
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Optional, Tuple
 from uuid import UUID
 
@@ -11,12 +13,51 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.site import LeadSubmission
 from app.schemas.quote import QuoteStatusUpdate
+from app.utils.constants import API_V1_PREFIX
 from app.utils.email_sender import render_quote_lead_email_html, send_email
 from app.utils.enums import QuoteStatus
 
 logger = get_logger(__name__)
 
 QUOTE_FORM_SOURCE = "quote_form"
+QUOTE_DOCUMENTS_SUBDIR = "quote_submissions"
+
+
+def quote_documents_dir() -> Path:
+    """Directory holding uploaded quote documents.
+
+    Derived from UPLOAD_DIR so writes and reads agree no matter what the process
+    working directory is.
+    """
+    return Path(settings.UPLOAD_DIR) / QUOTE_DOCUMENTS_SUBDIR
+
+
+def _stored_basename(stored_path: str) -> str:
+    """Filename from a stored path, tolerating Windows separators."""
+    return os.path.basename(str(stored_path).replace("\\", "/"))
+
+
+def document_url(quote_id, stored_path: str) -> str:
+    """Authenticated API path the admin panel can fetch this document from."""
+    return f"{API_V1_PREFIX}/admin/quotes/{quote_id}/documents/{_stored_basename(stored_path)}"
+
+
+def resolve_document_path(lead: LeadSubmission, filename: str) -> Optional[Path]:
+    """Map a requested filename to a file on disk, or None if it is not this quote's.
+
+    Guards against traversal by rejecting anything that is not a bare filename and
+    by requiring the name to be one this submission actually stored.
+    """
+    safe_name = os.path.basename(filename)
+    if not safe_name or safe_name != filename or safe_name in (".", ".."):
+        return None
+
+    owned = {_stored_basename(p) for p in (lead.documents or [])}
+    if safe_name not in owned:
+        return None
+
+    path = quote_documents_dir() / safe_name
+    return path if path.is_file() else None
 
 
 def _status_label(status: str) -> str:
@@ -43,6 +84,7 @@ def _serialize_quote(lead: LeadSubmission) -> dict:
         "preferred_destination": lead.preferred_destination,
         "message": lead.message,
         "documents": documents,
+        "document_urls": [document_url(lead.id, p) for p in documents],
         "document_count": len(documents),
         "status": status,
         "status_label": _status_label(status),

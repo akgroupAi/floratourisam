@@ -907,10 +907,11 @@ async def submit_quote_form(
     Accepts form data and optionally uploads medical documents.
     """
     from app.models.site import LeadSubmission
-    
+    from app.services.quote_service import quote_documents_dir
+
     try:
-        # Create uploads directory if it doesn't exist
-        upload_dir = Path("uploads/quote_submissions")
+        # Same directory the admin download endpoint reads from.
+        upload_dir = quote_documents_dir()
         upload_dir.mkdir(parents=True, exist_ok=True)
         
         # Store file paths

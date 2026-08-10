@@ -2,8 +2,15 @@
 
 import pytest
 
+from app.core.config import settings
 from app.schemas.quote import QuoteAssignUpdate, QuoteStatusUpdate
-from app.services.quote_service import _serialize_quote, _status_label
+from app.services.quote_service import (
+    _serialize_quote,
+    _status_label,
+    document_url,
+    quote_documents_dir,
+    resolve_document_path,
+)
 from app.utils.enums import QuoteStatus
 
 
@@ -91,3 +98,75 @@ def test_status_update_rejects_unknown_stage():
 def test_assign_schema_requires_uuid():
     update = QuoteAssignUpdate(assigned_to="8c1d4b77-2f3e-4a0b-91cc-77e5a2d90411")
     assert str(update.assigned_to) == "8c1d4b77-2f3e-4a0b-91cc-77e5a2d90411"
+
+
+# ── Document download ─────────────────────────────────────────
+
+
+@pytest.fixture
+def upload_dir(tmp_path, monkeypatch):
+    """Point UPLOAD_DIR at a temp dir and create the quote documents folder."""
+    monkeypatch.setattr(settings, "UPLOAD_DIR", str(tmp_path))
+    docs_dir = quote_documents_dir()
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    return docs_dir
+
+
+def test_document_url_is_an_authenticated_api_path():
+    url = document_url("abc-123", "uploads/quote_submissions/report.pdf")
+    assert url == "/api/v1/admin/quotes/abc-123/documents/report.pdf"
+
+
+def test_document_url_handles_windows_stored_paths():
+    url = document_url("abc-123", "uploads\\quote_submissions\\report.pdf")
+    assert url.endswith("/documents/report.pdf")
+
+
+def test_serialize_exposes_a_url_per_document():
+    lead = FakeLead()
+    lead.documents = ["uploads/quote_submissions/a.pdf", "uploads/quote_submissions/b.jpg"]
+    data = _serialize_quote(lead)
+    assert data["document_urls"] == [
+        f"/api/v1/admin/quotes/{lead.id}/documents/a.pdf",
+        f"/api/v1/admin/quotes/{lead.id}/documents/b.jpg",
+    ]
+
+
+def test_resolve_returns_path_for_an_owned_existing_file(upload_dir):
+    (upload_dir / "report.pdf").write_bytes(b"%PDF-1.4")
+    lead = FakeLead()
+    lead.documents = ["uploads/quote_submissions/report.pdf"]
+    assert resolve_document_path(lead, "report.pdf") == upload_dir / "report.pdf"
+
+
+def test_resolve_rejects_a_file_belonging_to_another_quote(upload_dir):
+    (upload_dir / "someone-elses.pdf").write_bytes(b"%PDF-1.4")
+    lead = FakeLead()
+    lead.documents = ["uploads/quote_submissions/mine.pdf"]
+    assert resolve_document_path(lead, "someone-elses.pdf") is None
+
+
+def test_resolve_rejects_path_traversal(upload_dir):
+    lead = FakeLead()
+    lead.documents = ["uploads/quote_submissions/report.pdf"]
+    for attempt in ("../../.env", "..", ".", "sub/report.pdf", "/etc/passwd"):
+        assert resolve_document_path(lead, attempt) is None, attempt
+
+
+def test_resolve_returns_none_when_the_file_is_missing_on_disk(upload_dir):
+    lead = FakeLead()
+    lead.documents = ["uploads/quote_submissions/gone.pdf"]
+    assert resolve_document_path(lead, "gone.pdf") is None
+
+
+def test_resolve_handles_quotes_with_no_documents(upload_dir):
+    lead = FakeLead()
+    lead.documents = None
+    assert resolve_document_path(lead, "anything.pdf") is None
+
+
+def test_resolve_matches_windows_stored_paths(upload_dir):
+    (upload_dir / "report.pdf").write_bytes(b"%PDF-1.4")
+    lead = FakeLead()
+    lead.documents = ["uploads\\quote_submissions\\report.pdf"]
+    assert resolve_document_path(lead, "report.pdf") == upload_dir / "report.pdf"

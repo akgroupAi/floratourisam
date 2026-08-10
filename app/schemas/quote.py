@@ -47,7 +47,13 @@ class QuoteListItem(BaseSchema):
 class QuoteDetailResponse(QuoteListItem):
     """Full quote detail for admin, including attachments and campaign tracking."""
 
-    documents: List[str] = []
+    documents: List[str] = Field(
+        default=[], description="Server-side storage paths — not fetchable by the browser"
+    )
+    document_urls: List[str] = Field(
+        default=[],
+        description="Authenticated API paths to download each document, in the same order",
+    )
     assigned_to: Optional[UUID] = None
     utm_source: Optional[str] = None
     utm_medium: Optional[str] = None
