@@ -195,6 +195,103 @@ class AIStatsResponse(BaseModel):
     conversations_by_context: dict[str, int]
 
 
+# ── Admin monitoring ──────────────────────────────────────────
+
+
+class AdminAIStatsResponse(AIStatsResponse):
+    """Chatbot usage, spend, and answer quality across all users."""
+
+    error_count: int
+    error_rate: float = Field(..., description="Percentage of messages that errored")
+    helpful_count: int
+    unhelpful_count: int
+    satisfaction_rate: Optional[float] = Field(
+        None, description="Helpful as a percentage of rated messages; null if none rated"
+    )
+    out_of_scope_count: int
+    out_of_scope_rate: float = Field(
+        ...,
+        description="Percentage refused as off-topic. A rising number means RAG_SCOPE_THRESHOLD is too strict.",
+    )
+    cost_per_conversation: float
+    messages_by_model: dict[str, int]
+
+
+class AIDailyUsage(BaseModel):
+    """One day of chatbot usage, for trend charts."""
+
+    date: str
+    messages: int
+    tokens: int
+    cost: float
+
+
+class AdminAIConversationResponse(BaseModel):
+    """Conversation row for admin, with the owner attached."""
+
+    id: UUID
+    user_id: Optional[UUID] = None
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    session_id: str
+    title: Optional[str] = None
+    context_type: Optional[str] = None
+    is_active: bool
+    message_count: int
+    total_tokens_used: int
+    estimated_cost: float
+    rating: Optional[int] = None
+    feedback: Optional[str] = None
+    created_at: datetime
+    ended_at: Optional[datetime] = None
+
+
+class AdminAILogResponse(BaseModel):
+    """One chatbot exchange, with retrieval and quality metadata."""
+
+    id: UUID
+    conversation_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    user_message: str
+    ai_response: Optional[str] = None
+    model_name: Optional[str] = None
+    total_tokens: int = 0
+    cost: float = 0.0
+    response_time_ms: int = 0
+    is_error: bool = False
+    error_message: Optional[str] = None
+    is_helpful: Optional[bool] = None
+    feedback: Optional[str] = None
+    in_scope: bool = True
+    retrieved_doc_count: int = 0
+    retrieved_doc_types: List[str] = []
+    created_at: datetime
+
+
+class AITopQuestion(BaseModel):
+    """A frequently asked question."""
+
+    question: str
+    count: int
+
+
+class AIKnowledgeStatusResponse(BaseModel):
+    """What the chatbot currently knows, and whether that snapshot is stale."""
+
+    is_built: bool
+    total_documents: int
+    documents_by_type: dict[str, int]
+    embedding_model: str
+    chat_model: str
+    rag_top_k: int
+    similarity_threshold: float
+    scope_threshold: float
+    warning: Optional[str] = None
+    note: str
+
+
 class AISuggestion(BaseModel):
     """AI suggestion for user."""
 

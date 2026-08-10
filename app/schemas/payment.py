@@ -1,7 +1,7 @@
 """Payment schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -154,3 +154,59 @@ class PaymentStatsResponse(BaseModel):
     payments_by_method: dict[str, int]
     payments_by_status: dict[str, int]
     revenue_by_currency: dict[str, float]
+
+
+# ── Admin ─────────────────────────────────────────────────────
+
+
+class AdminPaymentListResponse(PaymentListResponse):
+    """Payment list row for admin, with the payer attached."""
+
+    user_id: UUID
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    gateway: Optional[str] = None
+    gateway_transaction_id: Optional[str] = None
+    refund_amount: Optional[float] = None
+    failure_reason: Optional[str] = None
+
+
+class AdminPaymentStatsResponse(PaymentStatsResponse):
+    """Platform-wide payment statistics."""
+
+    pending_payments: int
+    refunded_payments: int
+    success_rate: float = Field(..., description="Percentage of payments that completed")
+    failure_rate: float = Field(..., description="Percentage of payments that failed")
+
+
+class AdminRefundRequest(BaseModel):
+    """Admin-initiated refund. Records the refund; does not call the gateway."""
+
+    amount: Optional[float] = Field(default=None, gt=0, description="Omit for a full refund")
+    reason: str = Field(..., min_length=3, max_length=500)
+
+
+class ReconciliationMismatch(BaseModel):
+    """A booking whose payments do not line up with its total."""
+
+    booking_id: str
+    reference_number: Optional[str] = None
+    booking_type: Optional[str] = None
+    booking_status: Optional[str] = None
+    booking_total: float
+    amount_paid: float
+    difference: float
+    issue: str = Field(
+        ...,
+        description="marked_paid_without_payment | amount_mismatch | paid_but_not_marked",
+    )
+
+
+class ReconciliationResponse(BaseModel):
+    """Result of comparing booking totals against completed payments."""
+
+    bookings_checked: int
+    mismatch_count: int
+    orphaned_payments: int = Field(..., description="Payments pointing at a booking that no longer exists")
+    mismatches: List[ReconciliationMismatch] = []

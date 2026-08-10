@@ -263,6 +263,26 @@ class ConsultationSessionResponse(BaseModel):
     expires_at: datetime
 
 
+class AdminConsultationStatsResponse(BaseModel):
+    """Platform-wide consultation statistics."""
+
+    total: int
+    today: int
+    pending: int
+    scheduled: int
+    in_progress: int = Field(..., description="Waiting plus in-progress right now")
+    completed: int
+    cancelled: int
+    missed: int
+    unpaid: int
+    overdue_pending: int = Field(..., description="Still pending though the slot has passed")
+    completion_rate: float
+    cancellation_rate: float
+    no_show_rate: float
+    by_status: dict[str, int]
+    by_type: dict[str, int]
+
+
 class ConsultationStatsResponse(BaseModel):
     """Consultation statistics."""
 

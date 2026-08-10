@@ -838,6 +838,7 @@ class RAGChatService:
             total_tokens=usage.total_tokens if usage else 0,
             elapsed_ms=elapsed_ms,
             relevant_docs=relevant_docs,
+            in_scope=in_scope,
         )
 
         # 11. Auto-title the conversation on first message
@@ -1465,6 +1466,7 @@ class RAGChatService:
         total_tokens: int,
         elapsed_ms: int,
         relevant_docs: list[dict],
+        in_scope: bool = True,
     ) -> AILog:
         # Estimate cost (GPT-4o-mini pricing)
         cost = (prompt_tokens * 0.00015 + completion_tokens * 0.0006) / 1000
@@ -1484,6 +1486,9 @@ class RAGChatService:
             request_metadata={
                 "relevant_docs_count": len(relevant_docs),
                 "doc_types": [d["type"] for d in relevant_docs],
+                # Lets admins track the off-topic refusal rate, which is the signal
+                # that RAG_SCOPE_THRESHOLD needs tuning.
+                "in_scope": in_scope,
             },
         )
         self.db.add(log)

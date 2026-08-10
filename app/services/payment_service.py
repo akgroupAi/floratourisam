@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -104,6 +104,337 @@ class PaymentService:
             result.append(d)
 
         return result, total
+
+    # ── Admin-wide views ──────────────────────────────────────
+    # The methods above scope to a single user. These deliberately do not, and
+    # are only reachable from the admin router.
+
+    async def get_admin_list(
+        self,
+        pagination: PaginationParams,
+        status: Optional[str] = None,
+        payment_method: Optional[str] = None,
+        gateway: Optional[str] = None,
+        booking_type: Optional[str] = None,
+        user_id: Optional[UUID] = None,
+        search: Optional[str] = None,
+        refunded_only: bool = False,
+        failed_only: bool = False,
+        from_date=None,
+        to_date=None,
+    ) -> tuple[List[dict], int]:
+        """List payments across every user, with the payer attached."""
+        from datetime import timedelta
+
+        from app.models.booking import Booking
+        from app.models.user import User
+
+        conditions = [Payment.is_deleted == False]
+        if status:
+            if status in ("completed", "confirmed"):
+                conditions.append(Payment.status.in_(["completed", "confirmed"]))
+            else:
+                conditions.append(Payment.status == status)
+        if payment_method:
+            conditions.append(Payment.payment_method == payment_method)
+        if gateway:
+            conditions.append(Payment.gateway == gateway)
+        if user_id:
+            conditions.append(Payment.user_id == user_id)
+        if refunded_only:
+            conditions.append(Payment.is_refunded == True)
+        if failed_only:
+            conditions.append(Payment.status == PaymentStatus.FAILED.value)
+        if from_date:
+            conditions.append(
+                Payment.initiated_at
+                >= datetime(from_date.year, from_date.month, from_date.day, tzinfo=timezone.utc)
+            )
+        if to_date:
+            conditions.append(
+                Payment.initiated_at
+                < datetime(to_date.year, to_date.month, to_date.day, tzinfo=timezone.utc)
+                + timedelta(days=1)
+            )
+        if search:
+            like = f"%{search}%"
+            conditions.append(
+                or_(
+                    Payment.reference_number.ilike(like),
+                    Payment.gateway_transaction_id.ilike(like),
+                    User.email.ilike(like),
+                    User.full_name.ilike(like),
+                )
+            )
+        if booking_type:
+            conditions.append(Booking.booking_type == booking_type)
+
+        where = and_(*conditions)
+
+        base = (
+            select(Payment, User.full_name, User.email, Booking.booking_type)
+            .select_from(Payment)
+            .outerjoin(User, Payment.user_id == User.id)
+            .outerjoin(Booking, Payment.booking_id == Booking.id)
+            .where(where)
+        )
+
+        total = (
+            await self.db.execute(
+                select(func.count())
+                .select_from(Payment)
+                .outerjoin(User, Payment.user_id == User.id)
+                .outerjoin(Booking, Payment.booking_id == Booking.id)
+                .where(where)
+            )
+        ).scalar() or 0
+
+        rows = (
+            await self.db.execute(
+                base.order_by(Payment.created_at.desc())
+                .offset(pagination.offset)
+                .limit(pagination.page_size)
+            )
+        ).all()
+
+        items = []
+        for payment, full_name, email, booking_type_value in rows:
+            data = {c.name: getattr(payment, c.name) for c in payment.__table__.columns}
+            if data.get("status") == "confirmed":
+                data["status"] = "completed"
+            data["user_name"] = full_name
+            data["user_email"] = email
+            data["booking_type"] = booking_type_value
+            items.append(data)
+        return items, total
+
+    async def get_admin_stats(self, from_date=None, to_date=None) -> dict:
+        """Payment totals across the platform, grouped by status, method, and currency."""
+        from datetime import timedelta
+
+        conditions = [Payment.is_deleted == False]
+        if from_date:
+            conditions.append(
+                Payment.initiated_at
+                >= datetime(from_date.year, from_date.month, from_date.day, tzinfo=timezone.utc)
+            )
+        if to_date:
+            conditions.append(
+                Payment.initiated_at
+                < datetime(to_date.year, to_date.month, to_date.day, tzinfo=timezone.utc)
+                + timedelta(days=1)
+            )
+
+        completed = ["completed", "confirmed"]
+
+        by_status_rows = (
+            await self.db.execute(
+                select(Payment.status, func.count(Payment.id), func.sum(Payment.amount))
+                .where(*conditions)
+                .group_by(Payment.status)
+            )
+        ).all()
+        by_status = {row[0]: row[1] for row in by_status_rows}
+        amount_by_status = {row[0]: float(row[2] or 0) for row in by_status_rows}
+
+        by_method = dict(
+            (
+                await self.db.execute(
+                    select(Payment.payment_method, func.count(Payment.id))
+                    .where(*conditions)
+                    .group_by(Payment.payment_method)
+                )
+            ).all()
+        )
+
+        revenue_by_currency = {
+            currency: float(amount or 0)
+            for currency, amount in (
+                await self.db.execute(
+                    select(Payment.currency, func.sum(Payment.amount))
+                    .where(*conditions, Payment.status.in_(completed))
+                    .group_by(Payment.currency)
+                )
+            ).all()
+        }
+
+        total_revenue = sum(amount_by_status.get(s, 0.0) for s in completed)
+        total_refunded = float(
+            (
+                await self.db.execute(
+                    select(func.sum(Payment.refund_amount)).where(
+                        *conditions, Payment.is_refunded == True
+                    )
+                )
+            ).scalar()
+            or 0
+        )
+        successful = sum(by_status.get(s, 0) for s in completed)
+        failed = by_status.get(PaymentStatus.FAILED.value, 0)
+        total_payments = sum(by_status.values())
+
+        return {
+            "total_payments": total_payments,
+            "successful_payments": successful,
+            "failed_payments": failed,
+            "pending_payments": by_status.get(PaymentStatus.PENDING.value, 0),
+            "refunded_payments": by_status.get(PaymentStatus.REFUNDED.value, 0),
+            "total_revenue": round(total_revenue, 2),
+            "total_refunded": round(total_refunded, 2),
+            "net_revenue": round(total_revenue - total_refunded, 2),
+            "success_rate": round(successful / total_payments * 100, 2) if total_payments else 0.0,
+            "failure_rate": round(failed / total_payments * 100, 2) if total_payments else 0.0,
+            "payments_by_method": by_method,
+            "payments_by_status": by_status,
+            "revenue_by_currency": revenue_by_currency,
+        }
+
+    async def get_transactions(self, payment_id: UUID) -> List[PaymentTransaction]:
+        """Gateway event trail for one payment, oldest first."""
+        result = await self.db.execute(
+            select(PaymentTransaction)
+            .where(PaymentTransaction.payment_id == payment_id)
+            .order_by(PaymentTransaction.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_reconciliation(self, limit: int = 100) -> dict:
+        """Compare booking totals against completed payments and flag mismatches.
+
+        Three failure modes worth catching: a booking marked paid with no completed
+        payment, a booking whose payments do not add up to its total, and a payment
+        pointing at a booking that no longer exists.
+        """
+        from app.models.booking import Booking
+
+        completed = ["completed", "confirmed"]
+
+        paid_per_booking = (
+            select(
+                Payment.booking_id.label("booking_id"),
+                func.sum(Payment.amount).label("paid"),
+            )
+            .where(
+                Payment.is_deleted == False,
+                Payment.status.in_(completed),
+                Payment.booking_id.isnot(None),
+            )
+            .group_by(Payment.booking_id)
+            .subquery()
+        )
+
+        rows = (
+            await self.db.execute(
+                select(
+                    Booking.id,
+                    Booking.reference_number,
+                    Booking.booking_type,
+                    Booking.total_price,
+                    Booking.is_paid,
+                    Booking.status,
+                    func.coalesce(paid_per_booking.c.paid, 0.0).label("paid"),
+                )
+                .outerjoin(paid_per_booking, Booking.id == paid_per_booking.c.booking_id)
+                .where(Booking.is_deleted == False)
+                .order_by(Booking.created_at.desc())
+                .limit(limit)
+            )
+        ).all()
+
+        mismatches = []
+        for booking_id, reference, booking_type, total_price, is_paid, booking_status, paid in rows:
+            total = float(total_price or 0)
+            paid = float(paid or 0)
+            issue = None
+            if is_paid and paid == 0:
+                issue = "marked_paid_without_payment"
+            elif paid > 0 and abs(paid - total) > 0.01:
+                issue = "amount_mismatch"
+            elif not is_paid and paid >= total and total > 0:
+                issue = "paid_but_not_marked"
+            if issue:
+                mismatches.append({
+                    "booking_id": str(booking_id),
+                    "reference_number": reference,
+                    "booking_type": booking_type,
+                    "booking_status": booking_status,
+                    "booking_total": round(total, 2),
+                    "amount_paid": round(paid, 2),
+                    "difference": round(paid - total, 2),
+                    "issue": issue,
+                })
+
+        orphaned = (
+            await self.db.execute(
+                select(func.count(Payment.id))
+                .select_from(Payment)
+                .outerjoin(Booking, Payment.booking_id == Booking.id)
+                .where(
+                    Payment.is_deleted == False,
+                    Payment.booking_id.isnot(None),
+                    Booking.id.is_(None),
+                )
+            )
+        ).scalar() or 0
+
+        return {
+            "bookings_checked": len(rows),
+            "mismatch_count": len(mismatches),
+            "orphaned_payments": orphaned,
+            "mismatches": mismatches,
+        }
+
+    async def admin_refund(
+        self,
+        payment: Payment,
+        amount: Optional[float],
+        reason: str,
+        actioned_by: UUID,
+    ) -> Payment:
+        """Record an admin-initiated refund, full or partial.
+
+        This marks the refund in our records; it does not call the gateway. Issue the
+        money back in the Razorpay dashboard, then record it here.
+        """
+        refund_amount = amount or payment.amount
+        already = payment.refund_amount or 0
+        if refund_amount + already > payment.amount + 0.01:
+            raise ValueError(
+                f"Refund of {refund_amount} exceeds refundable balance "
+                f"({payment.amount - already} remaining)"
+            )
+
+        payment.refund_amount = already + refund_amount
+        payment.is_refunded = True
+        payment.refunded_at = datetime.now(timezone.utc)
+        payment.refund_reason = reason
+        payment.status = (
+            PaymentStatus.REFUNDED.value
+            if payment.refund_amount >= payment.amount - 0.01
+            else PaymentStatus.PARTIALLY_REFUNDED.value
+        )
+        payment.updated_by = actioned_by
+
+        self.db.add(
+            PaymentTransaction(
+                payment_id=payment.id,
+                transaction_type="refund",
+                amount=refund_amount,
+                currency=payment.currency,
+                status="success",
+                transaction_metadata={"reason": reason, "actioned_by": str(actioned_by), "source": "admin"},
+            )
+        )
+
+        await self.db.commit()
+        await self.db.refresh(payment)
+        logger.info(
+            "admin_refund_recorded",
+            payment_id=str(payment.id),
+            amount=refund_amount,
+            actioned_by=str(actioned_by),
+        )
+        return payment
 
     async def create(self, user_id: UUID, amount: float, method: str, booking_id: Optional[UUID] = None) -> Payment:
         payment = Payment(

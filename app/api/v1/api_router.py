@@ -21,6 +21,12 @@ from app.api.v1 import (
     contact,
     admin_contact,
     admin_quote,
+    admin_payment,
+    admin_consultation,
+    admin_ai,
+    admin_chat,
+    admin_audit,
+    admin_ops,
 )
 
 api_router = APIRouter()
@@ -40,6 +46,7 @@ api_router.include_router(departments.router, prefix="/departments", tags=["Depa
 
 # Medical services
 api_router.include_router(consultations.router, prefix="/consultations", tags=["Consultations"])
+api_router.include_router(admin_consultation.router, prefix="/admin/consultations", tags=["Admin - Consultations"])
 api_router.include_router(appointments.router, prefix="/appointments", tags=["Appointments"])
 
 # Accommodation & Dining
@@ -53,10 +60,21 @@ api_router.include_router(restaurants.router, prefix="/restaurants", tags=["Rest
 api_router.include_router(bookings.router, prefix="/bookings", tags=["Bookings"])
 api_router.include_router(admin_bookings.router, prefix="/admin/bookings", tags=["Admin - Bookings"])
 api_router.include_router(payments.router, prefix="/payments", tags=["Payments"])
+api_router.include_router(admin_payment.router, prefix="/admin/payments", tags=["Admin - Payments"])
 
 # Communication
 api_router.include_router(chat.router, prefix="/chat", tags=["Chat"])
+api_router.include_router(admin_chat.router, prefix="/admin/chat", tags=["Admin - Chat Oversight"])
 api_router.include_router(ai.router, prefix="/ai", tags=["AI Assistant"])
+api_router.include_router(admin_ai.router, prefix="/admin/ai", tags=["Admin - AI Monitoring"])
+
+# Admin - Audit Trail
+api_router.include_router(admin_audit.router, prefix="/admin/audit", tags=["Admin - Audit Trail"])
+
+# Admin - Operations (broadcasts, calendar, demand signals)
+api_router.include_router(admin_ops.notification_router, prefix="/admin/notifications", tags=["Admin - Notifications"])
+api_router.include_router(admin_ops.event_router, prefix="/admin/events", tags=["Admin - Events"])
+api_router.include_router(admin_ops.insight_router, prefix="/admin/insights", tags=["Admin - Insights"])
 
 # CMS (generic)
 api_router.include_router(cms.router, prefix="/cms", tags=["CMS"])
