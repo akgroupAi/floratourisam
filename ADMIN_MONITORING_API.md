@@ -260,18 +260,11 @@ one transaction, so a broadcast either lands or it does not.
 
 ## 6b. Treatment Proposals
 
-`/admin/treatment-proposals` — who sent each proposal, its approval state, the money involved, and
-the detail behind it.
+`/admin/treatment-proposals` — who sent each proposal, the money involved, and the detail behind it.
 
-Note the two independent decisions on every proposal:
-
-| Field | Meaning |
-|---|---|
-| `status` | The **patient's** answer — `pending`, `approved`, `rejected`, `revision_requested` |
-| `admin_approved` | The **platform's** sign-off — `true`, `false`, or `null` (not yet reviewed) |
-
-A proposal can be accepted by the patient and still awaiting admin approval. The dashboard must show
-both; collapsing them into one "status" column loses the thing an admin needs to act on.
+**Read-only.** Proposals go straight from doctor to patient; there is no admin approval step. The
+patient's `status` (`pending`, `approved`, `rejected`, `revision_requested`) is the only decision on
+a proposal. Admins have visibility, not a gate.
 
 ### `GET /admin/treatment-proposals/stats`
 
@@ -282,14 +275,14 @@ Everything the dashboard needs in one call.
   "total": 184,
   "by_status": { "pending": 32, "approved": 96, "rejected": 41, "revision_requested": 15 },
   "value_by_status": { "approved": 21400000.0, "pending": 6800000.0 },
-  "pending_admin_review": 28,
-  "admin_approved": 132,
-  "admin_rejected": 24,
+  "awaiting_patient_response": 32,
   "accepted": 96,
+  "rejected": 41,
+  "revision_requested": 15,
   "acceptance_rate": 52.17,
   "total_proposed_value": 41250000.0,
   "accepted_value": 21400000.0,
-  "pending_review_value": 6100000.0,
+  "pending_value": 6800000.0,
   "average_proposal_value": 224184.78,
   "largest_proposal_value": 1850000.0,
   "value_by_currency": { "INR": 39100000.0, "USD": 2150000.0 },
@@ -299,8 +292,11 @@ Everything the dashboard needs in one call.
 }
 ```
 
-`pending_review_value` is the money sitting in proposals no admin has looked at — the number that
-justifies clearing the queue. `top_senders` answers "who is sending these".
+`pending_value` is the money in proposals the patient has not answered yet. `top_senders` answers
+"who is sending these".
+
+`GET /admin/insights/treatment-proposals` returns this same object — both endpoints call the same
+code, so they cannot drift apart.
 
 ### `GET /admin/treatment-proposals`
 
@@ -311,39 +307,38 @@ justifies clearing the queue. `top_senders` answers "who is sending these".
 | `doctor_id` | UUID | Proposals sent by one doctor |
 | `patient_id` | UUID | Proposals received by one patient |
 | `hospital_id` | UUID | |
-| `admin_approved` | bool | Filter by the admin decision |
-| `pending_review_only` | bool | **The review queue** — proposals no admin has reviewed |
 | `search` | string | Reference, treatment name, doctor or patient name/email |
 | `min_amount`, `max_amount` | float | Budget range |
 | `from_date`, `to_date` | date | Inclusive |
 | `sort_by` | enum | `created_at` (default) · `amount` · `amount_asc` · `visit_date` |
 
-`pending_review_only=true` takes precedence over `admin_approved` when both are sent, so the two can
-never contradict each other.
-
 Rows carry `doctor_name`, `doctor_specialization`, `patient_name`, `patient_email`, `hospital_name`,
-`treatment_name`, `total_amount` + `currency`, `status`, `admin_approved`, `admin_reviewed_at`,
-`responded_at`, and `proposed_visit_date`.
+`treatment_name`, `total_amount` + `currency`, `status`, `responded_at`, and `proposed_visit_date`.
 
 ### `GET /admin/treatment-proposals/{id}`
 
 Full detail: the itemised cost breakdown (`consultation_fee`, `surgery_fee`, `hospital_stay_fee`,
 `medications_fee`, `other_fees` + `other_fees_description`, `total_amount`), the doctor's
 `description` and `doctor_notes`, `estimated_duration`, `proposed_visit_date` / `proposed_visit_time`,
-the patient's `patient_response_notes` and `responded_at`, and the admin trail (`admin_approved`,
-`admin_notes`, `admin_reviewed_at`).
+and the patient's `patient_response_notes` and `responded_at`.
 
-### `POST /admin/treatment-proposals/{id}/review`
+> The older `GET /treatment-proposals/admin/all` still works but is superseded — it has only a
+> `status` filter and omits the payer/sender detail the dashboard needs.
 
-```json
-{ "approved": true, "notes": "Costs verified against hospital rate card." }
-```
+### Admin approval removed
 
-Sets `admin_approved`, `admin_notes`, the reviewer, and the timestamp. Returns the full proposal.
+Proposals previously carried a second, platform-side decision (`admin_approved` / `admin_notes` /
+`admin_reviewed_at`) and a review endpoint. That step is not required, so it is gone:
 
-> The older `GET /treatment-proposals/admin/all` and `POST /treatment-proposals/admin/{id}/review`
-> still work but are superseded. The old list row omits `admin_approved` entirely, so a dashboard
-> built on it cannot show whether a proposal has been reviewed.
+- `POST /admin/treatment-proposals/{id}/review` — **removed**
+- `POST /treatment-proposals/admin/{id}/review` — **removed**
+- `admin_approved`, `admin_notes`, `admin_reviewed_at` — **removed from all responses**
+- `admin_approved` and `pending_review_only` filters — **removed**
+- Stats fields `pending_admin_review` / `admin_approved` / `admin_rejected` / `pending_review_value`
+  are replaced by `awaiting_patient_response` / `rejected` / `revision_requested` / `pending_value`
+
+The database columns are still present but nothing reads or writes them, so historical values are not
+lost. Drop them in a migration once you have confirmed you do not need them.
 
 ### Access control fix
 

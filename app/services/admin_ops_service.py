@@ -345,71 +345,10 @@ class AdminOpsService:
         }
 
     async def proposal_stats(self) -> dict:
-        """Treatment proposal funnel — created, approved, accepted, and their value."""
-        base = [TreatmentProposal.is_deleted == False]
+        """Treatment proposal funnel and pipeline value.
 
-        by_status = dict(
-            (
-                await self.db.execute(
-                    select(TreatmentProposal.status, func.count(TreatmentProposal.id))
-                    .where(*base)
-                    .group_by(TreatmentProposal.status)
-                )
-            ).all()
-        )
-        total = sum(by_status.values())
+        Delegates so this and /admin/treatment-proposals/stats can never drift apart.
+        """
+        from app.services.treatment_proposal_service import TreatmentProposalService
 
-        pending_admin = (
-            await self.db.execute(
-                select(func.count(TreatmentProposal.id)).where(
-                    *base, TreatmentProposal.admin_approved.is_(None)
-                )
-            )
-        ).scalar() or 0
-        admin_approved = (
-            await self.db.execute(
-                select(func.count(TreatmentProposal.id)).where(
-                    *base, TreatmentProposal.admin_approved == True
-                )
-            )
-        ).scalar() or 0
-
-        total_value = float(
-            (
-                await self.db.execute(
-                    select(func.sum(TreatmentProposal.total_amount)).where(*base)
-                )
-            ).scalar()
-            or 0
-        )
-        average_value = float(
-            (
-                await self.db.execute(
-                    select(func.avg(TreatmentProposal.total_amount)).where(*base)
-                )
-            ).scalar()
-            or 0
-        )
-        accepted = by_status.get("accepted", 0)
-        accepted_value = float(
-            (
-                await self.db.execute(
-                    select(func.sum(TreatmentProposal.total_amount)).where(
-                        *base, TreatmentProposal.status == "accepted"
-                    )
-                )
-            ).scalar()
-            or 0
-        )
-
-        return {
-            "total": total,
-            "by_status": by_status,
-            "pending_admin_review": pending_admin,
-            "admin_approved": admin_approved,
-            "accepted": accepted,
-            "acceptance_rate": round(accepted / total * 100, 2) if total else 0.0,
-            "total_proposed_value": round(total_value, 2),
-            "accepted_value": round(accepted_value, 2),
-            "average_proposal_value": round(average_value, 2),
-        }
+        return await TreatmentProposalService(self.db).admin_stats()

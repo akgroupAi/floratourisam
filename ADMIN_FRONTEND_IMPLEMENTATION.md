@@ -525,26 +525,20 @@ proposal dashboard use `/admin/treatment-proposals/*` — see §9.4.
 
 ### 9.4 Treatment proposals — `/admin/proposals`
 
-**Two independent decisions per proposal. Show both as separate columns:**
+**Read-only.** Proposals go straight from doctor to patient — there is no admin approval step, and no
+review action to build. The admin screen is for visibility: who sent what, to whom, for how much.
 
-| Column | Field | Values |
-|---|---|---|
-| Patient decision | `status` | `pending` · `approved` · `rejected` · `revision_requested` |
-| Admin sign-off | `admin_approved` | `true` · `false` · **`null` = not yet reviewed** |
-
-Collapsing these into one status column loses the actionable state. A proposal the patient already
-accepted can still be sitting unreviewed — that is exactly what an admin needs to see.
-
-Render `admin_approved: null` as an amber "Awaiting review" chip, not as "Rejected".
+The only decision on a proposal is the patient's `status`: `pending` · `approved` · `rejected` ·
+`revision_requested`.
 
 **Stat tiles** from `GET /admin/treatment-proposals/stats`:
 
 | Tile | Field | Note |
 |---|---|---|
-| Awaiting review | `pending_admin_review` | Amber; click → `pending_review_only=true` |
-| Value awaiting review | `pending_review_value` | The money argument for clearing the queue |
-| Total proposed | `total_proposed_value` | |
+| Total proposed | `total_proposed_value` | Headline pipeline figure |
 | Accepted value | `accepted_value` | |
+| Awaiting response | `awaiting_patient_response` | Sent, patient has not answered |
+| Value awaiting response | `pending_value` | Money still in play |
 | Acceptance rate | `acceptance_rate` | |
 | Average proposal | `average_proposal_value` | |
 
@@ -553,13 +547,12 @@ Plus **Top senders** from `top_senders` — doctor name, `proposals_sent`, `tota
 
 **Table** — `GET /admin/treatment-proposals`. Columns: Reference · Treatment (`treatment_name`) ·
 Sent by (`doctor_name` + `doctor_specialization`) · Patient (`patient_name` / `patient_email`) ·
-Hospital · Budget (`total_amount` + `currency`, right-aligned) · Patient decision (`status`) · Admin
-(`admin_approved`) · Visit date · Sent (`created_at`).
+Hospital · Budget (`total_amount` + `currency`, right-aligned) · Status · Visit date ·
+Sent (`created_at`).
 
-Filters: `status`, `admin_approved`, **`pending_review_only`** (the review queue toggle), `doctor_id`,
-`patient_id`, `hospital_id`, `search`, `min_amount` / `max_amount`, date range, and `sort_by`
-(`created_at` · `amount` · `amount_asc` · `visit_date`). Sorting by `amount` surfaces the big-ticket
-proposals first, which is usually what an admin wants to review.
+Filters: `status`, `doctor_id`, `patient_id`, `hospital_id`, `search`, `min_amount` / `max_amount`,
+date range, and `sort_by` (`created_at` · `amount` · `amount_asc` · `visit_date`). Sorting by
+`amount` surfaces the big-ticket proposals first.
 
 **Detail** — `GET /admin/treatment-proposals/{id}`. Lead with the itemised cost breakdown as a table
 that sums to `total_amount`:
@@ -575,13 +568,9 @@ Total             INR 450,000
 ```
 
 Then the doctor's `description` and `doctor_notes`, `estimated_duration`, proposed visit date/time,
-the patient's response (`patient_response_notes`, `responded_at`), and the admin trail
-(`admin_notes`, `admin_reviewed_at`).
+and the patient's response (`patient_response_notes`, `responded_at`).
 
-**Review action** — `POST /admin/treatment-proposals/{id}/review` with `{ approved, notes? }`.
-Two buttons, Approve and Reject, both opening a dialog for optional notes. Show the total prominently
-in that dialog — an admin approving a ₹450,000 proposal should see the figure at the moment of
-approval.
+No action buttons on this screen — there is nothing for an admin to approve.
 
 ---
 
@@ -806,11 +795,36 @@ export interface FavoriteStats {
   most_saved: Record<string, FavoriteEntry[]>;
 }
 
+export interface ProposalTopSender {
+  doctor_id: string; doctor_name: string | null;
+  proposals_sent: number; total_value: number;
+}
+
 export interface ProposalStats {
-  total: number; by_status: Record<string, number>;
-  pending_admin_review: number; admin_approved: number;
-  accepted: number; acceptance_rate: number;
-  total_proposed_value: number; accepted_value: number; average_proposal_value: number;
+  total: number;
+  by_status: Record<string, number>;
+  value_by_status: Record<string, number>;
+  awaiting_patient_response: number;
+  accepted: number; rejected: number; revision_requested: number;
+  acceptance_rate: number;
+  total_proposed_value: number; accepted_value: number; pending_value: number;
+  average_proposal_value: number; largest_proposal_value: number;
+  value_by_currency: Record<string, number>;
+  top_senders: ProposalTopSender[];
+}
+
+export interface AdminProposal {
+  id: string; reference_number: string;
+  consultation_id: string | null;
+  doctor_id: string; doctor_name: string | null; doctor_specialization: string | null;
+  patient_id: string; patient_name: string | null; patient_email: string | null;
+  hospital_id: string | null; hospital_name: string | null;
+  treatment_name: string;
+  currency: string; total_amount: number;
+  status: "pending" | "approved" | "rejected" | "revision_requested";
+  responded_at: string | null;
+  proposed_visit_date: string | null;
+  created_at: string; updated_at: string | null;
 }
 ```
 

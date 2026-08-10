@@ -14,9 +14,9 @@ from app.schemas.admin_ops import (
     BroadcastResponse,
     FavoriteStatsResponse,
     NotificationStatsResponse,
-    ProposalStatsResponse,
 )
 from app.schemas.common import PaginatedResponse, PaginationParams
+from app.schemas.treatment_proposal import AdminProposalStatsResponse
 from app.services.admin_ops_service import AdminOpsService
 
 notification_router = APIRouter()
@@ -156,13 +156,14 @@ async def get_favorite_stats(
 
 @insight_router.get(
     "/treatment-proposals",
-    response_model=ProposalStatsResponse,
+    response_model=AdminProposalStatsResponse,
     dependencies=[RequireAdmin],
     summary="Treatment proposal funnel",
 )
 async def get_proposal_stats(db: DatabaseSession):
     """
-    Proposal counts by status, how many await admin review, and pipeline value —
-    total proposed against total accepted.
+    Proposal counts by status and pipeline value — total proposed against total accepted.
+
+    Identical to `GET /admin/treatment-proposals/stats`; both call the same code.
     """
     return await AdminOpsService(db).proposal_stats()

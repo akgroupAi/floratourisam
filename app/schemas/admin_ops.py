@@ -108,15 +108,6 @@ class FavoriteStatsResponse(BaseModel):
     most_saved: Dict[str, List[FavoriteEntry]]
 
 
-class ProposalStatsResponse(BaseModel):
-    """Treatment proposal funnel and pipeline value."""
-
-    total: int
-    by_status: Dict[str, int]
-    pending_admin_review: int
-    admin_approved: int
-    accepted: int
-    acceptance_rate: float
-    total_proposed_value: float
-    accepted_value: float
-    average_proposal_value: float
+# Proposal stats live in schemas/treatment_proposal.py as AdminProposalStatsResponse —
+# one schema shared by /admin/insights/treatment-proposals and
+# /admin/treatment-proposals/stats.

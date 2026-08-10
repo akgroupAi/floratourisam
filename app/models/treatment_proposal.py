@@ -86,7 +86,9 @@ class TreatmentProposal(BaseModel):
         DateTime(timezone=True), nullable=True
     )
 
-    # Admin review (if proposal goes to admin first)
+    # DEPRECATED — proposals no longer require admin approval. Nothing reads or writes
+    # these; they are kept only so existing rows are not lost. Drop in a migration once
+    # any historical values have been exported or confirmed unneeded.
     admin_approved: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     admin_reviewed_at: Mapped[Optional[datetime]] = mapped_column(

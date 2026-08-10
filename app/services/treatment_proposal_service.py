@@ -300,33 +300,6 @@ class TreatmentProposalService:
         # Re-fetch with eager loading for response serialization
         return await self._get_proposal(proposal.id)
 
-    async def admin_review(
-        self,
-        proposal_id: UUID,
-        admin_user_id: UUID,
-        approved: bool,
-        notes: Optional[str] = None,
-    ) -> TreatmentProposal:
-        """Admin approves or rejects a proposal."""
-        proposal = await self._get_proposal(proposal_id)
-        if not proposal:
-            raise ValueError("Proposal not found")
-
-        proposal.admin_approved = approved
-        proposal.admin_notes = notes
-        proposal.admin_reviewed_at = datetime.now(timezone.utc)
-        proposal.admin_reviewed_by = admin_user_id
-        proposal.updated_by = admin_user_id
-
-        await self.db.commit()
-        logger.info(
-            "treatment_proposal_admin_reviewed",
-            proposal_id=str(proposal_id),
-            approved=approved,
-        )
-        # Re-fetch with eager loading for response serialization
-        return await self._get_proposal(proposal.id)
-
     # ------------------------------------------------------------------
     # Get single proposal
     # ------------------------------------------------------------------
@@ -460,8 +433,6 @@ class TreatmentProposalService:
         doctor_id: Optional[UUID] = None,
         patient_id: Optional[UUID] = None,
         hospital_id: Optional[UUID] = None,
-        admin_approved: Optional[bool] = None,
-        pending_review_only: bool = False,
         search: Optional[str] = None,
         min_amount: Optional[float] = None,
         max_amount: Optional[float] = None,
@@ -484,10 +455,6 @@ class TreatmentProposalService:
             filters.append(TreatmentProposal.patient_id == patient_id)
         if hospital_id:
             filters.append(TreatmentProposal.hospital_id == hospital_id)
-        if pending_review_only:
-            filters.append(TreatmentProposal.admin_approved.is_(None))
-        elif admin_approved is not None:
-            filters.append(TreatmentProposal.admin_approved == admin_approved)
         if min_amount is not None:
             filters.append(TreatmentProposal.total_amount >= min_amount)
         if max_amount is not None:
@@ -563,28 +530,6 @@ class TreatmentProposalService:
         by_status = {row[0]: row[1] for row in by_status_rows}
         value_by_status = {row[0]: float(row[2] or 0) for row in by_status_rows}
 
-        pending_review = (
-            await self.db.execute(
-                select(func.count(TreatmentProposal.id)).where(
-                    *base, TreatmentProposal.admin_approved.is_(None)
-                )
-            )
-        ).scalar() or 0
-        admin_approved = (
-            await self.db.execute(
-                select(func.count(TreatmentProposal.id)).where(
-                    *base, TreatmentProposal.admin_approved == True
-                )
-            )
-        ).scalar() or 0
-        admin_rejected = (
-            await self.db.execute(
-                select(func.count(TreatmentProposal.id)).where(
-                    *base, TreatmentProposal.admin_approved == False
-                )
-            )
-        ).scalar() or 0
-
         totals = (
             await self.db.execute(
                 select(
@@ -595,17 +540,6 @@ class TreatmentProposalService:
             )
         ).one()
         total_value, average_value, largest_value = (float(v or 0) for v in totals)
-
-        pending_value = float(
-            (
-                await self.db.execute(
-                    select(func.coalesce(func.sum(TreatmentProposal.total_amount), 0.0)).where(
-                        *base, TreatmentProposal.admin_approved.is_(None)
-                    )
-                )
-            ).scalar()
-            or 0
-        )
 
         currencies = dict(
             (
@@ -639,19 +573,20 @@ class TreatmentProposalService:
 
         total = sum(by_status.values())
         accepted = by_status.get("accepted", 0)
+        pending = by_status.get("pending", 0)
 
         return {
             "total": total,
             "by_status": by_status,
             "value_by_status": {k: round(v, 2) for k, v in value_by_status.items()},
-            "pending_admin_review": pending_review,
-            "admin_approved": admin_approved,
-            "admin_rejected": admin_rejected,
+            "awaiting_patient_response": pending,
             "accepted": accepted,
+            "rejected": by_status.get("rejected", 0),
+            "revision_requested": by_status.get("revision_requested", 0),
             "acceptance_rate": round(accepted / total * 100, 2) if total else 0.0,
             "total_proposed_value": round(total_value, 2),
             "accepted_value": round(value_by_status.get("accepted", 0.0), 2),
-            "pending_review_value": round(pending_value, 2),
+            "pending_value": round(value_by_status.get("pending", 0.0), 2),
             "average_proposal_value": round(average_value, 2),
             "largest_proposal_value": round(largest_value, 2),
             "value_by_currency": {k: round(float(v or 0), 2) for k, v in currencies.items()},

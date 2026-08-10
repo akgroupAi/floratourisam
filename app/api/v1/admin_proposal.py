@@ -1,7 +1,9 @@
-"""Admin treatment proposal management.
+"""Admin treatment proposal oversight.
 
-Who sent each proposal, its approval state, the money involved, and the full detail
-behind it.
+Who sent each proposal, the money involved, and the full detail behind it.
+
+Read-only: proposals go from doctor to patient without admin approval, so there is no
+review action here.
 """
 
 from datetime import date
@@ -10,12 +12,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin
+from app.api.deps import DatabaseSession, RequireAdmin
 from app.schemas.common import PaginatedResponse
 from app.schemas.treatment_proposal import (
     AdminProposalListResponse,
     AdminProposalStatsResponse,
-    ProposalAdminReview,
     TreatmentProposalResponse,
 )
 from app.services.treatment_proposal_service import TreatmentProposalService
@@ -55,8 +56,6 @@ def _admin_list_item(proposal) -> dict:
         "currency": proposal.currency,
         "total_amount": proposal.total_amount,
         "status": proposal.status,
-        "admin_approved": proposal.admin_approved,
-        "admin_reviewed_at": proposal.admin_reviewed_at,
         "responded_at": proposal.responded_at,
         "proposed_visit_date": proposal.proposed_visit_date,
         "created_at": proposal.created_at,
@@ -96,8 +95,6 @@ async def list_proposals(
     doctor_id: Optional[UUID] = Query(None, description="Proposals sent by one doctor"),
     patient_id: Optional[UUID] = Query(None, description="Proposals received by one patient"),
     hospital_id: Optional[UUID] = Query(None),
-    admin_approved: Optional[bool] = Query(None, description="Filter by admin decision"),
-    pending_review_only: bool = Query(False, description="Only proposals no admin has reviewed"),
     search: Optional[str] = Query(None, description="Reference, treatment, doctor or patient name/email"),
     min_amount: Optional[float] = Query(None, ge=0),
     max_amount: Optional[float] = Query(None, ge=0),
@@ -109,11 +106,10 @@ async def list_proposals(
     Proposals across every doctor and patient, newest first.
 
     Each row carries the sender (`doctor_name`), the recipient (`patient_name`), the
-    budget (`total_amount` + `currency`), the patient's decision (`status`), and the
-    admin decision (`admin_approved` — `null` means nobody has reviewed it yet).
+    budget (`total_amount` + `currency`), and the patient's decision (`status`).
 
-    `pending_review_only=true` is the review queue. It takes precedence over
-    `admin_approved` when both are supplied.
+    Read-only oversight: proposals go straight from doctor to patient and need no
+    admin approval.
     """
     proposals, total = await TreatmentProposalService(db).admin_list_proposals(
         page=page,
@@ -122,8 +118,6 @@ async def list_proposals(
         doctor_id=doctor_id,
         patient_id=patient_id,
         hospital_id=hospital_id,
-        admin_approved=admin_approved,
-        pending_review_only=pending_review_only,
         search=search,
         min_amount=min_amount,
         max_amount=max_amount,
@@ -146,44 +140,11 @@ async def get_proposal_detail(proposal_id: UUID, db: DatabaseSession):
     """
     Full proposal: the itemised cost breakdown (consultation, surgery, hospital stay,
     medications, other), the doctor's notes and description, the proposed visit date,
-    the patient's response, and the admin review trail.
+    and the patient's response.
     """
     from app.api.v1.treatment_proposals import _build_response
 
     proposal = await TreatmentProposalService(db).get_proposal(proposal_id)
     if not proposal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
-    return _build_response(proposal)
-
-
-@router.post(
-    "/{proposal_id}/review",
-    response_model=TreatmentProposalResponse,
-    dependencies=[RequireAdmin],
-    summary="Approve or reject a proposal",
-)
-async def review_proposal(
-    proposal_id: UUID,
-    body: ProposalAdminReview,
-    current_user: CurrentUser,
-    db: DatabaseSession,
-):
-    """
-    Record the admin decision on a proposal.
-
-    Sets `admin_approved`, `admin_notes`, and the reviewer and timestamp. This is the
-    platform's own sign-off and is separate from the patient's `status` response — a
-    proposal can be accepted by the patient and still awaiting admin approval.
-    """
-    from app.api.v1.treatment_proposals import _build_response
-
-    try:
-        proposal = await TreatmentProposalService(db).admin_review(
-            proposal_id=proposal_id,
-            admin_user_id=current_user.id,
-            approved=body.approved,
-            notes=body.notes,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return _build_response(proposal)

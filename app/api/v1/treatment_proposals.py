@@ -15,7 +15,9 @@ Consultation-scoped:
 
 Admin:
   GET   /treatment-proposals/admin/all               — list all proposals
-  POST  /treatment-proposals/admin/{id}/review       — admin approve / reject
+
+Proposals do not require admin approval. The patient's response is the only decision;
+admins have read access for oversight via /admin/treatment-proposals.
 """
 
 from typing import Optional
@@ -32,7 +34,6 @@ from app.api.deps import (
 )
 from app.schemas.common import PaginatedResponse
 from app.schemas.treatment_proposal import (
-    ProposalAdminReview,
     ProposalPatientResponse,
     TreatmentProposalCreate,
     TreatmentProposalListResponse,
@@ -97,9 +98,6 @@ def _build_response(proposal) -> dict:
         "status": proposal.status,
         "patient_response_notes": proposal.patient_response_notes,
         "responded_at": proposal.responded_at,
-        "admin_approved": proposal.admin_approved,
-        "admin_notes": proposal.admin_notes,
-        "admin_reviewed_at": proposal.admin_reviewed_at,
         "created_at": proposal.created_at,
         "updated_at": proposal.updated_at,
     }
@@ -355,30 +353,3 @@ async def admin_list_proposals(
     return PaginatedResponse.create(items, total, page, page_size)
 
 
-# ---------------------------------------------------------------------------
-# Admin: review proposal
-# ---------------------------------------------------------------------------
-
-@router.post(
-    "/admin/{proposal_id}/review",
-    response_model=TreatmentProposalResponse,
-    dependencies=[RequireAdmin],
-    summary="Admin: approve or reject a proposal",
-)
-async def admin_review_proposal(
-    proposal_id: UUID,
-    body: ProposalAdminReview,
-    current_user: CurrentUser,
-    db: DatabaseSession,
-):
-    service = TreatmentProposalService(db)
-    try:
-        proposal = await service.admin_review(
-            proposal_id=proposal_id,
-            admin_user_id=current_user.id,
-            approved=body.approved,
-            notes=body.notes,
-        )
-        return _build_response(proposal)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))

@@ -117,31 +117,15 @@ def test_admin_list_excludes_deleted_proposals():
     assert "treatment_proposals.is_deleted = false" in sql
 
 
-def test_pending_review_filter_looks_for_null_admin_approved():
-    """Not-yet-reviewed is admin_approved IS NULL, not false."""
-    sql = compile_first_query(
-        lambda db: TreatmentProposalService(db).admin_list_proposals(pending_review_only=True)
-    )
-    assert "treatment_proposals.admin_approved IS NULL" in sql
+def test_admin_list_does_not_filter_on_admin_approval():
+    """Proposals need no admin sign-off, so nothing should filter on that column.
 
-
-def test_admin_approved_false_is_distinct_from_unreviewed():
-    sql = compile_first_query(
-        lambda db: TreatmentProposalService(db).admin_list_proposals(admin_approved=False)
-    )
-    assert "treatment_proposals.admin_approved = false" in sql
+    The column still exists on the model (kept for now rather than dropped), so it
+    appears in the SELECT list. What must be gone is any *predicate* on it.
+    """
+    sql = compile_first_query(lambda db: TreatmentProposalService(db).admin_list_proposals())
     assert "admin_approved IS NULL" not in sql
-
-
-def test_pending_review_takes_precedence_over_admin_approved():
-    """Both supplied: the review queue wins, and the two never contradict."""
-    sql = compile_first_query(
-        lambda db: TreatmentProposalService(db).admin_list_proposals(
-            pending_review_only=True, admin_approved=True
-        )
-    )
-    assert "admin_approved IS NULL" in sql
-    assert "treatment_proposals.admin_approved = true" not in sql
+    assert "admin_approved =" not in sql
 
 
 def test_search_covers_reference_treatment_doctor_and_patient():
@@ -220,8 +204,6 @@ class FullProposal:
     currency = "INR"
     total_amount = 450000.0
     status = "pending"
-    admin_approved = None
-    admin_reviewed_at = None
     responded_at = None
     proposed_visit_date = date(2026, 9, 1)
     created_at = "2026-08-10T00:00:00Z"
@@ -240,11 +222,16 @@ def test_list_row_carries_sender_recipient_and_budget():
     assert row["currency"] == "INR"
 
 
-def test_list_row_exposes_admin_approval_state():
-    """The original /admin/all row omitted this, so approval was invisible."""
+def test_list_row_carries_no_admin_approval_fields():
+    """Admin approval was removed — the patient's status is the only decision."""
     row = _admin_list_item(FullProposal())
-    assert "admin_approved" in row
-    assert row["admin_approved"] is None  # not yet reviewed
+    assert "admin_approved" not in row
+    assert "admin_reviewed_at" not in row
+    assert row["status"] == "pending"  # the patient's decision, still present
+
+
+def test_proposal_service_has_no_admin_review_action():
+    assert not hasattr(TreatmentProposalService, "admin_review")
 
 
 def test_list_row_survives_missing_relations():
@@ -265,9 +252,15 @@ def test_list_row_validates_against_the_response_schema():
 def test_stats_schema_accepts_an_empty_platform():
     AdminProposalStatsResponse.model_validate({
         "total": 0, "by_status": {}, "value_by_status": {},
-        "pending_admin_review": 0, "admin_approved": 0, "admin_rejected": 0,
-        "accepted": 0, "acceptance_rate": 0.0,
-        "total_proposed_value": 0.0, "accepted_value": 0.0, "pending_review_value": 0.0,
+        "awaiting_patient_response": 0,
+        "accepted": 0, "rejected": 0, "revision_requested": 0,
+        "acceptance_rate": 0.0,
+        "total_proposed_value": 0.0, "accepted_value": 0.0, "pending_value": 0.0,
         "average_proposal_value": 0.0, "largest_proposal_value": 0.0,
         "value_by_currency": {}, "top_senders": [],
     })
+
+
+def test_stats_schema_has_no_admin_approval_fields():
+    fields = set(AdminProposalStatsResponse.model_fields)
+    assert not {"pending_admin_review", "admin_approved", "admin_rejected"} & fields
