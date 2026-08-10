@@ -520,9 +520,68 @@ join link when present.
 `most_saved` is `{ entity_type: [{ entity_id, name, saved_count }] }` — render one ranked list per
 type. This is demand, not bookings: what patients bookmark but may not have paid for.
 
-**Proposal funnel** — `GET /admin/insights/treatment-proposals`. Funnel from `by_status`, plus
-`pending_admin_review` (make it a clickable alert — those are blocking a patient),
-`acceptance_rate`, `total_proposed_value` vs `accepted_value`, and `average_proposal_value`.
+**Proposal funnel** — `GET /admin/insights/treatment-proposals` is the small summary. For the full
+proposal dashboard use `/admin/treatment-proposals/*` — see §9.4.
+
+### 9.4 Treatment proposals — `/admin/proposals`
+
+**Two independent decisions per proposal. Show both as separate columns:**
+
+| Column | Field | Values |
+|---|---|---|
+| Patient decision | `status` | `pending` · `approved` · `rejected` · `revision_requested` |
+| Admin sign-off | `admin_approved` | `true` · `false` · **`null` = not yet reviewed** |
+
+Collapsing these into one status column loses the actionable state. A proposal the patient already
+accepted can still be sitting unreviewed — that is exactly what an admin needs to see.
+
+Render `admin_approved: null` as an amber "Awaiting review" chip, not as "Rejected".
+
+**Stat tiles** from `GET /admin/treatment-proposals/stats`:
+
+| Tile | Field | Note |
+|---|---|---|
+| Awaiting review | `pending_admin_review` | Amber; click → `pending_review_only=true` |
+| Value awaiting review | `pending_review_value` | The money argument for clearing the queue |
+| Total proposed | `total_proposed_value` | |
+| Accepted value | `accepted_value` | |
+| Acceptance rate | `acceptance_rate` | |
+| Average proposal | `average_proposal_value` | |
+
+Plus **Top senders** from `top_senders` — doctor name, `proposals_sent`, `total_value`. That is the
+"who is sending these" panel. And `value_by_currency` — do not sum across currencies into one figure.
+
+**Table** — `GET /admin/treatment-proposals`. Columns: Reference · Treatment (`treatment_name`) ·
+Sent by (`doctor_name` + `doctor_specialization`) · Patient (`patient_name` / `patient_email`) ·
+Hospital · Budget (`total_amount` + `currency`, right-aligned) · Patient decision (`status`) · Admin
+(`admin_approved`) · Visit date · Sent (`created_at`).
+
+Filters: `status`, `admin_approved`, **`pending_review_only`** (the review queue toggle), `doctor_id`,
+`patient_id`, `hospital_id`, `search`, `min_amount` / `max_amount`, date range, and `sort_by`
+(`created_at` · `amount` · `amount_asc` · `visit_date`). Sorting by `amount` surfaces the big-ticket
+proposals first, which is usually what an admin wants to review.
+
+**Detail** — `GET /admin/treatment-proposals/{id}`. Lead with the itemised cost breakdown as a table
+that sums to `total_amount`:
+
+```
+Consultation      INR   5,000
+Surgery           INR 380,000
+Hospital stay     INR  55,000
+Medications       INR   8,000
+Other             INR   2,000   (physiotherapy — 4 sessions)
+─────────────────────────────
+Total             INR 450,000
+```
+
+Then the doctor's `description` and `doctor_notes`, `estimated_duration`, proposed visit date/time,
+the patient's response (`patient_response_notes`, `responded_at`), and the admin trail
+(`admin_notes`, `admin_reviewed_at`).
+
+**Review action** — `POST /admin/treatment-proposals/{id}/review` with `{ approved, notes? }`.
+Two buttons, Approve and Reject, both opening a dialog for optional notes. Show the total prominently
+in that dialog — an admin approving a ₹450,000 proposal should see the figure at the moment of
+approval.
 
 ---
 

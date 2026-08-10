@@ -27,6 +27,7 @@ from app.api.v1 import (
     admin_chat,
     admin_audit,
     admin_ops,
+    admin_proposal,
 )
 
 api_router = APIRouter()
@@ -149,6 +150,7 @@ api_router.include_router(shared_documents.router, prefix="/shared-documents", t
 
 # Treatment Proposals
 api_router.include_router(treatment_proposals.router, prefix="/treatment-proposals", tags=["Treatment Proposals"])
+api_router.include_router(admin_proposal.router, prefix="/admin/treatment-proposals", tags=["Admin - Treatment Proposals"])
 
 # Careers
 api_router.include_router(careers.router, prefix="/careers", tags=["Careers"])

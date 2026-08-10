@@ -264,10 +264,20 @@ async def get_proposal(
     current_user: CurrentUser,
     db: DatabaseSession,
 ):
+    """Get a proposal.
+
+    Restricted to the doctor who sent it, the patient who received it, and admins —
+    a proposal carries a diagnosis and a full cost breakdown.
+    """
     service = TreatmentProposalService(db)
     proposal = await service.get_proposal(proposal_id)
     if not proposal:
         raise HTTPException(status_code=404, detail="Proposal not found")
+    if not await service.can_view_proposal(proposal, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this proposal",
+        )
     return _build_response(proposal)
 
 

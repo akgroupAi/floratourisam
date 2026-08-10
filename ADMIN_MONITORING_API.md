@@ -17,6 +17,7 @@ Auth: every endpoint requires `Authorization: Bearer <token>` with role `admin` 
 | [Chat oversight](#4-chat-oversight) | `/admin/chat` | 4 |
 | [Audit trail](#5-audit-trail) | `/admin/audit` | 4 |
 | [Notifications](#6-notifications) | `/admin/notifications` | 3 |
+| [Treatment proposals](#6b-treatment-proposals) | `/admin/treatment-proposals` | 4 |
 | [Events](#7-events-and-insights) | `/admin/events` | 1 |
 | [Insights](#7-events-and-insights) | `/admin/insights` | 2 |
 
@@ -254,6 +255,102 @@ one transaction, so a broadcast either lands or it does not.
 |---|---|
 | `GET /admin/notifications` | All users' notifications; filter `user_id`, `type`, `is_read`, `search` |
 | `GET /admin/notifications/stats` | Volume, read rate, last-24h count, breakdown by type |
+
+---
+
+## 6b. Treatment Proposals
+
+`/admin/treatment-proposals` — who sent each proposal, its approval state, the money involved, and
+the detail behind it.
+
+Note the two independent decisions on every proposal:
+
+| Field | Meaning |
+|---|---|
+| `status` | The **patient's** answer — `pending`, `approved`, `rejected`, `revision_requested` |
+| `admin_approved` | The **platform's** sign-off — `true`, `false`, or `null` (not yet reviewed) |
+
+A proposal can be accepted by the patient and still awaiting admin approval. The dashboard must show
+both; collapsing them into one "status" column loses the thing an admin needs to act on.
+
+### `GET /admin/treatment-proposals/stats`
+
+Everything the dashboard needs in one call.
+
+```json
+{
+  "total": 184,
+  "by_status": { "pending": 32, "approved": 96, "rejected": 41, "revision_requested": 15 },
+  "value_by_status": { "approved": 21400000.0, "pending": 6800000.0 },
+  "pending_admin_review": 28,
+  "admin_approved": 132,
+  "admin_rejected": 24,
+  "accepted": 96,
+  "acceptance_rate": 52.17,
+  "total_proposed_value": 41250000.0,
+  "accepted_value": 21400000.0,
+  "pending_review_value": 6100000.0,
+  "average_proposal_value": 224184.78,
+  "largest_proposal_value": 1850000.0,
+  "value_by_currency": { "INR": 39100000.0, "USD": 2150000.0 },
+  "top_senders": [
+    { "doctor_id": "…", "doctor_name": "Dr. Pranjel Pipara", "proposals_sent": 34, "total_value": 8900000.0 }
+  ]
+}
+```
+
+`pending_review_value` is the money sitting in proposals no admin has looked at — the number that
+justifies clearing the queue. `top_senders` answers "who is sending these".
+
+### `GET /admin/treatment-proposals`
+
+| Param | Type | Description |
+|---|---|---|
+| `page`, `page_size` | int | Pagination (max 100) |
+| `status` | string | Patient decision: `pending`, `approved`, `rejected`, `revision_requested` |
+| `doctor_id` | UUID | Proposals sent by one doctor |
+| `patient_id` | UUID | Proposals received by one patient |
+| `hospital_id` | UUID | |
+| `admin_approved` | bool | Filter by the admin decision |
+| `pending_review_only` | bool | **The review queue** — proposals no admin has reviewed |
+| `search` | string | Reference, treatment name, doctor or patient name/email |
+| `min_amount`, `max_amount` | float | Budget range |
+| `from_date`, `to_date` | date | Inclusive |
+| `sort_by` | enum | `created_at` (default) · `amount` · `amount_asc` · `visit_date` |
+
+`pending_review_only=true` takes precedence over `admin_approved` when both are sent, so the two can
+never contradict each other.
+
+Rows carry `doctor_name`, `doctor_specialization`, `patient_name`, `patient_email`, `hospital_name`,
+`treatment_name`, `total_amount` + `currency`, `status`, `admin_approved`, `admin_reviewed_at`,
+`responded_at`, and `proposed_visit_date`.
+
+### `GET /admin/treatment-proposals/{id}`
+
+Full detail: the itemised cost breakdown (`consultation_fee`, `surgery_fee`, `hospital_stay_fee`,
+`medications_fee`, `other_fees` + `other_fees_description`, `total_amount`), the doctor's
+`description` and `doctor_notes`, `estimated_duration`, `proposed_visit_date` / `proposed_visit_time`,
+the patient's `patient_response_notes` and `responded_at`, and the admin trail (`admin_approved`,
+`admin_notes`, `admin_reviewed_at`).
+
+### `POST /admin/treatment-proposals/{id}/review`
+
+```json
+{ "approved": true, "notes": "Costs verified against hospital rate card." }
+```
+
+Sets `admin_approved`, `admin_notes`, the reviewer, and the timestamp. Returns the full proposal.
+
+> The older `GET /treatment-proposals/admin/all` and `POST /treatment-proposals/admin/{id}/review`
+> still work but are superseded. The old list row omits `admin_approved` entirely, so a dashboard
+> built on it cannot show whether a proposal has been reviewed.
+
+### Access control fix
+
+`GET /treatment-proposals/{id}` (the shared, non-admin route) previously accepted `current_user` but
+never checked it — **any authenticated user could read any proposal**, including another patient's
+diagnosis and full cost breakdown. It now returns `403` unless the caller is the sending doctor, the
+receiving patient, or an admin.
 
 ---
 

@@ -111,6 +111,53 @@ class TreatmentProposalListResponse(BaseSchema):
     created_at: datetime
 
 
+class AdminProposalListResponse(TreatmentProposalListResponse):
+    """Proposal row for the admin dashboard — adds who reviewed it and the outcome."""
+
+    patient_email: Optional[str] = None
+    doctor_specialization: Optional[str] = None
+    hospital_id: Optional[UUID] = None
+    admin_approved: Optional[bool] = Field(
+        None, description="null = not yet reviewed by an admin"
+    )
+    admin_reviewed_at: Optional[datetime] = None
+    responded_at: Optional[datetime] = Field(
+        None, description="When the patient responded"
+    )
+    updated_at: Optional[datetime] = None
+
+
+class ProposalTopSender(BaseModel):
+    """A doctor and the proposals they have sent."""
+
+    doctor_id: str
+    doctor_name: Optional[str] = None
+    proposals_sent: int
+    total_value: float
+
+
+class AdminProposalStatsResponse(BaseModel):
+    """Proposal funnel, budget totals, and who is sending them."""
+
+    total: int
+    by_status: dict[str, int]
+    value_by_status: dict[str, float]
+    pending_admin_review: int
+    admin_approved: int
+    admin_rejected: int
+    accepted: int
+    acceptance_rate: float
+    total_proposed_value: float
+    accepted_value: float
+    pending_review_value: float = Field(
+        ..., description="Money sitting in proposals awaiting admin review"
+    )
+    average_proposal_value: float
+    largest_proposal_value: float
+    value_by_currency: dict[str, float]
+    top_senders: List[ProposalTopSender] = []
+
+
 class TreatmentProposalResponse(BaseSchema):
     """Full proposal detail."""
     id: UUID
