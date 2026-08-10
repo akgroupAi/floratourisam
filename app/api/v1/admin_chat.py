@@ -78,7 +78,7 @@ async def get_room_messages(
     current_user: CurrentUser,
     db: DatabaseSession,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=100),
     search: Optional[str] = Query(None, description="Search message text"),
     include_deleted: bool = Query(False, description="Include moderated/deleted messages"),
 ):

@@ -200,7 +200,7 @@ async def get_conversation_transcript(
     conversation_id: UUID,
     db: DatabaseSession,
     page: int = Query(1, ge=1),
-    page_size: int = Query(100, ge=1, le=200),
+    page_size: int = Query(100, ge=1, le=100),
 ):
     """Every exchange in one conversation, for any user."""
     items, total = await AIMonitoringService(db).list_logs(

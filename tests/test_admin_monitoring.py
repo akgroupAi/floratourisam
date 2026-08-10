@@ -9,6 +9,7 @@ from datetime import date, datetime, timezone
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
 from app.schemas.admin_ops import BroadcastRequest
@@ -364,3 +365,60 @@ def test_favorite_stats_groups_by_entity_type():
 def test_proposal_stats_excludes_deleted_proposals():
     sql = compile_first_query(lambda db: AdminOpsService(db).proposal_stats())
     assert "treatment_proposals.is_deleted = false" in sql
+
+
+# ── Pagination ceilings ───────────────────────────────────────
+#
+# Regression guard for a real 500: several admin routes advertised page_size up to
+# 200, but the handler then built PaginationParams(page_size=...), which caps at 100.
+# The ValidationError was raised inside the handler rather than during request
+# parsing, so FastAPI returned 500 instead of 422. Any route whose declared ceiling
+# exceeds the shared model's will crash on a large page.
+
+
+def _pagination_model_ceiling() -> int:
+    for meta in PaginationParams.model_fields["page_size"].metadata:
+        if hasattr(meta, "le"):
+            return meta.le
+    raise AssertionError("PaginationParams.page_size has no upper bound")
+
+
+def test_pagination_params_still_has_an_upper_bound():
+    assert _pagination_model_ceiling() == 100
+
+
+def test_no_admin_route_advertises_a_page_size_above_the_shared_ceiling():
+    """Every `page_size` query param must fit through PaginationParams."""
+    from fastapi.routing import APIRoute
+
+    from app.main import app
+
+    ceiling = _pagination_model_ceiling()
+    offenders = []
+    for route in app.routes:
+        if not isinstance(route, APIRoute) or "/admin" not in route.path:
+            continue
+        for param in route.dependant.query_params:
+            if param.name != "page_size":
+                continue
+            for meta in getattr(param.field_info, "metadata", []):
+                le = getattr(meta, "le", None)
+                if le is not None and le > ceiling:
+                    offenders.append(f"{route.path} (page_size le={le})")
+
+    assert not offenders, (
+        f"These routes accept a page_size above PaginationParams' {ceiling} "
+        f"and will 500 on a large page: {offenders}"
+    )
+
+
+def test_max_page_size_is_accepted_by_pagination_params():
+    """The advertised maximum must actually construct."""
+    params = PaginationParams(page=1, page_size=_pagination_model_ceiling())
+    assert params.page_size == 100
+    assert params.offset == 0
+
+
+def test_pagination_params_rejects_above_the_ceiling():
+    with pytest.raises(ValidationError):
+        PaginationParams(page=1, page_size=_pagination_model_ceiling() + 1)

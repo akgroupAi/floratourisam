@@ -6,8 +6,8 @@ the admin dashboard.
 - API contract: [ADMIN_MONITORING_API.md](ADMIN_MONITORING_API.md)
 - Why these exist: [ADMIN_MONITORING_GAPS.md](ADMIN_MONITORING_GAPS.md)
 
-**Read [§10 Gotchas](#10-gotchas--read-this-before-you-start) first.** Five of them will cost you an
-afternoon each if you find them the hard way.
+**Read [§10 Gotchas](#10-gotchas--read-this-before-you-start) first.** Each one will cost you an
+afternoon if you find it the hard way.
 
 ---
 
@@ -144,8 +144,9 @@ interface Paginated<T> {
 }
 ```
 
-Build one `<DataTable>` around it and reuse it everywhere. `page_size` max is 100 (200 on chat
-transcripts and audit).
+Build one `<DataTable>` around it and reuse it everywhere. **`page_size` max is 100 on every
+endpoint** — no exceptions. Requesting more returns `422`. For long chat transcripts, page through
+at 100 rather than asking for a bigger page.
 
 ### Filter bar
 
@@ -415,7 +416,8 @@ Filters: `room_type`, `is_active`, `participant_id`, `consultation_id`, `search`
 
 ### 7.2 Transcript — `/admin/chat/rooms/:id/messages`
 
-`GET /admin/chat/rooms/{id}/messages` — oldest first, `page_size` up to 200.
+`GET /admin/chat/rooms/{id}/messages` — oldest first, `page_size` up to 100. Long conversations need
+paging; consider loading page 1 and fetching older pages on scroll.
 
 Render as a read-only thread grouped by `sender_role`, with sender name and role on each message.
 Handle `message_type` — `file` messages carry `file_url` / `file_name` instead of text.
@@ -556,6 +558,11 @@ bug, and do not cache the result aggressively.
 
 **5. `to_date` is inclusive.** The backend adds a day internally. Passing `to_date=2026-08-10`
 includes everything on 10 August. Do not add a day yourself — you will double-count.
+
+**6. `page_size` is capped at 100 everywhere.** An earlier draft of this guide said chat transcripts
+and the audit feed accepted 200 — they did not, and requesting 200 returned a `500`. That is fixed;
+the ceiling is now a uniform 100 and anything higher returns a clean `422`. Page through long
+transcripts instead.
 
 **Smaller ones:**
 

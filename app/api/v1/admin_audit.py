@@ -34,7 +34,7 @@ async def list_entity_types():
 async def get_audit_feed(
     db: DatabaseSession,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=100),
     entity_type: Optional[str] = Query(None, description="See /entity-types"),
     entity_id: Optional[UUID] = Query(None),
     actor_id: Optional[UUID] = Query(None, description="Everything one user changed"),
@@ -73,7 +73,7 @@ async def get_entity_history(
     entity_id: UUID,
     db: DatabaseSession,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=100),
 ):
     """Everything recorded against a single record — who created it, last changed it, deleted it."""
     try:
