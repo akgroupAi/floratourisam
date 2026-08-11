@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     RAZORPAY_WEBHOOK_SECRET: Optional[str] = None
     RAZORPAY_CURRENCY: str = "USD"
 
+    # Platform fee charged to the customer on top of a booking subtotal, as a
+    # percentage. Set to 0 to disable. Applies to every payable booking.
+    PLATFORM_FEE_PERCENT: float = 5.0
+
     # AI / RAG Chatbot
     AI_SERVICE_URL: Optional[str] = None
     AI_API_KEY: Optional[str] = None

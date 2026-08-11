@@ -36,6 +36,7 @@ from app.services.patient_service import PatientService
 
 logger = get_logger(__name__)
 from app.utils.enums import BookingType
+from app.utils.pricing import price_with_platform_fee
 
 router = APIRouter()
 
@@ -219,7 +220,7 @@ async def calculate_price(
 
         base_price = round(room.price_per_night * nights, 2)
         taxes = round(base_price * 0.10, 2)
-        total_price = base_price + taxes
+        _, platform_fee, total_price = price_with_platform_fee(base_price, taxes)
         currency = room.hotel.currency if room.hotel else "USD"
         entity_name = room.hotel.name if room.hotel else None
 
@@ -230,6 +231,7 @@ async def calculate_price(
             rate_used=room.price_per_night,
             base_price=base_price,
             taxes=taxes,
+            platform_fee=platform_fee,
             total_price=total_price,
             currency=currency,
             entity_name=entity_name,
@@ -263,7 +265,7 @@ async def calculate_price(
         else:
             raise HTTPException(status_code=400, detail="Apartment has no pricing configured")
 
-        total_price = base_price
+        _, platform_fee, total_price = price_with_platform_fee(base_price)
 
         return PriceCalculationResponse(
             booking_type="apartment",
@@ -272,6 +274,7 @@ async def calculate_price(
             rate_used=rate_used,
             base_price=base_price,
             taxes=0,
+            platform_fee=platform_fee,
             total_price=total_price,
             currency=apartment.currency,
             entity_name=apartment.name,

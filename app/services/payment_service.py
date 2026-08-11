@@ -437,13 +437,25 @@ class PaymentService:
         return payment
 
     async def create(self, user_id: UUID, amount: float, method: str, booking_id: Optional[UUID] = None) -> Payment:
+        # The platform fee is already inside `amount` (added at booking time), so read
+        # it off the booking rather than re-deriving it and double-counting.
+        platform_fee = 0.0
+        if booking_id:
+            from app.models.booking import Booking
+
+            booking = (
+                await self.db.execute(select(Booking).where(Booking.id == booking_id))
+            ).scalar_one_or_none()
+            platform_fee = round((booking.platform_fee if booking else 0.0) or 0.0, 2)
+
+        processing_fee = round(amount * 0.029, 2)
         payment = Payment(
             user_id=user_id, booking_id=booking_id,
             reference_number=generate_reference_id("PAY"),
             payment_method=method, status=PaymentStatus.PENDING.value,
             amount=amount, currency="USD",
-            processing_fee=amount * 0.029, platform_fee=amount * 0.01,
-            net_amount=amount * 0.961,
+            processing_fee=processing_fee, platform_fee=platform_fee,
+            net_amount=round(amount - processing_fee - platform_fee, 2),
             initiated_at=datetime.now(timezone.utc),
         )
         self.db.add(payment)

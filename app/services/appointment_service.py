@@ -40,6 +40,7 @@ from app.utils.enums import BookingStatus, BookingType, ConsultationStatus, Cons
 from app.utils.google_meet import add_to_user_calendar, create_meet_event
 from app.utils.notifications import notify
 from app.utils.helpers import generate_reference_id
+from app.utils.pricing import price_with_platform_fee
 
 logger = get_logger(__name__)
 
@@ -263,6 +264,11 @@ class AppointmentService:
         # ------------------------------------------------------------------
         # Create linked Booking
         # ------------------------------------------------------------------
+        # Free consultations attract no platform fee.
+        _, consultation_platform_fee, consultation_total = price_with_platform_fee(
+            consultation.fee
+        )
+
         booking = Booking(
             patient_id=patient.id,
             booking_type=BookingType.CONSULTATION.value,
@@ -272,7 +278,8 @@ class AppointmentService:
             scheduled_time=scheduled_at,
             status=BookingStatus.PENDING.value,
             base_price=consultation.fee,
-            total_price=consultation.fee,
+            platform_fee=consultation_platform_fee,
+            total_price=consultation_total,
             created_by=created_by,
         )
         self.db.add(booking)

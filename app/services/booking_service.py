@@ -38,6 +38,7 @@ from app.schemas.booking import (
     PropertyBooking,
 )
 from app.schemas.common import PaginationParams
+from app.utils.pricing import price_with_platform_fee
 from app.utils.email_sender import (
     render_apartment_booking_confirmation_html,
     render_hotel_booking_confirmation_html,
@@ -444,6 +445,7 @@ class BookingService:
         nights = max((data.check_out_date - data.check_in_date).days, 1)
         base_price = round(room.price_per_night * nights, 2)
         taxes = 0.0
+        _, platform_fee, total_price = price_with_platform_fee(base_price, taxes)
 
         booking = Booking(
             patient_id=patient_id,
@@ -458,7 +460,8 @@ class BookingService:
             base_price=base_price,
             taxes=taxes,
             discount=0.0,
-            total_price=round(base_price + taxes, 2),
+            platform_fee=platform_fee,
+            total_price=total_price,
             currency=hotel.currency if hotel else "USD",
             special_requests=data.special_requests,
             notes=data.notes,
@@ -558,6 +561,7 @@ class BookingService:
             raise ValueError("Apartment has no pricing configured")
 
         taxes = 0.0
+        _, platform_fee, total_price = price_with_platform_fee(base_price, taxes)
         address = f"{apartment.address_line1}, {apartment.city}, {apartment.country}"
 
         booking = Booking(
@@ -573,7 +577,8 @@ class BookingService:
             base_price=base_price,
             taxes=taxes,
             discount=0.0,
-            total_price=round(base_price + taxes, 2),
+            platform_fee=platform_fee,
+            total_price=total_price,
             currency=apartment.currency,
             special_requests=data.special_requests,
             notes=data.notes,
@@ -668,7 +673,10 @@ class BookingService:
 
             booking.base_price = round(estimated_cost or 0.0, 2)
             booking.taxes = 0.0
-            booking.total_price = round(booking.base_price, 2)
+            # A table reservation with no pre-order costs nothing, so no fee applies.
+            _, booking.platform_fee, booking.total_price = price_with_platform_fee(
+                booking.base_price, booking.taxes
+            )
 
         meal_booking = MealBooking(
             restaurant_id=data.restaurant_id,

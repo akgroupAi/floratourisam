@@ -24,6 +24,7 @@ from app.services.booking_service import BookingService
 from app.services.doctor_service import DoctorService
 from app.utils.enums import BookingStatus, BookingType, ConsultationStatus
 from app.utils.helpers import generate_reference_id
+from app.utils.pricing import price_with_platform_fee
 from app.utils.notifications import notify
 
 logger = get_logger(__name__)
@@ -307,6 +308,11 @@ class ConsultationService:
         self.db.add(consultation)
         await self.db.flush()  # Get ID
 
+        # Free consultations attract no platform fee.
+        _, consultation_platform_fee, consultation_total = price_with_platform_fee(
+            consultation.fee
+        )
+
         # Create associated booking
         booking = Booking(
             patient_id=patient_id,
@@ -317,11 +323,12 @@ class ConsultationService:
             scheduled_time=data.scheduled_at,
             status=BookingStatus.PENDING.value,
             base_price=consultation.fee,
-            total_price=consultation.fee,
+            platform_fee=consultation_platform_fee,
+            total_price=consultation_total,
             created_by=created_by,
         )
         self.db.add(booking)
-        
+
         await self.db.commit()
         await self.db.refresh(consultation)
 

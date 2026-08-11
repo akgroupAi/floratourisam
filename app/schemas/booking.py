@@ -144,6 +144,9 @@ class BookingResponse(BaseSchema):
     base_price: float
     taxes: float
     discount: float
+    platform_fee: float = Field(
+        default=0.0, description="Platform fee charged on top; already included in total_price"
+    )
     total_price: float
     currency: str
     discount_code: Optional[str] = None
@@ -228,6 +231,9 @@ class PriceCalculationResponse(BaseModel):
     rate_used: float = Field(..., description="Per-unit rate applied")
     base_price: float
     taxes: float
+    platform_fee: float = Field(
+        default=0.0, description="Platform fee charged on top; already included in total_price"
+    )
     total_price: float
     currency: str
     entity_name: Optional[str] = None

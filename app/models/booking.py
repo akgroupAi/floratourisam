@@ -120,6 +120,13 @@ class Booking(BaseModel):
         default=0.0,
         nullable=False,
     )
+    # Charged to the customer on top of the subtotal; included in total_price.
+    platform_fee: Mapped[float] = mapped_column(
+        Float,
+        default=0.0,
+        nullable=False,
+        server_default="0",
+    )
     total_price: Mapped[float] = mapped_column(
         Float,
         default=0.0,

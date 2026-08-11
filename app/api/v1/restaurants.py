@@ -26,6 +26,7 @@ from app.services.patient_service import PatientService
 from app.services.restaurant_service import RestaurantService
 from app.utils.enums import BookingStatus, BookingType
 from app.utils.helpers import generate_reference_id
+from app.utils.pricing import price_with_platform_fee
 
 router = APIRouter()
 
@@ -350,6 +351,8 @@ async def purchase_dining_pass(
     patient_service = PatientService(db)
     patient = await patient_service.get_or_create(current_user.id)
 
+    _, _pass_platform_fee, _pass_total = price_with_platform_fee(dining_pass.price)
+
     # Create Booking record for payment tracking
     booking = Booking(
         patient_id=patient.id,
@@ -359,7 +362,8 @@ async def purchase_dining_pass(
         status=BookingStatus.PENDING.value,
         booking_date=now,
         base_price=dining_pass.price,
-        total_price=dining_pass.price,
+        platform_fee=_pass_platform_fee,
+        total_price=_pass_total,
         currency=dining_pass.currency,
         source="website",
         booking_metadata={

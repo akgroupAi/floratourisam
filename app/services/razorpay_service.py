@@ -115,10 +115,13 @@ class RazorpayService:
             )
             raise ValueError(f"Failed to create Razorpay order: {str(e)}")
 
-        # Create local payment record
-        processing_fee = amount * 0.029  # 2.9%
-        platform_fee = amount * 0.01  # 1%
-        net_amount = amount - processing_fee - platform_fee
+        # Create local payment record.
+        # platform_fee is the fee actually charged to the customer and already inside
+        # `amount`, not a notional cut — so net_amount is what remains for the partner
+        # after the gateway's processing charge and our fee.
+        processing_fee = round(amount * 0.029, 2)  # Razorpay's ~2.9%
+        platform_fee = round(booking.platform_fee or 0.0, 2)
+        net_amount = round(amount - processing_fee - platform_fee, 2)
 
         payment = Payment(
             user_id=user_id,

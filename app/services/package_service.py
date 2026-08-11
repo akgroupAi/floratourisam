@@ -23,6 +23,7 @@ from app.schemas.package import (
 from app.schemas.common import PaginationParams
 from app.utils.enums import BookingStatus, BookingType, PackageCategory
 from app.utils.helpers import generate_reference_id
+from app.utils.pricing import price_with_platform_fee
 
 logger = get_logger(__name__)
 
@@ -250,6 +251,7 @@ class PackageService:
 
         effective_price = package.effective_price
         taxes = round(effective_price * 0.10, 2)
+        _, platform_fee, total_price = price_with_platform_fee(effective_price, taxes)
 
         booking = Booking(
             patient_id=patient_id,
@@ -262,7 +264,8 @@ class PackageService:
             base_price=effective_price,
             taxes=taxes,
             discount=0.0,
-            total_price=effective_price + taxes,
+            platform_fee=platform_fee,
+            total_price=total_price,
             currency=package.currency,
             discount_code=data.discount_code,
             special_requests=data.special_requests,
