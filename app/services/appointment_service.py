@@ -499,6 +499,11 @@ class AppointmentService:
             except Exception as exc:
                 logger.error("doctor_email_failed", error=str(exc))
 
+        from app.utils.admin_notify import notify_admin_new_consultation
+
+        await notify_admin_new_consultation(self.db, consultation)
+        await self.db.commit()
+
         return AppointmentResponse(
             id=consultation.id,
             reference_number=consultation.reference_number,

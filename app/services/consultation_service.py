@@ -333,6 +333,12 @@ class ConsultationService:
         await self.db.refresh(consultation)
 
         logger.info("consultation_created", consultation_id=str(consultation.id))
+
+        from app.utils.admin_notify import notify_admin_new_consultation
+
+        await notify_admin_new_consultation(self.db, consultation)
+        await self.db.commit()
+
         return await self.get_by_id(consultation.id)
 
     # ------------------------------------------------------------------

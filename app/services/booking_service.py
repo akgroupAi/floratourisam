@@ -38,6 +38,7 @@ from app.schemas.booking import (
     PropertyBooking,
 )
 from app.schemas.common import PaginationParams
+from app.utils.admin_notify import notify_admin_new_booking
 from app.utils.pricing import price_with_platform_fee
 from app.utils.email_sender import (
     render_apartment_booking_confirmation_html,
@@ -479,6 +480,9 @@ class BookingService:
         await self.db.refresh(booking)
         logger.info("hotel_booking_created_pending_payment", booking_id=str(booking.id), ref=booking.reference_number)
 
+        await notify_admin_new_booking(self.db, booking)
+        await self.db.commit()
+
         return booking
 
     async def check_room_availability(
@@ -682,6 +686,9 @@ class BookingService:
         await self.db.refresh(booking)
         logger.info("apartment_booking_created_pending_payment", booking_id=str(booking.id), ref=booking.reference_number)
 
+        await notify_admin_new_booking(self.db, booking)
+        await self.db.commit()
+
         return booking
 
     # ------------------------------------------------------------------
@@ -820,6 +827,9 @@ class BookingService:
                 )
             except Exception as exc:
                 logger.error("restaurant_booking_email_failed", error=str(exc))
+
+        await notify_admin_new_booking(self.db, booking)
+        await self.db.commit()
 
         return booking
 

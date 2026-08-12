@@ -138,8 +138,16 @@ class TreatmentProposalService:
         except Exception as exc:
             logger.error("proposal_create_notification_failed", error=str(exc))
 
-        # Re-fetch with eager loading for response serialization
-        return await self._get_proposal(proposal.id)
+        # Re-fetch with eager loading for response serialization — also gives the admin
+        # alert the doctor, patient, and hospital relations it needs.
+        full_proposal = await self._get_proposal(proposal.id)
+
+        from app.utils.admin_notify import notify_admin_new_proposal
+
+        await notify_admin_new_proposal(self.db, full_proposal)
+        await self.db.commit()
+
+        return full_proposal
 
     async def update_proposal(
         self,
@@ -297,8 +305,16 @@ class TreatmentProposalService:
         except Exception as exc:
             logger.error("proposal_respond_notification_failed", error=str(exc))
 
-        # Re-fetch with eager loading for response serialization
-        return await self._get_proposal(proposal.id)
+        # Re-fetch with eager loading — also gives the admin alert the doctor, patient,
+        # and hospital relations it needs.
+        full_proposal = await self._get_proposal(proposal.id)
+
+        from app.utils.admin_notify import notify_admin_proposal_response
+
+        await notify_admin_proposal_response(self.db, full_proposal, action)
+        await self.db.commit()
+
+        return full_proposal
 
     # ------------------------------------------------------------------
     # Get single proposal
