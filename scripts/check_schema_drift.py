@@ -83,7 +83,6 @@ async def main(fix: bool) -> int:
             print(f"\nMISSING TABLES ({len(missing_tables)}):")
             for name in missing_tables:
                 print(f"  - {name}")
-            print("  Restart the app with DEBUG=True once, or run the relevant migration.")
 
         if missing_columns:
             print(f"\nMISSING COLUMNS ({len(missing_columns)}):")
@@ -91,8 +90,15 @@ async def main(fix: bool) -> int:
                 print(f"  - {table_name}.{column_name}")
 
         if not fix:
-            print("\nRe-run with --fix to add the missing columns.")
+            print("\nRe-run with --fix to create them.")
             return 1
+
+        if missing_tables:
+            print("\nCreating missing tables...")
+            for name in missing_tables:
+                await conn.run_sync(Base.metadata.tables[name].create)
+                print(f"  created {name}")
+            missing_tables = []
 
         print("\nAdding missing columns...")
         unsafe: list[str] = []
