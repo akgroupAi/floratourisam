@@ -28,6 +28,8 @@ from app.api.v1 import (
     admin_audit,
     admin_ops,
     admin_proposal,
+    manager,
+    admin_inventory,
 )
 
 api_router = APIRouter()
@@ -129,6 +131,12 @@ api_router.include_router(admin_package.router, prefix="/admin/packages", tags=[
 
 # Favorites / Wishlist
 api_router.include_router(favorites.router, prefix="/favorites", tags=["Favorites"])
+
+# Admin - Inventory (overview, alerts, bulk operations)
+api_router.include_router(admin_inventory.router, prefix="/admin/inventory", tags=["Admin - Inventory"])
+
+# Manager Portal (property-scoped self-service)
+api_router.include_router(manager.router, prefix="/manager", tags=["Manager Portal"])
 
 # Lead Generation
 api_router.include_router(leads.router, prefix="/leads", tags=["Lead Generation"])

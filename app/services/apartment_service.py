@@ -106,24 +106,24 @@ class ApartmentService:
         check_in: str,
         check_out: str,
     ) -> bool:
-        """Check apartment availability for dates."""
+        """Whether the apartment can be booked for these dates.
+
+        Delegates to BookingService so this, /stays, and the booking path give the same
+        answer. This used to count any non-cancelled booking as a conflict, so an
+        abandoned unpaid booking made the apartment look unbookable while the booking
+        path would still accept it.
+        """
         from datetime import date as date_type
-        from sqlalchemy import and_
-        from app.models.booking import Booking
-        from app.utils.enums import BookingStatus
 
-        check_in_date = date_type.fromisoformat(check_in)
-        check_out_date = date_type.fromisoformat(check_out)
+        from app.services.booking_service import BookingService
 
-        conflict = await self.db.execute(
-            select(Booking.id).where(
-                and_(
-                    Booking.apartment_id == apartment_id,
-                    Booking.is_deleted == False,
-                    Booking.status.notin_([BookingStatus.CANCELLED.value]),
-                    Booking.check_in_date < check_out_date,
-                    Booking.check_out_date > check_in_date,
-                )
-            )
+        check_in_date = (
+            check_in if isinstance(check_in, date_type) else date_type.fromisoformat(str(check_in))
         )
-        return conflict.scalar_one_or_none() is None
+        check_out_date = (
+            check_out if isinstance(check_out, date_type) else date_type.fromisoformat(str(check_out))
+        )
+
+        return await BookingService(self.db).check_apartment_availability(
+            apartment_id, check_in_date, check_out_date
+        )

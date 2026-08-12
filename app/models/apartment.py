@@ -1,9 +1,10 @@
 """Apartment model for short-term accommodation management."""
 
 import uuid
+from datetime import date as date_type
 from typing import List, Optional
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -245,6 +246,15 @@ class Apartment(BaseModel):
         nullable=True,
     )
 
+    # Minimum stay, in nights. Long-stay apartments near a hospital often will not
+    # take a one-night booking. A calendar row can raise this for peak dates.
+    minimum_nights: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+        server_default="1",
+    )
+
     # SEO
     meta_title: Mapped[Optional[str]] = mapped_column(
         String(255),
@@ -255,5 +265,59 @@ class Apartment(BaseModel):
         nullable=True,
     )
 
+    availability: Mapped[List["ApartmentAvailability"]] = relationship(
+        "ApartmentAvailability",
+        back_populates="apartment",
+        cascade="all, delete-orphan",
+    )
+
     def __repr__(self) -> str:
         return f"Apartment(id={self.id}, name={self.name})"
+
+
+class ApartmentAvailability(BaseModel):
+    """Per-date price, blocking, and minimum stay for one apartment.
+
+    Mirrors RoomAvailability, minus the unit count: an apartment is a single unit, so
+    a night is either open or taken. Nights with no row fall back to the apartment's
+    own price and minimum_nights.
+    """
+
+    __tablename__ = "apartment_availability"
+
+    apartment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("apartments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    date: Mapped[date_type] = mapped_column(
+        Date,
+        nullable=False,
+        index=True,
+    )
+    price: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    is_blocked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    minimum_nights: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    notes: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
+    apartment: Mapped["Apartment"] = relationship(
+        "Apartment",
+        back_populates="availability",
+    )
+
+    def __repr__(self) -> str:
+        return f"ApartmentAvailability(apartment_id={self.apartment_id}, date={self.date})"

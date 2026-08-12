@@ -17,7 +17,11 @@ you to handle by hand.
 
 import argparse
 import asyncio
+import os
 import sys
+
+# Add to path to allow importing app
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import text
 from sqlalchemy.schema import CreateColumn

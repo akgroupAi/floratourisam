@@ -103,23 +103,17 @@ async def check_stay_availability(
     if check_out <= check_in:
         raise HTTPException(status_code=400, detail="check_out must be after check_in")
 
-    conflict = await db.execute(
-        select(Booking.id).where(
-            and_(
-                Booking.apartment_id == stay_id,
-                Booking.is_deleted == False,
-                Booking.status.notin_([BookingStatus.CANCELLED.value]),
-                Booking.check_in_date < check_out,
-                Booking.check_out_date > check_in,
-            )
-        )
+    # Shared with /apartments/{id}/availability and the booking path — this used to run
+    # its own query with a different status rule and disagree with both.
+    from app.services.booking_service import BookingService
+
+    is_available = await BookingService(db).check_apartment_availability(
+        stay_id, check_in, check_out
     )
-    is_available = conflict.scalar_one_or_none() is None
-    nights = (check_out - check_in).days
     return {
         "stay_id": stay_id,
         "check_in": check_in,
         "check_out": check_out,
-        "nights": nights,
+        "nights": (check_out - check_in).days,
         "available": is_available,
     }

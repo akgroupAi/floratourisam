@@ -1,5 +1,6 @@
 """Hotel endpoints."""
 
+from datetime import date
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
@@ -90,11 +91,26 @@ async def get_hotel_rooms(hotel_id: UUID, db: DatabaseSession):
 
 
 @router.get("/{hotel_id}/rooms/{room_id}/availability")
-async def check_room_availability(hotel_id: UUID, room_id: UUID, check_in: str, check_out: str, db: DatabaseSession):
-    """Check room availability for dates."""
+async def check_room_availability(
+    hotel_id: UUID,
+    room_id: UUID,
+    db: DatabaseSession,
+    check_in: date = Query(..., description="Check-in date (YYYY-MM-DD)"),
+    check_out: date = Query(..., description="Check-out date (YYYY-MM-DD)"),
+):
+    """Check whether this room type has a unit free for the given dates."""
     service = HotelService(db)
-    available = await service.check_availability(room_id, check_in, check_out)
-    return {"available": available}
+    try:
+        available = await service.check_availability(room_id, check_in, check_out)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "room_id": room_id,
+        "check_in": check_in,
+        "check_out": check_out,
+        "nights": (check_out - check_in).days,
+        "available": available,
+    }
 
 
 # ============== REVIEWS ==============

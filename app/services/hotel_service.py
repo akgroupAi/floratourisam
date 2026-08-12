@@ -144,9 +144,23 @@ class HotelService:
         self,
         room_id: UUID,
         check_in: str,
-        check_out: str
+        check_out: str,
     ) -> bool:
-        """Check room availability for dates. (Placeholder implementation)"""
-        # In a real implementation, we would check the RoomAvailability table
-        # against the requested date range.
-        return True
+        """Whether the room type has a unit free for the whole date range.
+
+        Delegates to BookingService so this and the booking flow can never disagree.
+        It previously returned True unconditionally, which told customers rooms were
+        bookable when they were not.
+        """
+        from datetime import date as _date
+
+        from app.services.booking_service import BookingService
+
+        check_in_date = check_in if isinstance(check_in, _date) else _date.fromisoformat(str(check_in))
+        check_out_date = check_out if isinstance(check_out, _date) else _date.fromisoformat(str(check_out))
+        if check_out_date <= check_in_date:
+            raise ValueError("check_out must be after check_in")
+
+        return await BookingService(self.db).check_room_availability(
+            room_id, check_in_date, check_out_date
+        )

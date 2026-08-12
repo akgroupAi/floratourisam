@@ -9,7 +9,7 @@ from app.models.consultation import Consultation
 from app.models.medical_report import MedicalReport
 from app.models.hotel import Hotel, Room, RoomAvailability
 from app.models.restaurant import Restaurant, MenuItem, MealBooking, MenuCategory, Thali, DiningPass, DiningPassPurchase
-from app.models.apartment import Apartment
+from app.models.apartment import Apartment, ApartmentAvailability
 from app.models.booking import Booking
 from app.models.payment import Payment, PaymentTransaction
 from app.models.package import MedicalPackage, PackageItem
@@ -54,6 +54,7 @@ __all__ = [
     "MenuCategory",
     "Thali",
     "Apartment",
+    "ApartmentAvailability",
     "Booking",
     "Payment",
     "PaymentTransaction",

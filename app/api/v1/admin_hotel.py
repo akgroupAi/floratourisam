@@ -1,5 +1,6 @@
 """Hotel management endpoints for admin panel."""
 
+from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
@@ -11,6 +12,12 @@ from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireHote
 from app.models.hotel import Hotel, Room
 from app.models.user import User
 from app.schemas.common import MessageResponse, PaginatedResponse
+from app.schemas.hotel import (
+    RoomCalendarDay,
+    RoomCalendarUpdate,
+    RoomCalendarUpdateResponse,
+)
+from app.services.booking_service import BookingService
 from app.schemas.review import (
     AdminReviewApprove,
     AdminReviewResponse,
@@ -797,3 +804,130 @@ async def get_hotel_manager(
     )
     manager = result.scalar_one_or_none()
     return manager
+
+
+# ============== RATE & AVAILABILITY CALENDAR ==============
+#
+# RoomAvailability was modelled but had no write path, so nobody could block a date,
+# set a seasonal rate, or vary inventory per night. These endpoints expose it.
+
+
+async def _get_room_or_404(db, hotel_id: UUID, room_id: UUID) -> Room:
+    room = (
+        await db.execute(
+            select(Room).where(
+                Room.id == room_id,
+                Room.hotel_id == hotel_id,
+                Room.is_deleted == False,
+            )
+        )
+    ).scalar_one_or_none()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found for this hotel")
+    return room
+
+
+@router.get(
+    "/{hotel_id}/rooms/{room_id}/calendar",
+    response_model=List[RoomCalendarDay],
+    dependencies=[RequireAdmin],
+    summary="Read the rate and availability calendar",
+)
+async def get_room_calendar(
+    hotel_id: UUID,
+    room_id: UUID,
+    db: DatabaseSession,
+    start_date: date = Query(..., description="First night (YYYY-MM-DD)"),
+    end_date: date = Query(..., description="Exclusive — the first night NOT included"),
+):
+    """
+    One row per night with price, inventory, how many are sold, and what is left.
+
+    Nights with no override fall back to the room's `price_per_night` and `total_rooms`;
+    those rows come back with `has_override: false`.
+    """
+    await _get_room_or_404(db, hotel_id, room_id)
+    if end_date <= start_date:
+        raise HTTPException(status_code=400, detail="end_date must be after start_date")
+    if (end_date - start_date).days > 400:
+        raise HTTPException(status_code=400, detail="Range cannot exceed 400 nights")
+
+    return await BookingService(db).get_room_calendar(room_id, start_date, end_date)
+
+
+@router.put(
+    "/{hotel_id}/rooms/{room_id}/calendar",
+    response_model=RoomCalendarUpdateResponse,
+    dependencies=[RequireAdmin],
+    summary="Set rates, inventory, or blocks across a date range",
+)
+async def set_room_calendar(
+    hotel_id: UUID,
+    room_id: UUID,
+    data: RoomCalendarUpdate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """
+    Bulk upsert the calendar. Only the fields you send are changed.
+
+    `weekdays` narrows the change to given days (0=Monday), so a summer weekend rate is
+    a single call:
+
+    ```json
+    {"start_date": "2026-06-01", "end_date": "2026-09-01",
+     "price": 6500, "available_rooms": 8, "weekdays": [4, 5]}
+    ```
+
+    To take a room off sale, send `is_blocked: true`. To put it back, `false`.
+    """
+    await _get_room_or_404(db, hotel_id, room_id)
+    if (data.end_date - data.start_date).days > 400:
+        raise HTTPException(status_code=400, detail="Range cannot exceed 400 nights")
+
+    try:
+        days = await BookingService(db).set_room_calendar(
+            room_id=room_id,
+            start=data.start_date,
+            end=data.end_date,
+            updated_by=current_user.id,
+            price=data.price,
+            available_rooms=data.available_rooms,
+            is_blocked=data.is_blocked,
+            notes=data.notes,
+            weekdays=data.weekdays,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return RoomCalendarUpdateResponse(
+        room_id=room_id,
+        days_updated=days,
+        start_date=data.start_date,
+        end_date=data.end_date,
+    )
+
+
+@router.delete(
+    "/{hotel_id}/rooms/{room_id}/calendar",
+    response_model=MessageResponse,
+    dependencies=[RequireAdmin],
+    summary="Clear calendar overrides for a date range",
+)
+async def clear_room_calendar(
+    hotel_id: UUID,
+    room_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    start_date: date = Query(...),
+    end_date: date = Query(..., description="Exclusive"),
+):
+    """Remove overrides so those nights revert to the room's default price and inventory."""
+    await _get_room_or_404(db, hotel_id, room_id)
+    if end_date <= start_date:
+        raise HTTPException(status_code=400, detail="end_date must be after start_date")
+
+    cleared = await BookingService(db).clear_room_calendar(
+        room_id, start_date, end_date, deleted_by=current_user.id
+    )
+    return MessageResponse(message=f"Cleared {cleared} calendar day(s)")

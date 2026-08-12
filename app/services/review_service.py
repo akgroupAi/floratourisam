@@ -249,6 +249,15 @@ class ReviewService:
                 "You can edit your existing review instead."
             )
         await self.db.refresh(review)
+
+        # Let the property manager know, flagging anything at 3 stars or below.
+        from app.utils.manager_notify import notify_manager_new_review
+
+        await notify_manager_new_review(
+            self.db, review.entity_type, review.entity_id, review.rating, review.id
+        )
+        await self.db.commit()
+
         return review
 
     async def get_review(self, review_id: UUID) -> Optional[Review]:

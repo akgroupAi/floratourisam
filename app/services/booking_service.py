@@ -6,8 +6,8 @@ Handles hotel, apartment, and restaurant bookings:
 - Confirmation emails for all booking types
 """
 
-from datetime import date, datetime, timezone
-from typing import List, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import List, Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy import and_, func, select, cast, Date, text
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.models.booking import Booking
 from app.models.hotel import Room, RoomAvailability
-from app.models.apartment import Apartment
+from app.models.apartment import Apartment, ApartmentAvailability
 from app.models.restaurant import MealBooking, MenuItem, Restaurant
 from app.models.user import User
 from app.schemas.booking import (
@@ -498,19 +498,131 @@ class BookingService:
     async def check_apartment_availability(
         self, apartment_id: UUID, check_in: date, check_out: date
     ) -> bool:
-        """Return True if the apartment has no overlapping bookings."""
-        conflict = await self.db.execute(
-            select(Booking.id).where(
-                and_(
-                    Booking.apartment_id == apartment_id,
-                    Booking.is_deleted == False,
-                    Booking.status.in_(OCCUPIED_BOOKING_STATUSES),
-                    Booking.check_in_date < check_out,
-                    Booking.check_out_date > check_in,
+        """Whether the apartment can be booked for the whole range.
+
+        The single source of truth for apartment availability — the public endpoints
+        all delegate here. Previously three implementations disagreed about whether an
+        unpaid `pending` booking holds the unit; they do not, matching what the booking
+        path actually enforces and how hotel rooms behave.
+        """
+        try:
+            await self._assert_apartment_available(apartment_id, check_in, check_out)
+            return True
+        except ValueError:
+            return False
+
+    async def _assert_apartment_available(
+        self,
+        apartment_id: UUID,
+        check_in: date,
+        check_out: date,
+        exclude_booking_id: Optional[UUID] = None,
+    ) -> None:
+        """Raise ValueError with a reason if the apartment cannot take this stay."""
+        if check_out <= check_in:
+            raise ValueError("check_out must be after check_in")
+
+        apartment = (
+            await self.db.execute(
+                select(Apartment).where(Apartment.id == apartment_id)
+            )
+        ).scalar_one_or_none()
+        if not apartment:
+            raise ValueError("Apartment not found")
+
+        nights = [
+            check_in + timedelta(days=offset)
+            for offset in range((check_out - check_in).days)
+        ]
+
+        overrides = {
+            row.date: row
+            for row in (
+                await self.db.execute(
+                    select(ApartmentAvailability).where(
+                        ApartmentAvailability.apartment_id == apartment_id,
+                        ApartmentAvailability.date >= check_in,
+                        ApartmentAvailability.date < check_out,
+                        ApartmentAvailability.is_deleted == False,
+                    )
                 )
             )
+            .scalars()
+            .all()
+        }
+
+        for night in nights:
+            override = overrides.get(night)
+            if override and override.is_blocked:
+                raise ValueError(
+                    f"The apartment is not available on {night.isoformat()}"
+                )
+
+        # Minimum stay is taken from the first night of the stay — that is the rule the
+        # guest is quoted when they pick their arrival date.
+        first_override = overrides.get(check_in)
+        required_nights = (
+            first_override.minimum_nights
+            if first_override is not None and first_override.minimum_nights is not None
+            else (apartment.minimum_nights or 1)
         )
-        return conflict.scalar_one_or_none() is None
+        if len(nights) < required_nights:
+            raise ValueError(
+                f"This apartment requires a minimum stay of {required_nights} night(s)"
+            )
+
+        conflict_query = select(Booking.id).where(
+            and_(
+                Booking.apartment_id == apartment_id,
+                Booking.is_deleted == False,
+                Booking.status.in_(OCCUPIED_BOOKING_STATUSES),
+                Booking.check_in_date < check_out,
+                Booking.check_out_date > check_in,
+            )
+        )
+        if exclude_booking_id:
+            conflict_query = conflict_query.where(Booking.id != exclude_booking_id)
+        if (await self.db.execute(conflict_query)).scalar_one_or_none():
+            raise ValueError("The apartment is already booked for the selected dates")
+
+    async def _apartment_base_price(
+        self, apartment: Apartment, check_in: date, nights: int
+    ) -> float:
+        """Price a stay, preferring per-date calendar rates over the tiered defaults.
+
+        If every night of the stay has a calendar price, those are summed. Otherwise the
+        existing monthly/weekly/nightly tiers apply — a long stay should still get the
+        monthly rate rather than 30 nightly overrides.
+        """
+        check_out = check_in + timedelta(days=nights)
+        overrides = {
+            row.date: row
+            for row in (
+                await self.db.execute(
+                    select(ApartmentAvailability).where(
+                        ApartmentAvailability.apartment_id == apartment.id,
+                        ApartmentAvailability.date >= check_in,
+                        ApartmentAvailability.date < check_out,
+                        ApartmentAvailability.is_deleted == False,
+                        ApartmentAvailability.price.isnot(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        }
+
+        stay_nights = [check_in + timedelta(days=offset) for offset in range(nights)]
+        if overrides and all(night in overrides for night in stay_nights):
+            return round(sum(overrides[night].price for night in stay_nights), 2)
+
+        if nights >= 28 and apartment.price_per_month:
+            return round(apartment.price_per_month * (nights / 30), 2)
+        if nights >= 7 and apartment.price_per_week:
+            return round(apartment.price_per_week * (nights / 7), 2)
+        if apartment.price_per_night:
+            return round(apartment.price_per_night * nights, 2)
+        raise ValueError("Apartment has no pricing configured")
 
     async def create_apartment_booking(
         self,
@@ -531,34 +643,14 @@ class BookingService:
         if not apartment:
             raise ValueError("Apartment not found or not available")
 
-        # Check for overlapping confirmed bookings on this apartment
-        conflict = await self.db.execute(
-            select(Booking.id).where(
-                and_(
-                    Booking.apartment_id == data.apartment_id,
-                    Booking.is_deleted == False,
-                    Booking.status.in_(OCCUPIED_BOOKING_STATUSES),
-                    Booking.check_in_date < data.check_out_date,
-                    Booking.check_out_date > data.check_in_date,
-                )
-            )
+        # Blocked dates, minimum stay, and overlapping bookings — one shared check so
+        # the availability endpoints and this path can never disagree.
+        await self._assert_apartment_available(
+            data.apartment_id, data.check_in_date, data.check_out_date
         )
-        if conflict.scalar_one_or_none():
-            raise ValueError("The apartment is already booked for the selected dates")
 
         nights = max((data.check_out_date - data.check_in_date).days, 1)
-
-        # Pick best price: weekly or monthly rate if applicable, else nightly
-        if nights >= 28 and apartment.price_per_month:
-            months = nights / 30
-            base_price = round(apartment.price_per_month * months, 2)
-        elif nights >= 7 and apartment.price_per_week:
-            weeks = nights / 7
-            base_price = round(apartment.price_per_week * weeks, 2)
-        elif apartment.price_per_night:
-            base_price = round(apartment.price_per_night * nights, 2)
-        else:
-            raise ValueError("Apartment has no pricing configured")
+        base_price = await self._apartment_base_price(apartment, data.check_in_date, nights)
 
         taxes = 0.0
         _, platform_fee, total_price = price_with_platform_fee(base_price, taxes)
@@ -810,6 +902,13 @@ class BookingService:
 
         await self.db.commit()
         await self.db.refresh(booking)
+
+        # Best-effort: a failed notification must not undo the cancellation.
+        from app.utils.manager_notify import notify_manager_cancellation
+
+        await notify_manager_cancellation(self.db, booking)
+        await self.db.commit()
+
         logger.info("booking_cancelled", booking_id=str(booking.id))
         return booking
 
@@ -1017,44 +1116,463 @@ class BookingService:
     # Private helpers
     # ------------------------------------------------------------------
 
+    async def _room_night_capacity(
+        self, room_id: UUID, check_in: date, check_out: date
+    ) -> Tuple[List[date], dict, dict]:
+        """Per-night capacity and existing occupancy for a room type.
+
+        A Room row is a room *type* ("Deluxe Double", total_rooms=10), not a single
+        unit, so availability is a count per night rather than a yes/no. Capacity for a
+        night is the calendar override where one exists, otherwise the room's
+        total_rooms.
+
+        Returns ``(nights, capacity_by_night, blocked_nights)``.
+        """
+        room = (
+            await self.db.execute(select(Room).where(Room.id == room_id))
+        ).scalar_one_or_none()
+        if not room:
+            raise ValueError("Room not found")
+
+        default_capacity = room.total_rooms if room.total_rooms is not None else 1
+
+        overrides = {
+            row.date: row
+            for row in (
+                await self.db.execute(
+                    select(RoomAvailability).where(
+                        RoomAvailability.room_id == room_id,
+                        RoomAvailability.date >= check_in,
+                        RoomAvailability.date < check_out,
+                        RoomAvailability.is_deleted == False,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        }
+
+        nights = [
+            check_in + timedelta(days=offset)
+            for offset in range((check_out - check_in).days)
+        ]
+        capacity: dict[date, int] = {}
+        blocked: dict[date, bool] = {}
+        for night in nights:
+            override = overrides.get(night)
+            blocked[night] = bool(override and override.is_blocked)
+            capacity[night] = (
+                override.available_rooms if override is not None else default_capacity
+            )
+        return nights, capacity, blocked
+
+    async def _room_night_occupancy(
+        self,
+        room_id: UUID,
+        nights: List[date],
+        exclude_booking_id: Optional[UUID] = None,
+    ) -> dict:
+        """How many units of this room type are already taken on each night."""
+        if not nights:
+            return {}
+
+        query = select(Booking.check_in_date, Booking.check_out_date).where(
+            and_(
+                Booking.hotel_room_id == room_id,
+                Booking.is_deleted == False,
+                Booking.status.in_(OCCUPIED_BOOKING_STATUSES),
+                Booking.check_in_date.isnot(None),
+                Booking.check_out_date.isnot(None),
+                Booking.check_in_date <= max(nights),
+                Booking.check_out_date > min(nights),
+            )
+        )
+        if exclude_booking_id:
+            query = query.where(Booking.id != exclude_booking_id)
+
+        booked = {night: 0 for night in nights}
+        for existing_in, existing_out in (await self.db.execute(query)).all():
+            for night in nights:
+                if existing_in <= night < existing_out:
+                    booked[night] += 1
+        return booked
+
     async def _assert_room_available(
         self,
         room_id: UUID,
         check_in: date,
         check_out: date,
         exclude_booking_id: Optional[UUID] = None,
+        quantity: int = 1,
     ) -> None:
-        """Raise ValueError if the room is blocked for any night in the date range."""
-        from sqlalchemy import between
-        import datetime as _dt
+        """Raise ValueError unless `quantity` units are free for every night.
 
-        # Check RoomAvailability rows that overlap [check_in, check_out)
-        blocked_result = await self.db.execute(
-            select(RoomAvailability).where(
-                RoomAvailability.room_id == room_id,
-                RoomAvailability.date >= check_in,
-                RoomAvailability.date < check_out,
-                RoomAvailability.is_blocked == True,
-            )
+        Previously any overlapping booking rejected the request, which meant a hotel
+        with ten rooms of a type could only ever sell one per night.
+        """
+        nights, capacity, blocked = await self._room_night_capacity(
+            room_id, check_in, check_out
         )
-        if blocked_result.scalar_one_or_none():
-            raise ValueError("The room is not available for the selected dates")
+        if not nights:
+            raise ValueError("check_out must be after check_in")
 
-        # Also check for existing confirmed bookings overlapping these dates
-        conflict_query = select(Booking.id).where(
-            and_(
-                Booking.hotel_room_id == room_id,
-                Booking.is_deleted == False,
-                Booking.status.in_(OCCUPIED_BOOKING_STATUSES),
-                Booking.check_in_date < check_out,
-                Booking.check_out_date > check_in,
+        for night in nights:
+            if blocked[night]:
+                raise ValueError(
+                    f"The room is not available on {night.isoformat()}"
+                )
+
+        booked = await self._room_night_occupancy(room_id, nights, exclude_booking_id)
+        for night in nights:
+            remaining = capacity[night] - booked.get(night, 0)
+            if remaining < quantity:
+                raise ValueError(
+                    f"Only {max(remaining, 0)} room(s) left on {night.isoformat()}"
+                )
+
+    # ------------------------------------------------------------------
+    # Rate & availability calendar
+    # ------------------------------------------------------------------
+
+    async def get_room_calendar(
+        self, room_id: UUID, start: date, end: date
+    ) -> List[dict]:
+        """One row per night: price, capacity, how many are sold, what is left."""
+        nights, capacity, blocked = await self._room_night_capacity(room_id, start, end)
+        booked = await self._room_night_occupancy(room_id, nights)
+
+        room = (
+            await self.db.execute(select(Room).where(Room.id == room_id))
+        ).scalar_one_or_none()
+        default_price = room.price_per_night if room else 0.0
+
+        overrides = {
+            row.date: row
+            for row in (
+                await self.db.execute(
+                    select(RoomAvailability).where(
+                        RoomAvailability.room_id == room_id,
+                        RoomAvailability.date >= start,
+                        RoomAvailability.date < end,
+                        RoomAvailability.is_deleted == False,
+                    )
+                )
             )
+            .scalars()
+            .all()
+        }
+
+        calendar = []
+        for night in nights:
+            override = overrides.get(night)
+            sold = booked.get(night, 0)
+            total = capacity[night]
+            calendar.append({
+                "date": night,
+                "price": override.price if override and override.price else default_price,
+                "available_rooms": total,
+                "booked_rooms": sold,
+                "remaining_rooms": max(total - sold, 0),
+                "is_blocked": blocked[night],
+                "notes": override.notes if override else None,
+                "has_override": override is not None,
+            })
+        return calendar
+
+    async def set_room_calendar(
+        self,
+        room_id: UUID,
+        start: date,
+        end: date,
+        updated_by: UUID,
+        price: Optional[float] = None,
+        available_rooms: Optional[int] = None,
+        is_blocked: Optional[bool] = None,
+        notes: Optional[str] = None,
+        weekdays: Optional[List[int]] = None,
+    ) -> int:
+        """Upsert calendar rows across a date range. Returns rows written.
+
+        `weekdays` restricts the change to given days (0=Monday), so a weekend rate is
+        one call rather than one per Saturday.
+
+        Only the fields supplied are changed; the rest keep their current value, or fall
+        back to the room's defaults when the row is new. That matters because
+        `available_rooms` defaults to 0 at the database level — creating a row just to
+        set a price would otherwise silently take the room off sale.
+        """
+        room = (
+            await self.db.execute(select(Room).where(Room.id == room_id))
+        ).scalar_one_or_none()
+        if not room:
+            raise ValueError("Room not found")
+        if end <= start:
+            raise ValueError("end date must be after start date")
+        if available_rooms is not None and available_rooms < 0:
+            raise ValueError("available_rooms cannot be negative")
+        if price is not None and price < 0:
+            raise ValueError("price cannot be negative")
+
+        existing = {
+            row.date: row
+            for row in (
+                await self.db.execute(
+                    select(RoomAvailability).where(
+                        RoomAvailability.room_id == room_id,
+                        RoomAvailability.date >= start,
+                        RoomAvailability.date < end,
+                        RoomAvailability.is_deleted == False,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        }
+
+        written = 0
+        for offset in range((end - start).days):
+            night = start + timedelta(days=offset)
+            if weekdays is not None and night.weekday() not in weekdays:
+                continue
+
+            row = existing.get(night)
+            if row is None:
+                row = RoomAvailability(
+                    room_id=room_id,
+                    date=night,
+                    price=price if price is not None else room.price_per_night,
+                    available_rooms=(
+                        available_rooms
+                        if available_rooms is not None
+                        else (room.total_rooms if room.total_rooms is not None else 1)
+                    ),
+                    is_blocked=bool(is_blocked),
+                    notes=notes,
+                    created_by=updated_by,
+                )
+                self.db.add(row)
+            else:
+                if price is not None:
+                    row.price = price
+                if available_rooms is not None:
+                    row.available_rooms = available_rooms
+                if is_blocked is not None:
+                    row.is_blocked = is_blocked
+                if notes is not None:
+                    row.notes = notes
+                row.updated_by = updated_by
+            written += 1
+
+        await self.db.commit()
+        logger.info(
+            "room_calendar_updated",
+            room_id=str(room_id),
+            start=start.isoformat(),
+            end=end.isoformat(),
+            rows=written,
+            updated_by=str(updated_by),
         )
-        if exclude_booking_id:
-            conflict_query = conflict_query.where(Booking.id != exclude_booking_id)
-        conflict = await self.db.execute(conflict_query)
-        if conflict.scalar_one_or_none():
-            raise ValueError("The room is already booked for the selected dates")
+        return written
+
+    async def get_apartment_calendar(
+        self, apartment_id: UUID, start: date, end: date
+    ) -> List[dict]:
+        """One row per night: price, minimum stay, blocked, and whether it is taken."""
+        apartment = (
+            await self.db.execute(select(Apartment).where(Apartment.id == apartment_id))
+        ).scalar_one_or_none()
+        if not apartment:
+            raise ValueError("Apartment not found")
+
+        overrides = {
+            row.date: row
+            for row in (
+                await self.db.execute(
+                    select(ApartmentAvailability).where(
+                        ApartmentAvailability.apartment_id == apartment_id,
+                        ApartmentAvailability.date >= start,
+                        ApartmentAvailability.date < end,
+                        ApartmentAvailability.is_deleted == False,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        }
+
+        booked_ranges = (
+            await self.db.execute(
+                select(Booking.check_in_date, Booking.check_out_date).where(
+                    and_(
+                        Booking.apartment_id == apartment_id,
+                        Booking.is_deleted == False,
+                        Booking.status.in_(OCCUPIED_BOOKING_STATUSES),
+                        Booking.check_in_date.isnot(None),
+                        Booking.check_out_date.isnot(None),
+                        Booking.check_in_date < end,
+                        Booking.check_out_date > start,
+                    )
+                )
+            )
+        ).all()
+
+        calendar = []
+        for offset in range((end - start).days):
+            night = start + timedelta(days=offset)
+            override = overrides.get(night)
+            is_booked = any(ci <= night < co for ci, co in booked_ranges)
+            calendar.append({
+                "date": night,
+                "price": (
+                    override.price
+                    if override is not None and override.price is not None
+                    else apartment.price_per_night
+                ),
+                "minimum_nights": (
+                    override.minimum_nights
+                    if override is not None and override.minimum_nights is not None
+                    else (apartment.minimum_nights or 1)
+                ),
+                "is_blocked": bool(override and override.is_blocked),
+                "is_booked": is_booked,
+                "notes": override.notes if override else None,
+                "has_override": override is not None,
+            })
+        return calendar
+
+    async def set_apartment_calendar(
+        self,
+        apartment_id: UUID,
+        start: date,
+        end: date,
+        updated_by: UUID,
+        price: Optional[float] = None,
+        is_blocked: Optional[bool] = None,
+        minimum_nights: Optional[int] = None,
+        notes: Optional[str] = None,
+        weekdays: Optional[List[int]] = None,
+    ) -> int:
+        """Upsert apartment calendar rows across a range. Returns rows written."""
+        apartment = (
+            await self.db.execute(select(Apartment).where(Apartment.id == apartment_id))
+        ).scalar_one_or_none()
+        if not apartment:
+            raise ValueError("Apartment not found")
+        if end <= start:
+            raise ValueError("end date must be after start date")
+        if price is not None and price < 0:
+            raise ValueError("price cannot be negative")
+        if minimum_nights is not None and minimum_nights < 1:
+            raise ValueError("minimum_nights must be at least 1")
+
+        existing = {
+            row.date: row
+            for row in (
+                await self.db.execute(
+                    select(ApartmentAvailability).where(
+                        ApartmentAvailability.apartment_id == apartment_id,
+                        ApartmentAvailability.date >= start,
+                        ApartmentAvailability.date < end,
+                        ApartmentAvailability.is_deleted == False,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        }
+
+        written = 0
+        for offset in range((end - start).days):
+            night = start + timedelta(days=offset)
+            if weekdays is not None and night.weekday() not in weekdays:
+                continue
+
+            row = existing.get(night)
+            if row is None:
+                row = ApartmentAvailability(
+                    apartment_id=apartment_id,
+                    date=night,
+                    price=price,
+                    is_blocked=bool(is_blocked),
+                    minimum_nights=minimum_nights,
+                    notes=notes,
+                    created_by=updated_by,
+                )
+                self.db.add(row)
+            else:
+                if price is not None:
+                    row.price = price
+                if is_blocked is not None:
+                    row.is_blocked = is_blocked
+                if minimum_nights is not None:
+                    row.minimum_nights = minimum_nights
+                if notes is not None:
+                    row.notes = notes
+                row.updated_by = updated_by
+            written += 1
+
+        await self.db.commit()
+        logger.info(
+            "apartment_calendar_updated",
+            apartment_id=str(apartment_id),
+            start=start.isoformat(),
+            end=end.isoformat(),
+            rows=written,
+            updated_by=str(updated_by),
+        )
+        return written
+
+    async def clear_apartment_calendar(
+        self, apartment_id: UUID, start: date, end: date, deleted_by: UUID
+    ) -> int:
+        """Remove overrides so the range falls back to the apartment's defaults."""
+        rows = (
+            await self.db.execute(
+                select(ApartmentAvailability).where(
+                    ApartmentAvailability.apartment_id == apartment_id,
+                    ApartmentAvailability.date >= start,
+                    ApartmentAvailability.date < end,
+                    ApartmentAvailability.is_deleted == False,
+                )
+            )
+        ).scalars().all()
+
+        for row in rows:
+            row.soft_delete(deleted_by)
+        await self.db.commit()
+        logger.info(
+            "apartment_calendar_cleared",
+            apartment_id=str(apartment_id),
+            rows=len(rows),
+            deleted_by=str(deleted_by),
+        )
+        return len(rows)
+
+    async def clear_room_calendar(
+        self, room_id: UUID, start: date, end: date, deleted_by: UUID
+    ) -> int:
+        """Remove calendar overrides so the range falls back to the room's defaults."""
+        rows = (
+            await self.db.execute(
+                select(RoomAvailability).where(
+                    RoomAvailability.room_id == room_id,
+                    RoomAvailability.date >= start,
+                    RoomAvailability.date < end,
+                    RoomAvailability.is_deleted == False,
+                )
+            )
+        ).scalars().all()
+
+        for row in rows:
+            row.soft_delete(deleted_by)
+        await self.db.commit()
+        logger.info(
+            "room_calendar_cleared",
+            room_id=str(room_id),
+            rows=len(rows),
+            deleted_by=str(deleted_by),
+        )
+        return len(rows)
 
     async def confirm_after_payment(
         self,
@@ -1107,6 +1625,13 @@ class BookingService:
         )
 
         await self._send_booking_confirmation_email(booking)
+
+        # Tell the property manager a paid booking has landed.
+        from app.utils.manager_notify import notify_manager_new_booking
+
+        await notify_manager_new_booking(self.db, booking)
+        await self.db.commit()
+
         return booking
 
     async def _send_booking_confirmation_email(self, booking: Booking) -> None:

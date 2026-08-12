@@ -1,8 +1,9 @@
 """Hotel schemas."""
 
+from datetime import date as _date
 from typing import List, Optional
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.schemas.common import BaseSchema
 
 class HotelResponse(BaseSchema):
@@ -79,3 +80,57 @@ class RoomResponse(BaseSchema):
     wheelchair_accessible: bool = False
     medical_equipment_available: bool = False
     images: Optional[List[str]] = None
+
+
+# ---------------------------------------------------------------------------
+# Rate & availability calendar
+# ---------------------------------------------------------------------------
+
+class RoomCalendarDay(BaseModel):
+    """One night of a room type's calendar."""
+
+    date: _date
+    price: float
+    available_rooms: int = Field(..., description="Units on sale that night")
+    booked_rooms: int = Field(..., description="Units already taken")
+    remaining_rooms: int = Field(..., description="available_rooms minus booked_rooms")
+    is_blocked: bool
+    notes: Optional[str] = None
+    has_override: bool = Field(
+        ..., description="False means this night falls back to the room's defaults"
+    )
+
+
+class RoomCalendarUpdate(BaseModel):
+    """Set price, inventory, or a block across a date range.
+
+    Only the fields you send are changed. `end_date` is exclusive, matching how nights
+    work: 1–3 June is two nights, the 1st and the 2nd.
+    """
+
+    start_date: _date
+    end_date: _date = Field(..., description="Exclusive — the first night NOT included")
+    price: Optional[float] = Field(None, ge=0)
+    available_rooms: Optional[int] = Field(None, ge=0)
+    is_blocked: Optional[bool] = None
+    notes: Optional[str] = Field(None, max_length=500)
+    weekdays: Optional[List[int]] = Field(
+        None,
+        description="Restrict to these weekdays (0=Monday .. 6=Sunday), e.g. [4,5] for Fri+Sat",
+    )
+
+    @field_validator("weekdays")
+    @classmethod
+    def _valid_weekdays(cls, value):
+        if value is not None and (not value or any(d < 0 or d > 6 for d in value)):
+            raise ValueError("weekdays must be a non-empty list of 0-6 (0=Monday)")
+        return value
+
+
+class RoomCalendarUpdateResponse(BaseModel):
+    """Result of a calendar write."""
+
+    room_id: UUID
+    days_updated: int
+    start_date: _date
+    end_date: _date

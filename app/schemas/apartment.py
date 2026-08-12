@@ -1,7 +1,10 @@
 """Apartment schemas."""
 
+from datetime import date as _date
 from typing import Any, List, Optional
 from uuid import UUID
+
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import BaseSchema
 
@@ -80,3 +83,54 @@ class ApartmentResponse(BaseSchema):
     # SEO
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Rate & availability calendar
+# ---------------------------------------------------------------------------
+
+class ApartmentCalendarDay(BaseModel):
+    """One night of an apartment's calendar."""
+
+    date: _date
+    price: Optional[float] = None
+    minimum_nights: int
+    is_blocked: bool
+    is_booked: bool = Field(..., description="Taken by a confirmed booking")
+    notes: Optional[str] = None
+    has_override: bool = Field(
+        ..., description="False means this night falls back to the apartment's defaults"
+    )
+
+
+class ApartmentCalendarUpdate(BaseModel):
+    """Set price, minimum stay, or a block across a date range.
+
+    Only the fields you send are changed. `end_date` is exclusive.
+    """
+
+    start_date: _date
+    end_date: _date = Field(..., description="Exclusive — the first night NOT included")
+    price: Optional[float] = Field(None, ge=0)
+    is_blocked: Optional[bool] = None
+    minimum_nights: Optional[int] = Field(None, ge=1)
+    notes: Optional[str] = Field(None, max_length=500)
+    weekdays: Optional[List[int]] = Field(
+        None, description="Restrict to these weekdays (0=Monday .. 6=Sunday)"
+    )
+
+    @field_validator("weekdays")
+    @classmethod
+    def _valid_weekdays(cls, value):
+        if value is not None and (not value or any(d < 0 or d > 6 for d in value)):
+            raise ValueError("weekdays must be a non-empty list of 0-6 (0=Monday)")
+        return value
+
+
+class ApartmentCalendarUpdateResponse(BaseModel):
+    """Result of a calendar write."""
+
+    apartment_id: UUID
+    days_updated: int
+    start_date: _date
+    end_date: _date

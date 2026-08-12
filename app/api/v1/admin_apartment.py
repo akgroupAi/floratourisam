@@ -1,5 +1,6 @@
 """Apartment management endpoints for admin panel."""
 
+from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
@@ -10,7 +11,13 @@ from sqlalchemy import func, or_, select
 from app.api.deps import CurrentUser, DatabaseSession, RequireAdmin, RequireApartmentManager
 from app.models.apartment import Apartment
 from app.models.user import User
+from app.schemas.apartment import (
+    ApartmentCalendarDay,
+    ApartmentCalendarUpdate,
+    ApartmentCalendarUpdateResponse,
+)
 from app.schemas.common import MessageResponse, PaginatedResponse
+from app.services.booking_service import BookingService
 from app.schemas.review import (
     AdminReviewApprove,
     AdminReviewListResponse,
@@ -594,3 +601,126 @@ async def get_apartment_manager(
     )
     manager = result.scalar_one_or_none()
     return manager
+
+
+# ============== RATE & AVAILABILITY CALENDAR ==============
+#
+# Apartments previously had only an is_available boolean — no way to block dates, set a
+# seasonal rate, or require a minimum stay.
+
+
+async def _get_apartment_or_404(db, apartment_id: UUID) -> Apartment:
+    apartment = (
+        await db.execute(
+            select(Apartment).where(
+                Apartment.id == apartment_id,
+                Apartment.is_deleted == False,
+            )
+        )
+    ).scalar_one_or_none()
+    if not apartment:
+        raise HTTPException(status_code=404, detail="Apartment not found")
+    return apartment
+
+
+@router.get(
+    "/{apartment_id}/calendar",
+    response_model=List[ApartmentCalendarDay],
+    dependencies=[RequireAdmin],
+    summary="Read the rate and availability calendar",
+)
+async def get_apartment_calendar(
+    apartment_id: UUID,
+    db: DatabaseSession,
+    start_date: date = Query(..., description="First night (YYYY-MM-DD)"),
+    end_date: date = Query(..., description="Exclusive — the first night NOT included"),
+):
+    """
+    One row per night with price, minimum stay, whether it is blocked, and whether it is
+    already booked.
+
+    Nights with no override fall back to the apartment's `price_per_night` and
+    `minimum_nights`, and come back with `has_override: false`.
+    """
+    await _get_apartment_or_404(db, apartment_id)
+    if end_date <= start_date:
+        raise HTTPException(status_code=400, detail="end_date must be after start_date")
+    if (end_date - start_date).days > 400:
+        raise HTTPException(status_code=400, detail="Range cannot exceed 400 nights")
+
+    return await BookingService(db).get_apartment_calendar(apartment_id, start_date, end_date)
+
+
+@router.put(
+    "/{apartment_id}/calendar",
+    response_model=ApartmentCalendarUpdateResponse,
+    dependencies=[RequireAdmin],
+    summary="Set rates, minimum stay, or blocks across a date range",
+)
+async def set_apartment_calendar(
+    apartment_id: UUID,
+    data: ApartmentCalendarUpdate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+):
+    """
+    Bulk upsert the calendar. Only the fields you send are changed.
+
+    Peak-season pricing with a longer minimum stay:
+
+    ```json
+    {"start_date": "2026-12-20", "end_date": "2027-01-05",
+     "price": 4500, "minimum_nights": 7, "notes": "Festive period"}
+    ```
+
+    Block for maintenance with `"is_blocked": true`; reopen with `false`.
+    """
+    await _get_apartment_or_404(db, apartment_id)
+    if (data.end_date - data.start_date).days > 400:
+        raise HTTPException(status_code=400, detail="Range cannot exceed 400 nights")
+
+    try:
+        days = await BookingService(db).set_apartment_calendar(
+            apartment_id=apartment_id,
+            start=data.start_date,
+            end=data.end_date,
+            updated_by=current_user.id,
+            price=data.price,
+            is_blocked=data.is_blocked,
+            minimum_nights=data.minimum_nights,
+            notes=data.notes,
+            weekdays=data.weekdays,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return ApartmentCalendarUpdateResponse(
+        apartment_id=apartment_id,
+        days_updated=days,
+        start_date=data.start_date,
+        end_date=data.end_date,
+    )
+
+
+@router.delete(
+    "/{apartment_id}/calendar",
+    response_model=MessageResponse,
+    dependencies=[RequireAdmin],
+    summary="Clear calendar overrides for a date range",
+)
+async def clear_apartment_calendar(
+    apartment_id: UUID,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    start_date: date = Query(...),
+    end_date: date = Query(..., description="Exclusive"),
+):
+    """Remove overrides so those nights revert to the apartment's defaults."""
+    await _get_apartment_or_404(db, apartment_id)
+    if end_date <= start_date:
+        raise HTTPException(status_code=400, detail="end_date must be after start_date")
+
+    cleared = await BookingService(db).clear_apartment_calendar(
+        apartment_id, start_date, end_date, deleted_by=current_user.id
+    )
+    return MessageResponse(message=f"Cleared {cleared} calendar day(s)")

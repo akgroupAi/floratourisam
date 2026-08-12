@@ -330,6 +330,24 @@ class MenuItem(BaseModel):
         ARRAY(String),
         nullable=True,
     )  # breakfast, lunch, dinner
+
+    # Daily stock. is_available is a permanent on/off switch; these are the per-service
+    # equivalent. NULL daily_quantity means unlimited, which is the previous behaviour.
+    daily_quantity: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    sold_today: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+        server_default="0",
+    )
+    stock_date: Mapped[Optional[date]] = mapped_column(
+        Date,
+        nullable=True,
+    )  # The day sold_today refers to; a different date means the count is stale.
+
     is_featured: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
