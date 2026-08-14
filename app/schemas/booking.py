@@ -26,6 +26,9 @@ class HotelBookingCreate(BookingBase):
     check_out_date: date
     guest_count: int = Field(default=1, ge=1, le=10)
     guest_details: Optional[dict] = None
+    guests: Optional[List["BookingGuestCreate"]] = Field(
+        None, description="Patient and any companions travelling"
+    )
 
     def __init__(self, **data):
         data["booking_type"] = BookingType.HOTEL
@@ -40,6 +43,9 @@ class ApartmentBookingCreate(BookingBase):
     check_out_date: date
     guest_count: int = Field(default=1, ge=1, le=10)
     guest_details: Optional[dict] = None
+    guests: Optional[List["BookingGuestCreate"]] = Field(
+        None, description="Patient and any companions travelling"
+    )
 
     def __init__(self, **data):
         data["booking_type"] = BookingType.APARTMENT
@@ -327,3 +333,105 @@ class BookingReportSummary(BaseModel):
     revenue_trend: List[KPITrend]
     bookings_by_property: List[PropertyBooking]
 
+
+
+# ---------------------------------------------------------------------------
+# Travellers & documents
+# ---------------------------------------------------------------------------
+
+GUEST_TYPES = {"patient", "companion"}
+
+DOCUMENT_TYPES = {
+    "passport",
+    "flight_ticket",
+    "visa",
+    "insurance",
+    "medical_report",
+    "id_proof",
+    "other",
+}
+
+
+class BookingGuestCreate(BaseModel):
+    """One traveller on a booking.
+
+    Exactly one guest must be the `patient`; everyone else is a `companion`.
+    """
+
+    full_name: str = Field(..., min_length=2, max_length=255)
+    guest_type: str = Field("companion", description="patient | companion")
+    date_of_birth: Optional[date] = None
+    gender: Optional[str] = Field(None, max_length=20)
+    nationality: Optional[str] = Field(None, max_length=100)
+    passport_number: Optional[str] = Field(None, max_length=50)
+    passport_expiry: Optional[date] = None
+    phone: Optional[str] = Field(None, max_length=20)
+    email: Optional[str] = Field(None, max_length=255)
+    relationship_to_patient: Optional[str] = Field(
+        None, max_length=50, description="Companions only — spouse, parent, attendant…"
+    )
+    special_needs: Optional[str] = Field(
+        None, max_length=2000, description="Wheelchair, dietary, interpreter…"
+    )
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if self.guest_type not in GUEST_TYPES:
+            raise ValueError(f"guest_type must be one of: {', '.join(sorted(GUEST_TYPES))}")
+        if self.passport_expiry and self.date_of_birth and self.passport_expiry <= self.date_of_birth:
+            raise ValueError("passport_expiry cannot be before date_of_birth")
+        return self
+
+
+class BookingGuestResponse(BaseSchema):
+    """A traveller on a booking."""
+
+    id: UUID
+    booking_id: UUID
+    guest_type: str
+    is_primary: bool
+    full_name: str
+    date_of_birth: Optional[date] = None
+    gender: Optional[str] = None
+    nationality: Optional[str] = None
+    passport_number: Optional[str] = None
+    passport_expiry: Optional[date] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    relationship_to_patient: Optional[str] = None
+    special_needs: Optional[str] = None
+    document_count: int = 0
+    created_at: datetime
+
+
+class BookingGuestUpdate(BaseModel):
+    """Edit a traveller. Only the fields sent are changed."""
+
+    full_name: Optional[str] = Field(None, min_length=2, max_length=255)
+    date_of_birth: Optional[date] = None
+    gender: Optional[str] = Field(None, max_length=20)
+    nationality: Optional[str] = Field(None, max_length=100)
+    passport_number: Optional[str] = Field(None, max_length=50)
+    passport_expiry: Optional[date] = None
+    phone: Optional[str] = Field(None, max_length=20)
+    email: Optional[str] = Field(None, max_length=255)
+    relationship_to_patient: Optional[str] = Field(None, max_length=50)
+    special_needs: Optional[str] = Field(None, max_length=2000)
+
+
+class BookingDocumentResponse(BaseSchema):
+    """An uploaded booking document."""
+
+    id: UUID
+    booking_id: UUID
+    guest_id: Optional[UUID] = None
+    guest_name: Optional[str] = None
+    document_type: str
+    file_name: str
+    content_type: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    notes: Optional[str] = None
+    download_url: str = Field(
+        ..., description="Authenticated API path — file_path is not browser-reachable"
+    )
+    created_at: datetime

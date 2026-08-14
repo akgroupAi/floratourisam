@@ -10,7 +10,7 @@ from app.models.medical_report import MedicalReport
 from app.models.hotel import Hotel, Room, RoomAvailability
 from app.models.restaurant import Restaurant, MenuItem, MealBooking, MenuCategory, Thali, DiningPass, DiningPassPurchase
 from app.models.apartment import Apartment, ApartmentAvailability
-from app.models.booking import Booking
+from app.models.booking import Booking, BookingGuest, BookingDocument
 from app.models.payment import Payment, PaymentTransaction
 from app.models.package import MedicalPackage, PackageItem
 from app.models.favorite import PatientFavorite
@@ -56,6 +56,8 @@ __all__ = [
     "Apartment",
     "ApartmentAvailability",
     "Booking",
+    "BookingGuest",
+    "BookingDocument",
     "Payment",
     "PaymentTransaction",
     "ChatRoom",

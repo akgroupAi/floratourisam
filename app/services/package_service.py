@@ -286,6 +286,23 @@ class PackageService:
         self.db.add(booking)
         await self.db.commit()
         await self.db.refresh(booking)
+
+        # A treatment package involves travel — capture who is coming.
+        if getattr(data, "guests", None):
+            from app.services.booking_guest_service import BookingGuestService
+
+            try:
+                await BookingGuestService(self.db).add_guests(
+                    booking.id, data.guests, created_by=created_by
+                )
+                await self.db.commit()
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "package_booking_guests_failed",
+                    booking_id=str(booking.id),
+                    error=str(exc),
+                )
+
         logger.info(
             "package_booked",
             booking_id=str(booking.id),

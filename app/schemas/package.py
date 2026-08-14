@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.booking import BookingGuestCreate
 from app.schemas.common import BaseSchema
 from app.utils.enums import PackageCategory, PackageItemType
 
@@ -177,6 +178,9 @@ class PackageBookingCreate(BaseModel):
     package_id: UUID
     guest_count: int = Field(default=1, ge=1, le=20)
     guest_details: Optional[dict] = None
+    guests: Optional[List["BookingGuestCreate"]] = Field(
+        None, description="Patient and any companions travelling for the treatment"
+    )
     special_requests: Optional[str] = Field(default=None, max_length=2000)
     notes: Optional[str] = Field(default=None, max_length=1000)
     discount_code: Optional[str] = Field(default=None, max_length=50)

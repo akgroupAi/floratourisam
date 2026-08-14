@@ -478,12 +478,36 @@ class BookingService:
         self.db.add(booking)
         await self.db.commit()
         await self.db.refresh(booking)
+        await self._attach_guests(booking, getattr(data, "guests", None), created_by)
+
         logger.info("hotel_booking_created_pending_payment", booking_id=str(booking.id), ref=booking.reference_number)
 
         await notify_admin_new_booking(self.db, booking)
         await self.db.commit()
 
         return booking
+
+    async def _attach_guests(self, booking, guests, created_by) -> None:
+        """Save travellers supplied inline with a booking.
+
+        Best-effort by design: a malformed traveller list must not lose a booking the
+        customer has already paid attention to. The error is logged and the guests can
+        be added afterwards via POST /bookings/{id}/guests.
+        """
+        if not guests:
+            return
+        from app.services.booking_guest_service import BookingGuestService
+
+        try:
+            await BookingGuestService(self.db).add_guests(
+                booking.id, guests, created_by=created_by
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "booking_guests_attach_failed",
+                booking_id=str(booking.id),
+                error=str(exc),
+            )
 
     async def check_room_availability(
         self, room_id: UUID, check_in: date, check_out: date
@@ -684,6 +708,8 @@ class BookingService:
         self.db.add(booking)
         await self.db.commit()
         await self.db.refresh(booking)
+        await self._attach_guests(booking, getattr(data, "guests", None), created_by)
+
         logger.info("apartment_booking_created_pending_payment", booking_id=str(booking.id), ref=booking.reference_number)
 
         await notify_admin_new_booking(self.db, booking)
