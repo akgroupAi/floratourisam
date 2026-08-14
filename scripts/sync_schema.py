@@ -132,8 +132,16 @@ async def main(apply: bool, do_stamp: bool, revision: str) -> int:
 
             if missing_tables:
                 print("\nCreating tables...")
+                # create_all resolves foreign-key dependencies itself. Creating them one
+                # at a time in name order fails as soon as one table references another
+                # that sorts later — booking_documents → booking_guests, for instance.
+                targets = [Base.metadata.tables[name] for name in missing_tables]
+                await conn.run_sync(
+                    lambda sync_conn: Base.metadata.create_all(
+                        sync_conn, tables=targets, checkfirst=True
+                    )
+                )
                 for name in missing_tables:
-                    await conn.run_sync(Base.metadata.tables[name].create)
                     print(f"  created {name}")
 
             if missing_columns:
