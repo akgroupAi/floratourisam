@@ -26,6 +26,7 @@ deletes a row. It cannot lose data, and re-running it is harmless.
 import argparse
 import asyncio
 import os
+import pathlib
 import subprocess
 import sys
 
@@ -40,7 +41,7 @@ from app.db.session import engine
 import app.models  # noqa: F401  (side effect: registers every model)
 
 # Head of the live migration chain. Bump when a migration is added.
-TARGET_REVISION = "a1b2c3d4e5f6"
+TARGET_REVISION = "6d7a99e3eb2d"
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -154,6 +155,58 @@ async def stamp(conn, revision: str) -> None:
     )
 
 
+def check_revision_files() -> list[str]:
+    """Look for duplicate revision ids before handing anything to Alembic.
+
+    A duplicate makes Alembic report "Cycle is detected in revisions" and list every
+    revision, which points nowhere useful. Catching it here names the actual files.
+
+    Also flags migration files not tracked by git, since those are usually the cause -
+    a file created directly on a server will not exist anywhere else.
+    """
+    import collections
+    import re
+
+    versions = pathlib.Path(REPO_ROOT) / "alembic" / "versions"
+    revs = collections.defaultdict(list)
+    for f in sorted(versions.glob("*.py")):
+        text_content = f.read_text(encoding="utf-8", errors="ignore")
+        m = re.search(r"""^revision\s*=\s*["']([^"']+)""", text_content, re.M)
+        if m:
+            revs[m.group(1)].append(f.name)
+
+    problems = []
+    for rev, files in revs.items():
+        if len(files) > 1:
+            problems.append(f"revision {rev} is defined in {len(files)} files: " + ", ".join(files))
+
+    # Untracked files are only a warning: a migration you just wrote is untracked until
+    # you commit it. On a server, though, an untracked migration means someone created
+    # it there by hand, which is the usual source of a duplicate.
+    warnings = []
+    tracked = set()
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "alembic/versions"],
+            cwd=REPO_ROOT, capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            tracked = {pathlib.Path(line).name for line in result.stdout.split() if line}
+    except Exception:
+        pass
+
+    if tracked:
+        untracked = sorted({f.name for f in versions.glob("*.py")} - tracked)
+        if untracked:
+            warnings.append(
+                "migration files not tracked by git: " + ", ".join(untracked)
+                + "\n    (expected for one you just wrote; on a server it means someone "
+                "created it there by hand)"
+            )
+
+    return problems, warnings
+
+
 def run_alembic_upgrade(revision: str) -> bool:
     """Hand over to Alembic for the normal path. Returns True on success."""
     print(f"    running: alembic upgrade {revision}")
@@ -175,6 +228,28 @@ def run_alembic_upgrade(revision: str) -> bool:
 
 
 async def main(run: bool, revision: str) -> int:
+    # Checked before connecting: broken migration files are a local problem and the
+    # message is clearer without a database error on top of it.
+    problems, warnings = check_revision_files()
+
+    if warnings:
+        print("Note")
+        for warning in warnings:
+            print(f"  - {warning}")
+        print()
+
+    if problems:
+        print("MIGRATION FILES ARE BROKEN\n")
+        for problem in problems:
+            print(f"  - {problem}")
+        print(
+            "\nAlembic cannot build a valid history from these. A duplicate revision id"
+            "\nsurfaces as a misleading 'Cycle is detected' error listing every revision,"
+            "\nwhich is why the real cause is hard to spot."
+            "\n\nDelete or renumber the offending file, then re-run."
+        )
+        return 1
+
     async with engine.begin() as conn:
         current = await current_revision(conn)
         actual = await live_schema(conn)

@@ -454,7 +454,7 @@ The override is recorded — `refund_amount` becomes 10,000 and `refund_processe
 ## 11. Deployment
 
 ```bash
-alembic upgrade a1b2c3d4e5f6
+alembic upgrade 6d7a99e3eb2d
 ```
 
 Or, on the deployment whose Alembic state is broken:
@@ -520,5 +520,5 @@ Those carry the old hardcoded 80% figure. Decide each on its merits, refund manu
 | Cancellation | [booking_service.py](app/services/booking_service.py) (`cancel`) |
 | Gateway call | [razorpay_service.py](app/services/razorpay_service.py) (`refund_payment`) |
 | Schemas | [refund.py](app/schemas/refund.py) |
-| Migration | `alembic/versions/a1b2c3d4e5f6_add_refund_workflow.py` |
+| Migration | `alembic/versions/6d7a99e3eb2d_add_refund_workflow.py` |
 | Tests | [test_cancellation_refund.py](tests/test_cancellation_refund.py) — 26 tests |

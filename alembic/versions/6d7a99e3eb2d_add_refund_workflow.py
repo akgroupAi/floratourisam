@@ -8,7 +8,7 @@ Existing bookings default to refund_status = 'none', so nothing already cancelle
 retroactively pulled into the queue. Anything cancelled before this deploy that is owed
 money needs handling by hand — see REFUND_POLICY.md.
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: 6d7a99e3eb2d
 Revises: z0a1b2c3d4e5
 Create Date: 2026-08-14
 
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers
-revision = "a1b2c3d4e5f6"
+revision = "6d7a99e3eb2d"
 down_revision = "z0a1b2c3d4e5"
 branch_labels = None
 depends_on = None
