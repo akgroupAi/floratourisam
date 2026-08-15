@@ -583,6 +583,11 @@ class AppointmentService:
             booking.cancelled_at = datetime.now(timezone.utc)
             booking.cancellation_reason = reason
             booking.cancelled_by = cancelled_by
+            # Same policy and queue as any other cancellation — a paid appointment is
+            # owed money like a paid hotel stay.
+            from app.services.booking_service import BookingService
+
+            BookingService.queue_refund(booking)
 
         await self.db.commit()
         await self.db.refresh(consultation)

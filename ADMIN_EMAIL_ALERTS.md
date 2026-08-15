@@ -20,6 +20,7 @@ already use.
 | Patient **accepts** a proposal | `Treatment Proposal Accepted: TP-…` | `patient_respond` |
 | Patient **rejects** a proposal | `Treatment Proposal Rejected: TP-…` | `patient_respond` |
 | Patient **requests a revision** | `Treatment Proposal — Revision Requested: TP-…` | `patient_respond` |
+| Patient **cancels a booking** | `Booking Cancelled — Refund Awaiting Approval: HTL-…` | `BookingService.cancel` |
 
 Both consultation paths are covered — the platform creates consultations in two places
 (`/consultations` and `/appointments`) and either would otherwise have been missed.
@@ -91,6 +92,7 @@ Delivery is recorded in `email_logs` like every other email, so a missing alert 
 | `consultation_admin_alert` | Consultations and appointments |
 | `proposal_admin_alert` | Treatment proposals sent by a doctor |
 | `proposal_response_admin_alert` | Patient accepted, rejected, or asked for a revision |
+| `cancellation_admin_alert` | A booking was cancelled |
 
 ---
 
@@ -113,4 +115,4 @@ address. If you later need per-event recipients, `_admin_email()` in
 | Booking triggers | [booking_service.py](app/services/booking_service.py) |
 | Consultation triggers | [consultation_service.py](app/services/consultation_service.py) · [appointment_service.py](app/services/appointment_service.py) |
 | Proposal trigger | [treatment_proposal_service.py](app/services/treatment_proposal_service.py) |
-| Tests | [test_admin_notify.py](tests/test_admin_notify.py) — 28 tests |
+| Tests | [test_admin_notify.py](tests/test_admin_notify.py) — 36 tests |

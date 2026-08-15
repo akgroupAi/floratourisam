@@ -493,6 +493,30 @@ Those carry the old hardcoded 80% figure. Decide each on its merits, refund manu
 
 ---
 
+## 11b. Consultations and appointments
+
+Cancelling a consultation queues a refund exactly like a hotel stay. Three code paths cancel a
+booking, and all three call the same `BookingService.queue_refund`:
+
+| Path | Used by |
+|---|---|
+| `BookingService.cancel` | `POST /bookings/{id}/cancel` |
+| `ConsultationService.update_status` | A consultation moved to `cancelled` |
+| `AppointmentService.cancel_appointment` | `POST /appointments/{id}/cancel` |
+
+A consultation has no `check_in_date`, so the deadline is measured from `scheduled_time` - the
+appointment slot. On a Rs 750 consultation with a Rs 37.50 platform fee:
+
+| Cancelled | Refund |
+|---|---|
+| 3 days out | **675.00** (75.00 charge, fee retained) |
+| 12 hours out | **0** |
+
+`GET /bookings/{id}/refund-preview` works on the consultation's linked booking, so the frontend can
+show the same breakdown before a patient confirms.
+
+---
+
 ## 12. Still open
 
 - **Consultation cancellations have no refund path.** `cancel_appointment` records nothing — not even

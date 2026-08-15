@@ -309,3 +309,98 @@ def test_patient_response_path_is_wired():
 
     source = inspect.getsource(TreatmentProposalService.patient_respond)
     assert "notify_admin_proposal_response" in source
+
+
+# ── Cancellation alert ────────────────────────────────────────
+
+
+class FakeCancelledBooking:
+    id = uuid4()
+    patient_id = uuid4()
+    booking_type = "hotel"
+    hotel_room_id = uuid4()
+    apartment_id = None
+    restaurant_id = None
+    reference_number = "HTL-2026-0142"
+    check_in_date = date(2026, 9, 1)
+    check_out_date = date(2026, 9, 3)
+    total_price = 10500.0
+    currency = "INR"
+    is_paid = True
+    cancellation_charge = 1000.0
+    refund_amount = 9000.0
+    refund_status = "pending"
+    refund_note = None
+    cancellation_reason = "Treatment date moved by the hospital"
+
+
+def capture_cancellation(booking, monkeypatch):
+    captured = {}
+
+    async def fake_send(db, subject, html, category):
+        captured.update(subject=subject, html=html, category=category)
+
+    async def fake_contact(db, patient_id):
+        return "John Doe", "john@example.com", "+441234567890"
+
+    monkeypatch.setattr(admin_notify, "_send", fake_send)
+    monkeypatch.setattr(admin_notify, "_patient_contact", fake_contact)
+
+    class DB:
+        async def execute(self, stmt):
+            class R:
+                def scalar_one_or_none(inner):
+                    return None
+            return R()
+
+    asyncio.run(admin_notify.notify_admin_cancellation(DB(), booking))
+    return captured
+
+
+def test_cancellation_emails_the_admin(monkeypatch):
+    captured = capture_cancellation(FakeCancelledBooking(), monkeypatch)
+    assert "HTL-2026-0142" in captured["subject"]
+
+
+def test_a_pending_refund_is_called_out_in_the_subject(monkeypatch):
+    """The admin must see that money is waiting on them, not just that it was cancelled."""
+    captured = capture_cancellation(FakeCancelledBooking(), monkeypatch)
+    assert "Refund Awaiting Approval" in captured["subject"]
+    assert "waiting for approval" in captured["html"]
+
+
+def test_the_reason_the_patient_gave_is_included(monkeypatch):
+    captured = capture_cancellation(FakeCancelledBooking(), monkeypatch)
+    assert "Treatment date moved by the hospital" in captured["html"]
+
+
+def test_the_refund_amount_is_shown(monkeypatch):
+    captured = capture_cancellation(FakeCancelledBooking(), monkeypatch)
+    assert "9,000.00" in captured["html"]
+
+
+def test_no_refund_due_says_so_rather_than_implying_action(monkeypatch):
+    booking = FakeCancelledBooking()
+    booking.refund_amount = 0.0
+    booking.refund_status = "none"
+    booking.refund_note = "Cancelled less than 48 hours before the booking starts."
+    captured = capture_cancellation(booking, monkeypatch)
+    assert "Refund Awaiting Approval" not in captured["subject"]
+    assert "No refund is due" in captured["html"]
+
+
+def test_cancellation_alert_uses_its_own_category(monkeypatch):
+    captured = capture_cancellation(FakeCancelledBooking(), monkeypatch)
+    assert captured["category"] == "cancellation_admin_alert"
+
+
+def test_cancellation_alert_swallows_failures():
+    asyncio.run(admin_notify.notify_admin_cancellation(ExplodingDB(), FakeCancelledBooking()))
+
+
+def test_cancel_notifies_both_manager_and_admin():
+    from app.services.booking_service import BookingService
+
+    source = inspect.getsource(BookingService.cancel)
+    assert "notify_manager_cancellation" in source
+    assert "notify_admin_cancellation" in source

@@ -38,7 +38,7 @@ from app.schemas.booking import (
     PropertyBooking,
 )
 from app.schemas.common import PaginationParams
-from app.utils.admin_notify import notify_admin_new_booking
+from app.utils.admin_notify import notify_admin_cancellation, notify_admin_new_booking
 from app.utils.cancellation import compute_refund
 from app.utils.pricing import price_with_platform_fee
 from app.utils.email_sender import (
@@ -919,6 +919,27 @@ class BookingService:
 
         return booking
 
+    @staticmethod
+    def queue_refund(booking: Booking):
+        """Work out the refund for a cancelled booking and queue it.
+
+        Does not commit and does not call the gateway — money moves only when an admin
+        releases it from /admin/refunds. Shared by every cancellation path (booking,
+        consultation, appointment) so they cannot compute different amounts.
+
+        Returns the breakdown for callers that want to log or display it.
+        """
+        breakdown = compute_refund(booking)
+        booking.refund_amount = breakdown.refund_amount
+        booking.cancellation_charge = breakdown.cancellation_charge
+        if breakdown.refund_amount > 0:
+            booking.refund_status = "pending"
+            booking.refund_requested_at = datetime.now(timezone.utc)
+        else:
+            booking.refund_status = "none"
+            booking.refund_note = breakdown.reason
+        return breakdown
+
     async def cancel(
         self,
         booking: Booking,
@@ -934,17 +955,7 @@ class BookingService:
         booking.cancelled_by = cancelled_by
         booking.updated_by = cancelled_by
 
-        # Refund under the cancellation policy. The amount is computed and queued;
-        # money moves only when an admin releases it from /admin/refunds/pending.
-        breakdown = compute_refund(booking)
-        booking.refund_amount = breakdown.refund_amount
-        booking.cancellation_charge = breakdown.cancellation_charge
-        if breakdown.refund_amount > 0:
-            booking.refund_status = "pending"
-            booking.refund_requested_at = datetime.now(timezone.utc)
-        else:
-            booking.refund_status = "none"
-            booking.refund_note = breakdown.reason
+        self.queue_refund(booking)
 
         await self.db.commit()
         await self.db.refresh(booking)
@@ -953,6 +964,8 @@ class BookingService:
         from app.utils.manager_notify import notify_manager_cancellation
 
         await notify_manager_cancellation(self.db, booking)
+        # The admin needs to know too - a queued refund will not pay itself.
+        await notify_admin_cancellation(self.db, booking)
         await self.db.commit()
 
         logger.info("booking_cancelled", booking_id=str(booking.id))

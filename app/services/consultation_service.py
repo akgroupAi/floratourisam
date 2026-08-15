@@ -794,6 +794,11 @@ class ConsultationService:
                     booking.cancelled_by = updated_by
                     if notes:
                         booking.cancellation_reason = notes
+                    # Same policy and queue as any other cancellation — a paid
+                    # consultation is owed money like a paid hotel stay.
+                    from app.services.booking_service import BookingService
+
+                    BookingService.queue_refund(booking)
 
         await self.db.commit()
         await self.db.refresh(consultation)

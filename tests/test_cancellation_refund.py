@@ -158,20 +158,24 @@ def test_policy_summary_states_the_rule():
 
 
 def test_cancel_uses_the_policy_not_a_hardcoded_percentage():
+    """The refund maths lives in queue_refund; cancel must delegate to it."""
     from app.services.booking_service import BookingService
 
-    source = inspect.getsource(BookingService.cancel)
-    assert "compute_refund" in source
-    assert "0.8" not in source, "the hardcoded 80% refund must be gone"
+    assert "queue_refund" in inspect.getsource(BookingService.cancel)
+    assert "compute_refund" in inspect.getsource(BookingService.queue_refund)
+    assert "0.8" not in inspect.getsource(BookingService.cancel), (
+        "the hardcoded 80% refund must be gone"
+    )
 
 
 def test_cancel_queues_the_refund_rather_than_paying_it():
     """Money must not leave on cancellation — an admin releases it."""
     from app.services.booking_service import BookingService
 
-    source = inspect.getsource(BookingService.cancel)
-    assert 'refund_status = "pending"' in source
-    assert "refund_payment" not in source, "cancellation must not call the gateway"
+    assert 'refund_status = "pending"' in inspect.getsource(BookingService.queue_refund)
+    assert "refund_payment" not in inspect.getsource(BookingService.cancel), (
+        "cancellation must not call the gateway"
+    )
 
 
 def test_only_the_approve_path_touches_the_gateway():
@@ -265,3 +269,93 @@ def test_a_failed_refund_can_be_retried():
     source = inspect.getsource(RefundService.approve)
     assert 'booking.refund_status = FAILED' in source
     assert "PENDING, FAILED" in source, "the queue must include failed refunds for retry"
+
+
+# ── Every cancellation path queues a refund ───────────────────
+
+
+def test_all_three_cancellation_paths_use_the_shared_queue():
+    """A consultation cancelled by a patient is owed money like a hotel stay.
+
+    Three code paths cancel a booking: the booking endpoint, a consultation status
+    change, and cancel_appointment. If one skips the queue, that customer is silently
+    never refunded.
+    """
+    from app.services.appointment_service import AppointmentService
+    from app.services.booking_service import BookingService
+    from app.services.consultation_service import ConsultationService
+
+    for label, fn in [
+        ("BookingService.cancel", BookingService.cancel),
+        ("ConsultationService.update_status", ConsultationService.update_status),
+        ("AppointmentService.cancel_appointment", AppointmentService.cancel_appointment),
+    ]:
+        assert "queue_refund" in inspect.getsource(fn), f"{label} does not queue a refund"
+
+
+def test_queue_refund_does_not_commit_or_call_the_gateway():
+    """It prepares the row; the caller commits and only an admin releases money.
+
+    Checks the executable lines, not the prose — the docstring mentions commit to
+    explain why it does not.
+    """
+    from app.services.booking_service import BookingService
+
+    source = inspect.getsource(BookingService.queue_refund)
+    body = source.split('"""')[-1]  # everything after the closing docstring quotes
+    assert "commit" not in body
+    assert "refund_payment" not in body
+
+
+class QueueTarget:
+    """A paid booking starting `hours_out` from now."""
+
+    def __init__(self, hours_out=72, total=787.5, fee=37.5, paid=True):
+        self.total_price = total
+        self.platform_fee = fee
+        self.is_paid = paid
+        self.check_in_date = None
+        self.scheduled_time = datetime.now(timezone.utc) + timedelta(hours=hours_out)
+        self.refund_amount = None
+        self.cancellation_charge = None
+        self.refund_status = "none"
+        self.refund_requested_at = None
+        self.refund_note = None
+
+
+def test_consultation_cancelled_early_queues_a_refund():
+    from app.services.booking_service import BookingService
+
+    booking = QueueTarget(hours_out=72)
+    BookingService.queue_refund(booking)
+    assert booking.refund_status == "pending"
+    assert booking.refund_amount == 675.0  # 750 less 10%
+    assert booking.cancellation_charge == 75.0
+    assert booking.refund_requested_at is not None
+
+
+def test_consultation_cancelled_late_queues_nothing_and_says_why():
+    from app.services.booking_service import BookingService
+
+    booking = QueueTarget(hours_out=12)
+    BookingService.queue_refund(booking)
+    assert booking.refund_status == "none"
+    assert booking.refund_amount == 0.0
+    assert "48 hours" in booking.refund_note
+
+
+def test_unpaid_consultation_queues_nothing():
+    from app.services.booking_service import BookingService
+
+    booking = QueueTarget(hours_out=72, paid=False)
+    BookingService.queue_refund(booking)
+    assert booking.refund_status == "none"
+    assert "not been paid" in booking.refund_note
+
+
+def test_the_consultation_scheduled_time_drives_the_deadline():
+    """Consultations have no check_in_date — the policy must fall back to scheduled_time."""
+    from app.utils.cancellation import booking_start
+
+    booking = QueueTarget(hours_out=72)
+    assert booking_start(booking) is not None

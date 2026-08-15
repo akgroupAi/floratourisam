@@ -154,6 +154,112 @@ async def notify_admin_new_booking(db: AsyncSession, booking: Booking) -> None:
         )
 
 
+async def notify_admin_cancellation(db: AsyncSession, booking: Booking) -> None:
+    """Tell the admin a booking was cancelled, and whether money is owed.
+
+    A cancellation with a refund needs someone to release it. Without this the only
+    signal is the queue, which nobody sees unless they go and look.
+    """
+    try:
+        guest_name, guest_email, guest_phone = await _patient_contact(db, booking.patient_id)
+
+        property_name = None
+        if booking.hotel_room_id:
+            room = (
+                await db.execute(
+                    select(Room)
+                    .options(joinedload(Room.hotel))
+                    .where(Room.id == booking.hotel_room_id)
+                )
+            ).scalar_one_or_none()
+            if room and room.hotel:
+                property_name = room.hotel.name
+        elif booking.apartment_id:
+            property_name = (
+                await db.execute(
+                    select(Apartment.name).where(Apartment.id == booking.apartment_id)
+                )
+            ).scalar_one_or_none()
+        elif booking.restaurant_id:
+            property_name = (
+                await db.execute(
+                    select(Restaurant.name).where(Restaurant.id == booking.restaurant_id)
+                )
+            ).scalar_one_or_none()
+
+        refund_amount = float(booking.refund_amount or 0)
+        refund_status = booking.refund_status or "none"
+        needs_action = refund_status == "pending"
+
+        rows = [
+            ("Reference", booking.reference_number),
+            ("Type", (booking.booking_type or "").title()),
+            ("Property", property_name),
+            ("Guest", guest_name),
+            ("Email", guest_email),
+            ("Phone", guest_phone),
+            (
+                "Was booked for",
+                f"{booking.check_in_date} to {booking.check_out_date}"
+                if booking.check_in_date and booking.check_out_date
+                else None,
+            ),
+            ("Booking total", _money(booking.total_price, booking.currency)),
+            ("Was paid", "Yes" if booking.is_paid else "No"),
+            (
+                "Cancellation charge",
+                _money(booking.cancellation_charge, booking.currency)
+                if booking.cancellation_charge
+                else None,
+            ),
+            (
+                "Refund due",
+                _money(refund_amount, booking.currency) if refund_amount else "None",
+            ),
+            ("Refund status", refund_status.replace("_", " ").title()),
+        ]
+
+        if needs_action:
+            footer = (
+                "This refund is waiting for approval. Release it from "
+                "Admin -> Refunds, or it will not be paid."
+            )
+        elif booking.is_paid and refund_amount == 0:
+            footer = (
+                "No refund is due under the cancellation policy"
+                + (f": {booking.refund_note}" if booking.refund_note else ".")
+            )
+        else:
+            footer = None
+
+        heading = (
+            "Booking Cancelled - Refund Awaiting Approval"
+            if needs_action
+            else "Booking Cancelled"
+        )
+
+        html = render_admin_alert_email_html(
+            heading=heading,
+            subheading=f"Booking {booking.reference_number}",
+            rows=rows,
+            message_title="Reason given" if booking.cancellation_reason else None,
+            message_body=booking.cancellation_reason,
+            footer_note=footer,
+        )
+        await _send(
+            db,
+            f"{heading}: {booking.reference_number}",
+            html,
+            "cancellation_admin_alert",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "admin_cancellation_alert_failed",
+            booking_id=str(getattr(booking, "id", "")),
+            error=str(exc),
+        )
+
+
 async def notify_admin_new_consultation(db: AsyncSession, consultation) -> None:
     """Tell the admin a patient has booked a consultation with a doctor."""
     try:
