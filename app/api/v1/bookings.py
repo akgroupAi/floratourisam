@@ -38,6 +38,7 @@ from app.schemas.booking import (
     BookingGuestUpdate,
 )
 from app.schemas.common import MessageResponse, PaginatedResponse, PaginationParams
+from app.schemas.refund import RefundPreviewResponse
 from app.services.booking_guest_service import BookingGuestService, document_download_url
 from app.services.booking_service import BookingService
 from app.services.patient_service import PatientService
@@ -340,18 +341,23 @@ async def get_booking(
     current_user: CurrentUser,
     db: DatabaseSession,
 ):
-    service = BookingService(db)
-    booking = await service.get_by_id(booking_id)
-    if not booking:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
-    return booking
+    """Get a booking.
+
+    Restricted to the patient who owns it, an admin, or the property's manager.
+    """
+    return await _booking_for_caller(db, booking_id, current_user)
 
 
 @router.post(
     "/{booking_id}/cancel",
     response_model=BookingResponse,
     summary="Cancel a booking",
-    description="Cancels the booking. If already paid, 80% refund is calculated.",
+    description=(
+        "Cancels the booking and works out the refund under the cancellation policy. "
+        "Any refund due is queued for admin approval — no money moves here. "
+        "Call GET /bookings/{id}/refund-preview first to show the customer what they "
+        "will get back before they confirm."
+    ),
 )
 async def cancel_booking(
     booking_id: UUID,
@@ -359,12 +365,15 @@ async def cancel_booking(
     current_user: CurrentUser,
     db: DatabaseSession,
 ):
-    service = BookingService(db)
-    booking = await service.get_by_id(booking_id)
-    if not booking:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    """Cancel a booking, giving a reason.
+
+    Restricted to the patient who owns it, an admin, or the property's manager —
+    cancelling is destructive and triggers a refund, so it must never be reachable by
+    booking id alone.
+    """
+    booking = await _booking_for_caller(db, booking_id, current_user)
     try:
-        return await service.cancel(booking, data, current_user.id)
+        return await BookingService(db).cancel(booking, data, current_user.id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -655,3 +664,22 @@ async def delete_booking_document(
     ):
         raise HTTPException(status_code=404, detail="Document not found")
     return MessageResponse(message="Document deleted")
+
+@router.get(
+    "/{booking_id}/refund-preview",
+    response_model=RefundPreviewResponse,
+    summary="What cancelling this booking would refund",
+)
+async def preview_refund(
+    booking_id: UUID, current_user: CurrentUser, db: DatabaseSession
+):
+    """
+    Show the refund **before** cancelling, with the deductions itemised.
+
+    Changes nothing. Call this from the cancel dialog so a customer sees the charge
+    while they can still change their mind, rather than discovering it afterwards.
+    """
+    booking = await _booking_for_caller(db, booking_id, current_user)
+    from app.services.refund_service import RefundService
+
+    return await RefundService(db).preview(booking)

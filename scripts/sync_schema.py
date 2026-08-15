@@ -36,7 +36,7 @@ from app.db.session import engine
 import app.models  # noqa: F401  (side effect: registers every model)
 
 # The newest revision in the live migration chain. Bump this when a migration is added.
-CURRENT_REVISION = "z0a1b2c3d4e5"
+CURRENT_REVISION = "a1b2c3d4e5f6"
 
 
 async def live_schema(conn) -> dict[str, set[str]]:

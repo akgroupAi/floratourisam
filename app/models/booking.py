@@ -198,6 +198,40 @@ class Booking(BaseModel):
         Float,
         nullable=True,
     )
+    # What the customer forfeits under the cancellation policy.
+    cancellation_charge: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    # Refund workflow. A cancellation computes the amount and queues it; an admin
+    # releases it. none | pending | processed | rejected | failed
+    refund_status: Mapped[str] = mapped_column(
+        String(20),
+        default="none",
+        nullable=False,
+        server_default="none",
+        index=True,
+    )
+    refund_requested_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    refund_processed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    refund_processed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+    )
+    refund_reference: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )  # Razorpay refund id
+    refund_note: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+    )  # Rejection reason, or the gateway failure
 
     # Check-in/out tracking
     actual_check_in: Mapped[Optional[datetime]] = mapped_column(

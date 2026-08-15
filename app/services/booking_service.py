@@ -39,6 +39,7 @@ from app.schemas.booking import (
 )
 from app.schemas.common import PaginationParams
 from app.utils.admin_notify import notify_admin_new_booking
+from app.utils.cancellation import compute_refund
 from app.utils.pricing import price_with_platform_fee
 from app.utils.email_sender import (
     render_apartment_booking_confirmation_html,
@@ -933,8 +934,17 @@ class BookingService:
         booking.cancelled_by = cancelled_by
         booking.updated_by = cancelled_by
 
-        if booking.is_paid:
-            booking.refund_amount = round(booking.total_price * 0.8, 2)  # 80% refund
+        # Refund under the cancellation policy. The amount is computed and queued;
+        # money moves only when an admin releases it from /admin/refunds/pending.
+        breakdown = compute_refund(booking)
+        booking.refund_amount = breakdown.refund_amount
+        booking.cancellation_charge = breakdown.cancellation_charge
+        if breakdown.refund_amount > 0:
+            booking.refund_status = "pending"
+            booking.refund_requested_at = datetime.now(timezone.utc)
+        else:
+            booking.refund_status = "none"
+            booking.refund_note = breakdown.reason
 
         await self.db.commit()
         await self.db.refresh(booking)

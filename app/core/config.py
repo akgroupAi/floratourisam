@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     # percentage. Set to 0 to disable. Applies to every payable booking.
     PLATFORM_FEE_PERCENT: float = 5.0
 
+    # Cancellation policy. Cancel at least FREE_WINDOW_HOURS before the booking starts
+    # and the customer is refunded, less CHARGE_PERCENT. Inside that window, nothing is
+    # refunded. The platform fee is retained either way unless made refundable.
+    CANCELLATION_FREE_WINDOW_HOURS: int = 48
+    CANCELLATION_CHARGE_PERCENT: float = 10.0
+    PLATFORM_FEE_REFUNDABLE: bool = False
+
     # AI / RAG Chatbot
     AI_SERVICE_URL: Optional[str] = None
     AI_API_KEY: Optional[str] = None

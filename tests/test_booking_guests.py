@@ -290,3 +290,33 @@ def test_unauthorised_access_returns_404_not_403():
 def test_patient_cannot_be_removed_from_their_own_booking():
     source = inspect.getsource(BookingGuestService.remove_guest)
     assert "cannot be removed" in source
+
+
+# ── Booking read and cancel must check ownership ──────────────
+
+
+def test_get_and_cancel_resolve_the_caller():
+    """Any authenticated user could previously read or CANCEL any booking by id.
+
+    Cancelling is destructive and triggers a refund, so it must never be reachable by
+    booking id alone.
+    """
+    from app.api.v1 import bookings
+
+    source = inspect.getsource(bookings)
+    for handler in ("get_booking", "cancel_booking"):
+        start = source.index(f"async def {handler}(")
+        body = source[start : start + 1500]
+        assert "_booking_for_caller" in body, f"{handler} does not check ownership"
+        assert "service.get_by_id(booking_id)" not in body, (
+            f"{handler} still fetches by id without an ownership check"
+        )
+
+
+def test_cancel_description_does_not_promise_a_hardcoded_refund():
+    """The old text advertised '80% refund', which the policy engine replaced."""
+    from app.api.v1 import bookings
+
+    start = inspect.getsource(bookings).index("async def cancel_booking(")
+    around = inspect.getsource(bookings)[start - 900 : start]
+    assert "80%" not in around
