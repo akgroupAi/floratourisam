@@ -359,3 +359,206 @@ def test_the_consultation_scheduled_time_drives_the_deadline():
 
     booking = QueueTarget(hours_out=72)
     assert booking_start(booking) is not None
+
+
+# ── Patient-facing refund status ──────────────────────────────
+
+
+class StatusBooking:
+    def __init__(self, status="pending", amount=9000.0, note=None, ref=None):
+        self.id = uuid4()
+        self.reference_number = "HTL-2026-0142"
+        self.currency = "INR"
+        self.refund_status = status
+        self.refund_amount = amount
+        self.cancellation_charge = 1000.0
+        self.refund_note = note
+        self.refund_reference = ref
+        self.refund_requested_at = None
+        self.refund_processed_at = None
+        self.total_price = 10500.0
+        self.cancelled_at = None
+
+
+def patient_status(**kwargs):
+    from app.services.refund_service import RefundService
+
+    return RefundService.patient_status(StatusBooking(**kwargs))
+
+
+def test_pending_tells_the_patient_it_is_being_processed():
+    s = patient_status(status="pending")
+    assert s["status_label"] == "Refund being processed"
+    assert s["is_refund_due"] is True
+    assert "9,000.00" in s["message"]
+
+
+def test_pending_states_the_settlement_time():
+    """"Approved" is not "in your account" - saying so avoids support tickets."""
+    s = patient_status(status="pending")
+    assert "5-7 working days" in s["message"]
+    assert s["expected_days"] == "5-7 working days"
+
+
+def test_processed_does_not_claim_the_money_has_arrived():
+    s = patient_status(status="processed", ref="rfnd_abc")
+    assert s["status_label"] == "Refund issued"
+    assert "5-7 working days" in s["message"]
+    assert s["reference"] == "rfnd_abc"
+
+
+def test_rejected_shows_the_reason_given():
+    s = patient_status(status="rejected", amount=0.0, note="Cancelled after check-in time")
+    assert s["status_label"] == "Refund declined"
+    assert "Cancelled after check-in time" in s["message"]
+    assert s["is_refund_due"] is False
+
+
+def test_failed_reassures_rather_than_alarms():
+    s = patient_status(status="failed")
+    assert "no action is needed from you" in s["message"]
+
+
+def test_no_refund_due_explains_why():
+    s = patient_status(
+        status="none", amount=0.0,
+        note="Cancelled less than 48 hours before the booking starts.",
+    )
+    assert s["is_refund_due"] is False
+    assert "48 hours" in s["message"]
+    assert s["expected_days"] is None
+
+
+def test_every_status_produces_a_message():
+    for status in ("none", "pending", "processed", "rejected", "failed"):
+        s = patient_status(status=status)
+        assert s["message"], f"{status} has no message to display"
+        assert s["status_label"]
+
+
+# ── Timeline attribution ──────────────────────────────────────
+
+
+def test_timeline_no_longer_hardcodes_admin():
+    """A patient cancelling their own booking was being attributed to an administrator."""
+    from app.services.booking_service import BookingService
+
+    source = inspect.getsource(BookingService.get_admin_detail)
+    assert 'actor_name="Admin"' not in source
+    assert "_actor_label" in source
+
+
+def test_actor_label_marks_the_booking_owner_as_the_patient():
+    from app.services.booking_service import BookingService
+
+    patient_user_id = uuid4()
+
+    class FakeUser:
+        id = patient_user_id
+        full_name = "John Doe"
+        email = "john@example.com"
+        role = "patient"
+
+    class FakePatient:
+        user = FakeUser()
+
+    class FakeBookingWithPatient:
+        patient = FakePatient()
+
+    class DB:
+        async def execute(self, stmt):
+            class R:
+                def scalar_one_or_none(inner):
+                    return FakeUser()
+            return R()
+
+    service = BookingService(DB())
+    label = asyncio.run(
+        service._actor_label(patient_user_id, FakeBookingWithPatient())
+    )
+    assert label == "John Doe (Patient)"
+
+
+def test_actor_label_names_an_admin_by_role():
+    from app.services.booking_service import BookingService
+
+    class FakeAdmin:
+        id = uuid4()
+        full_name = "Priya Sharma"
+        email = "priya@example.com"
+        role = "admin"
+
+    class DB:
+        async def execute(self, stmt):
+            class R:
+                def scalar_one_or_none(inner):
+                    return FakeAdmin()
+            return R()
+
+    class B:
+        patient = None
+
+    label = asyncio.run(BookingService(DB())._actor_label(uuid4(), B()))
+    assert label == "Priya Sharma (Admin)"
+
+
+def test_actor_label_falls_back_to_system_with_no_actor():
+    from app.services.booking_service import BookingService
+
+    class B:
+        patient = None
+
+    assert asyncio.run(BookingService(None)._actor_label(None, B())) == "System"
+
+
+# ── Customer emails ───────────────────────────────────────────
+
+
+def test_approve_emails_the_customer():
+    from app.services.refund_service import RefundService
+
+    assert "notify_customer_refund_processed" in inspect.getsource(RefundService.approve)
+
+
+def test_reject_emails_the_customer():
+    from app.services.refund_service import RefundService
+
+    assert "notify_customer_refund_rejected" in inspect.getsource(RefundService.reject)
+
+
+def test_customer_refund_email_does_not_promise_instant_money():
+    from app.utils import admin_notify
+
+    source = inspect.getsource(admin_notify.notify_customer_refund_processed)
+    assert "5-7 working days" in source
+
+
+# ── Manager refund access ─────────────────────────────────────
+
+
+def test_managers_can_reach_the_refund_queue():
+    from app.main import app
+
+    paths = {getattr(r, "path", "") for r in app.routes}
+    assert "/api/v1/manager/refunds" in paths
+    assert "/api/v1/manager/refunds/{booking_id}/approve" in paths
+    assert "/api/v1/manager/refunds/{booking_id}/reject" in paths
+
+
+def test_manager_refund_routes_check_ownership_before_paying():
+    """A manager must never release money on another property's booking."""
+    from app.api.v1 import manager
+
+    source = inspect.getsource(manager)
+    for handler in ("approve_manager_refund", "reject_manager_refund"):
+        start = source.index(f"async def {handler}(")
+        body = source[start : start + 1200]
+        assert "get_booking" in body, f"{handler} does not verify the booking is theirs"
+
+
+def test_refund_queue_can_be_scoped_to_a_manager():
+    from app.services.refund_service import RefundService
+
+    source = inspect.getsource(RefundService.list_pending)
+    assert "scope" in source
+    assert "booking_filter" in source

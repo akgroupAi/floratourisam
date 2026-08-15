@@ -110,3 +110,30 @@ class RefundStatsResponse(BaseModel):
     oldest_waiting_hours: Optional[float] = Field(
         None, description="Longest a customer has been waiting for a refund"
     )
+
+
+class PatientRefundStatus(BaseModel):
+    """The refund position on the patient's own booking.
+
+    Written for display: `status_label` and `message` are ready to render, so the
+    frontend does not reinvent the wording per screen.
+    """
+
+    booking_id: str
+    reference_number: str
+    currency: Optional[str] = None
+
+    refund_status: str = Field(..., description="none | pending | processed | rejected | failed")
+    status_label: str = Field(..., description="Human-readable, ready to display")
+    refund_amount: float = 0.0
+    cancellation_charge: float = 0.0
+
+    is_refund_due: bool = Field(..., description="True when money is coming back")
+    message: str = Field(..., description="What to tell the patient right now")
+    expected_days: Optional[str] = Field(
+        None, description="How long the money takes to arrive, once released"
+    )
+
+    requested_at: Optional[datetime] = None
+    processed_at: Optional[datetime] = None
+    reference: Optional[str] = Field(None, description="Gateway refund id, once issued")

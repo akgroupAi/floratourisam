@@ -28,6 +28,12 @@ from app.schemas.hotel import (
     RoomCalendarUpdateResponse,
     RoomResponse,
 )
+from app.schemas.refund import (
+    PendingRefundItem,
+    RefundApproveRequest,
+    RefundApproveResponse,
+    RefundRejectRequest,
+)
 from app.schemas.manager import (
     ManagerBookingItem,
     ManagerMenuItem,
@@ -494,3 +500,86 @@ async def set_menu_stock(
         is_sold_out=remaining is not None and remaining <= 0,
         image_url=item.image_url,
     )
+
+# ============== REFUNDS ==============
+#
+# A manager can release refunds for their own properties. The scope check is the same
+# one every other manager route uses, so a manager can never touch another property's
+# money.
+
+
+@router.get(
+    "/refunds",
+    response_model=PaginatedResponse[PendingRefundItem],
+    summary="Refunds awaiting action at my properties",
+)
+async def list_manager_refunds(
+    db: DatabaseSession,
+    scope: ManagerScope = ManagerScopeDep,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None, description="pending | failed | processed | rejected"),
+):
+    """Refunds on bookings at properties I manage, longest-waiting first."""
+    from app.services.refund_service import RefundService
+
+    items, total = await RefundService(db).list_pending(
+        PaginationParams(page=page, page_size=page_size),
+        status=status,
+        scope=scope,
+    )
+    return PaginatedResponse.create(items, total, page, page_size)
+
+
+@router.post(
+    "/refunds/{booking_id}/approve",
+    response_model=RefundApproveResponse,
+    summary="Release a refund for one of my properties",
+)
+async def approve_manager_refund(
+    booking_id: UUID,
+    data: RefundApproveRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    scope: ManagerScope = ManagerScopeDep,
+):
+    """
+    **This moves real money.** Same behaviour as the admin endpoint, restricted to
+    bookings at properties I manage.
+
+    Send an empty body to pay what the policy calculated, or `amount` to override.
+    """
+    await ManagerService(db, scope).get_booking(booking_id)  # 404 unless it is mine
+
+    from app.services.refund_service import RefundService
+
+    try:
+        return await RefundService(db).approve(
+            booking_id, approved_by=current_user.id, amount=data.amount
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post(
+    "/refunds/{booking_id}/reject",
+    response_model=MessageResponse,
+    summary="Decline a refund for one of my properties",
+)
+async def reject_manager_refund(
+    booking_id: UUID,
+    data: RefundRejectRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    scope: ManagerScope = ManagerScopeDep,
+):
+    """Decline a queued refund. The reason is stored and emailed to the customer."""
+    await ManagerService(db, scope).get_booking(booking_id)  # 404 unless it is mine
+
+    from app.services.refund_service import RefundService
+
+    try:
+        await RefundService(db).reject(booking_id, rejected_by=current_user.id, reason=data.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return MessageResponse(message="Refund declined")

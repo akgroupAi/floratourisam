@@ -363,16 +363,38 @@ class BookingService:
         if b.confirmed_at:
             timeline.append(BookingTimelineItem(
                 status="Confirmed",
-                description="Booking confirmed by administration",
+                description="Booking confirmed",
                 timestamp=b.confirmed_at,
-                actor_name="Admin"
+                actor_name=await self._actor_label(b.confirmed_by, b),
             ))
         if b.status == BookingStatus.CANCELLED.value:
             timeline.append(BookingTimelineItem(
                 status="Cancelled",
                 description=f"Booking cancelled. Reason: {b.cancellation_reason}",
                 timestamp=b.cancelled_at or b.updated_at,
-                actor_name="Admin"
+                actor_name=await self._actor_label(b.cancelled_by, b),
+            ))
+        if b.refund_status and b.refund_status != "none":
+            refund_labels = {
+                "pending": "Refund pending approval",
+                "processed": "Refund issued",
+                "rejected": "Refund declined",
+                "failed": "Refund failed at the gateway",
+            }
+            refund_amount = f"{b.currency or ''} {b.refund_amount:,.2f}".strip()
+            description = {
+                "pending": f"Refund of {refund_amount} awaiting approval",
+                "processed": f"Refund of {refund_amount} issued to the customer",
+                "rejected": f"Refund declined. {b.refund_note or ''}".strip(),
+                "failed": f"Refund failed. {b.refund_note or ''}".strip(),
+            }.get(b.refund_status, "")
+            timeline.append(BookingTimelineItem(
+                status=refund_labels.get(b.refund_status, "Refund"),
+                description=description,
+                timestamp=b.refund_processed_at or b.refund_requested_at or b.cancelled_at or b.updated_at,
+                actor_name=await self._actor_label(b.refund_processed_by, b)
+                if b.refund_processed_by
+                else "System",
             ))
 
         timeline.sort(key=lambda x: x.timestamp)
@@ -918,6 +940,44 @@ class BookingService:
                 logger.error("booking_confirm_notification_failed", error=str(exc))
 
         return booking
+
+    async def _actor_label(self, actor_id: Optional[UUID], booking: Booking) -> str:
+        """Who did this, by name and role.
+
+        The timeline used to hardcode "Admin" on every action, so a patient cancelling
+        their own booking was attributed to an administrator. This resolves the stored
+        user id instead, and says "Patient" when the actor is the booking's own patient.
+        """
+        if not actor_id:
+            return "System"
+
+        patient_user_id = (
+            booking.patient.user.id
+            if booking.patient and booking.patient.user
+            else None
+        )
+
+        user = (
+            await self.db.execute(select(User).where(User.id == actor_id))
+        ).scalar_one_or_none()
+        if not user:
+            return "Unknown"
+
+        name = user.full_name or user.email or "Unknown"
+        if patient_user_id and actor_id == patient_user_id:
+            return f"{name} (Patient)"
+
+        role_labels = {
+            "super_admin": "Admin",
+            "admin": "Admin",
+            "hotel_manager": "Property Manager",
+            "apartment_manager": "Property Manager",
+            "restaurant_manager": "Property Manager",
+            "doctor": "Doctor",
+            "patient": "Patient",
+        }
+        role = role_labels.get(user.role, (user.role or "").replace("_", " ").title())
+        return f"{name} ({role})" if role else name
 
     @staticmethod
     def queue_refund(booking: Booking):

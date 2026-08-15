@@ -40,9 +40,18 @@ class RefundService:
         pagination: PaginationParams,
         status: Optional[str] = None,
         search: Optional[str] = None,
+        scope=None,
     ) -> Tuple[List[dict], int]:
-        """Refunds awaiting action, oldest request first — longest-waiting customer first."""
+        """Refunds awaiting action, oldest request first — longest-waiting customer first.
+
+        `scope` restricts the list to a manager's own properties. Omitted for admins,
+        who see everything.
+        """
         filters = [Booking.is_deleted == False]
+        if scope is not None:
+            scope_clause = scope.booking_filter(Booking)
+            if scope_clause is not None:
+                filters.append(scope_clause)
         if status:
             filters.append(Booking.refund_status == status)
         else:
@@ -166,6 +175,12 @@ class RefundService:
         booking.updated_by = approved_by
         await self.db.commit()
 
+        # Tell the customer. Best-effort - a mail failure must not undo a paid refund.
+        from app.utils.admin_notify import notify_customer_refund_processed
+
+        await notify_customer_refund_processed(self.db, booking)
+        await self.db.commit()
+
         logger.info(
             "refund_processed",
             booking_id=str(booking_id),
@@ -195,6 +210,11 @@ class RefundService:
         booking.updated_by = rejected_by
         await self.db.commit()
         await self.db.refresh(booking)
+
+        from app.utils.admin_notify import notify_customer_refund_rejected
+
+        await notify_customer_refund_rejected(self.db, booking)
+        await self.db.commit()
 
         logger.info(
             "refund_rejected",
@@ -268,4 +288,67 @@ class RefundService:
             "total_price": booking.total_price,
             "currency": booking.currency,
             **breakdown.as_dict(),
+        }
+
+    @staticmethod
+    def patient_status(booking) -> dict:
+        """The refund position as the patient should see it.
+
+        Returns ready-to-display wording so every screen says the same thing. The
+        distinction that matters: "approved" is not "in your account" - Razorpay takes
+        working days to settle, and saying otherwise generates support tickets.
+        """
+        status = booking.refund_status or "none"
+        amount = float(booking.refund_amount or 0)
+        currency = booking.currency or ""
+        money = f"{currency} {amount:,.2f}".strip()
+
+        labels = {
+            "none": "No refund due",
+            "pending": "Refund being processed",
+            "processed": "Refund issued",
+            "rejected": "Refund declined",
+            "failed": "Refund delayed",
+        }
+
+        messages = {
+            "pending": (
+                f"Your refund of {money} has been approved under our cancellation policy "
+                f"and is being processed. Once released it takes 5-7 working days to "
+                f"reach your original payment method."
+            ),
+            "processed": (
+                f"Your refund of {money} has been issued to your original payment method. "
+                f"It usually takes 5-7 working days to appear in your account, depending "
+                f"on your bank."
+            ),
+            "rejected": (
+                booking.refund_note
+                or "Your refund request was not approved. Please contact support if you "
+                "would like this reviewed."
+            ),
+            "failed": (
+                "There was a problem issuing your refund. Our team has been notified and "
+                "will resolve it - no action is needed from you."
+            ),
+            "none": (
+                booking.refund_note
+                or "No refund is due for this booking under our cancellation policy."
+            ),
+        }
+
+        return {
+            "booking_id": str(booking.id),
+            "reference_number": booking.reference_number,
+            "currency": booking.currency,
+            "refund_status": status,
+            "status_label": labels.get(status, status.title()),
+            "refund_amount": round(amount, 2),
+            "cancellation_charge": round(float(booking.cancellation_charge or 0), 2),
+            "is_refund_due": status in ("pending", "processed", "failed") and amount > 0,
+            "message": messages.get(status, ""),
+            "expected_days": "5-7 working days" if status in ("pending", "processed") else None,
+            "requested_at": booking.refund_requested_at,
+            "processed_at": booking.refund_processed_at,
+            "reference": booking.refund_reference,
         }

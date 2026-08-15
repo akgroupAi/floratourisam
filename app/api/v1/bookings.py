@@ -38,7 +38,7 @@ from app.schemas.booking import (
     BookingGuestUpdate,
 )
 from app.schemas.common import MessageResponse, PaginatedResponse, PaginationParams
-from app.schemas.refund import RefundPreviewResponse
+from app.schemas.refund import PatientRefundStatus, RefundPreviewResponse
 from app.services.booking_guest_service import BookingGuestService, document_download_url
 from app.services.booking_service import BookingService
 from app.services.patient_service import PatientService
@@ -683,3 +683,23 @@ async def preview_refund(
     from app.services.refund_service import RefundService
 
     return await RefundService(db).preview(booking)
+
+@router.get(
+    "/{booking_id}/refund-status",
+    response_model=PatientRefundStatus,
+    summary="Refund status for a cancelled booking",
+)
+async def get_refund_status(
+    booking_id: UUID, current_user: CurrentUser, db: DatabaseSession
+):
+    """
+    Where the refund has got to, in words the patient can read.
+
+    `status_label` and `message` are ready to display - use them rather than composing
+    wording per screen. Note that "issued" is not "in your account": Razorpay takes
+    5-7 working days to settle, which `expected_days` states.
+    """
+    booking = await _booking_for_caller(db, booking_id, current_user)
+    from app.services.refund_service import RefundService
+
+    return RefundService.patient_status(booking)

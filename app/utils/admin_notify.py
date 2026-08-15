@@ -72,6 +72,116 @@ async def _send(db: AsyncSession, subject: str, html: str, category: str) -> Non
         logger.error("admin_alert_email_failed", subject=subject, error=str(exc))
 
 
+async def _send_to(
+    db: AsyncSession, to_email: str, to_name, subject: str, html: str, category: str
+) -> None:
+    """Send to a named recipient. Same best-effort contract as _send."""
+    try:
+        await send_email(
+            db=db, to_email=to_email, to_name=to_name or "Guest",
+            subject=subject, body_html=html, category=category,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("customer_email_failed", subject=subject, error=str(exc))
+
+
+async def notify_customer_refund_processed(db: AsyncSession, booking: Booking) -> None:
+    """Tell the patient their refund has been issued.
+
+    Deliberately does not say "refunded" as though the money has arrived - Razorpay
+    takes working days to settle, and a customer told otherwise checks their account
+    the same evening and raises a ticket.
+    """
+    try:
+        name, email, _ = await _patient_contact(db, booking.patient_id)
+        if not email:
+            logger.warning(
+                "customer_refund_email_skipped_no_email", booking_id=str(booking.id)
+            )
+            return
+
+        amount = _money(booking.refund_amount, booking.currency)
+        rows = [
+            ("Booking", booking.reference_number),
+            ("Refund amount", amount),
+            (
+                "Cancellation charge",
+                _money(booking.cancellation_charge, booking.currency)
+                if booking.cancellation_charge
+                else None,
+            ),
+            ("Original total", _money(booking.total_price, booking.currency)),
+            ("Reference", booking.refund_reference),
+            (
+                "Issued on",
+                booking.refund_processed_at.strftime("%B %d, %Y")
+                if booking.refund_processed_at
+                else None,
+            ),
+        ]
+
+        html = render_admin_alert_email_html(
+            heading="Your Refund Has Been Issued",
+            subheading=f"Booking {booking.reference_number}",
+            rows=rows,
+            message_title="What happens next",
+            message_body=(
+                f"We have issued a refund of {amount} to your original payment method. "
+                "It usually takes 5-7 working days to appear in your account, depending "
+                "on your bank. You do not need to do anything."
+            ),
+            footer_note="If it has not arrived after 7 working days, reply to this email.",
+        )
+        await _send_to(
+            db, email, name, f"Refund issued for {booking.reference_number}", html,
+            "customer_refund_processed",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "customer_refund_email_failed", booking_id=str(getattr(booking, "id", "")),
+            error=str(exc),
+        )
+
+
+async def notify_customer_refund_rejected(db: AsyncSession, booking: Booking) -> None:
+    """Tell the patient their refund was not approved, and why."""
+    try:
+        name, email, _ = await _patient_contact(db, booking.patient_id)
+        if not email:
+            return
+
+        rows = [
+            ("Booking", booking.reference_number),
+            ("Original total", _money(booking.total_price, booking.currency)),
+            (
+                "Cancelled on",
+                booking.cancelled_at.strftime("%B %d, %Y") if booking.cancelled_at else None,
+            ),
+        ]
+
+        html = render_admin_alert_email_html(
+            heading="Update On Your Refund Request",
+            subheading=f"Booking {booking.reference_number}",
+            rows=rows,
+            message_title="Reason",
+            message_body=(
+                booking.refund_note
+                or "Your refund request was reviewed and not approved under our "
+                "cancellation policy."
+            ),
+            footer_note="If you believe this is wrong, reply to this email and we will review it.",
+        )
+        await _send_to(
+            db, email, name, f"Update on your refund - {booking.reference_number}", html,
+            "customer_refund_rejected",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "customer_refund_rejection_email_failed",
+            booking_id=str(getattr(booking, "id", "")), error=str(exc),
+        )
+
+
 async def notify_admin_new_booking(db: AsyncSession, booking: Booking) -> None:
     """Tell the admin a patient has booked a hotel, apartment, or restaurant."""
     try:
