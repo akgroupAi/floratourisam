@@ -301,6 +301,17 @@ class AdminBookingDetailResponse(BookingResponse):
     paid_amount: float = 0.0
     balance_amount: float = 0.0
 
+    # Refund position on a cancelled booking. `refund_status` is "none" when the policy
+    # decided nothing is owed, and `refund_note` says why — render both, so an admin is
+    # never left guessing at an absent refund.
+    refund_status: str = "none"
+    refund_amount: Optional[float] = None
+    cancellation_charge: Optional[float] = None
+    refund_note: Optional[str] = None
+    refund_requested_at: Optional[datetime] = None
+    refund_processed_at: Optional[datetime] = None
+    refund_reference: Optional[str] = None
+
 
 class AdminBookingUpdate(BaseModel):
     check_in_date: Optional[date] = None

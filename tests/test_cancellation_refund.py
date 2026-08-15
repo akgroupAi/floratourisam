@@ -562,3 +562,30 @@ def test_refund_queue_can_be_scoped_to_a_manager():
     source = inspect.getsource(RefundService.list_pending)
     assert "scope" in source
     assert "booking_filter" in source
+
+
+def test_timeline_explains_why_no_refund_is_due():
+    """An admin looking at a cancelled paid booking must not see an unexplained absence."""
+    from app.services.booking_service import BookingService
+
+    source = inspect.getsource(BookingService.get_admin_detail)
+    assert '"none": "No refund due"' in source
+    assert "b.is_paid" in source, "the refund decision must show on paid cancellations"
+
+
+def test_admin_detail_exposes_the_refund_position():
+    from app.schemas.booking import AdminBookingDetailResponse
+
+    fields = set(AdminBookingDetailResponse.model_fields)
+    assert {"refund_status", "refund_amount", "refund_note", "cancellation_charge"} <= fields
+
+
+def test_a_cancellation_inside_the_window_records_a_reason():
+    """The note is what the admin screen renders instead of a blank refund panel."""
+    from app.services.booking_service import BookingService
+
+    booking = QueueTarget(hours_out=35)  # the real case: 35h50m before check-in
+    BookingService.queue_refund(booking)
+    assert booking.refund_status == "none"
+    assert booking.refund_amount == 0.0
+    assert "48 hours" in booking.refund_note

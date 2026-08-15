@@ -374,22 +374,27 @@ class BookingService:
                 timestamp=b.cancelled_at or b.updated_at,
                 actor_name=await self._actor_label(b.cancelled_by, b),
             ))
-        if b.refund_status and b.refund_status != "none":
+        # The refund decision, including "none" — an admin looking at a cancelled paid
+        # booking needs to see why no money is owed, not an unexplained absence.
+        if b.status == BookingStatus.CANCELLED.value and b.is_paid:
+            refund_status = b.refund_status or "none"
+            refund_amount = f"{b.currency or ''} {(b.refund_amount or 0):,.2f}".strip()
             refund_labels = {
+                "none": "No refund due",
                 "pending": "Refund pending approval",
                 "processed": "Refund issued",
                 "rejected": "Refund declined",
                 "failed": "Refund failed at the gateway",
             }
-            refund_amount = f"{b.currency or ''} {b.refund_amount:,.2f}".strip()
             description = {
+                "none": b.refund_note or "No refund is due under the cancellation policy.",
                 "pending": f"Refund of {refund_amount} awaiting approval",
                 "processed": f"Refund of {refund_amount} issued to the customer",
                 "rejected": f"Refund declined. {b.refund_note or ''}".strip(),
                 "failed": f"Refund failed. {b.refund_note or ''}".strip(),
-            }.get(b.refund_status, "")
+            }.get(refund_status, "")
             timeline.append(BookingTimelineItem(
-                status=refund_labels.get(b.refund_status, "Refund"),
+                status=refund_labels.get(refund_status, "Refund"),
                 description=description,
                 timestamp=b.refund_processed_at or b.refund_requested_at or b.cancelled_at or b.updated_at,
                 actor_name=await self._actor_label(b.refund_processed_by, b)
