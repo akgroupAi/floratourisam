@@ -21,7 +21,9 @@ class AppointmentCreate(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=1000)
     symptoms: Optional[str] = Field(default=None, max_length=2000)
     symptom_duration: Optional[str] = Field(default=None, max_length=100)
-    timezone: str = Field(default="UTC", max_length=50)
+    # IANA name (e.g. "Asia/Kolkata"). Omit to use the platform default
+    # (settings.DEFAULT_TIMEZONE) rather than silently assuming UTC.
+    timezone: Optional[str] = Field(default=None, max_length=50)
 
 
 class AppointmentCancelRequest(BaseModel):
@@ -31,8 +33,9 @@ class AppointmentCancelRequest(BaseModel):
 
 
 class TimeSlot(BaseModel):
-    """A single time slot for a doctor on a given day."""
+    """A single time slot for a doctor on a given day, in the response's timezone."""
 
+    date: date  # may differ from the request date if timezone conversion shifted the day
     time: time
     formatted: str  # e.g. "10:00 AM"
     is_available: bool
@@ -43,6 +46,7 @@ class AvailableSlotsResponse(BaseModel):
 
     doctor_id: UUID
     date: date
+    timezone: str  # IANA name the slot times below are expressed in
     consultation_type: Optional[str] = None
     slot_duration_minutes: int
     slots: List[TimeSlot]

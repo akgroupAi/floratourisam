@@ -84,6 +84,9 @@ class AppointmentRescheduleRequest(BaseModel):
     scheduled_date: date
     scheduled_time: _time
     reason: Optional[str] = Field(default=None, max_length=500)
+    # IANA name (e.g. "Asia/Kolkata"). Omit to use the platform default
+    # (settings.DEFAULT_TIMEZONE) rather than assuming UTC.
+    timezone: Optional[str] = Field(default=None, max_length=50)
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +98,15 @@ class AppointmentRescheduleRequest(BaseModel):
     response_model=AvailableSlotsResponse,
     summary="Get available appointment slots",
     description=(
-        "Returns all time slots for a doctor on the requested date. "
-        "Slots already booked (pending / waiting / in-progress) are marked "
-        "`is_available: false` so the frontend can grey them out."
+        "Returns all time slots for a doctor on the requested date, in the "
+        "doctor's own timezone by default. Pass `timezone` (IANA name, e.g. "
+        "\"Asia/Dubai\") to get slots converted for a patient browsing from "
+        "elsewhere — the response's `timezone` field says which zone was "
+        "used, and each slot carries its own `date` since conversion can "
+        "shift it across midnight. Slots already booked (pending / waiting "
+        "/ in-progress) are marked `is_available: false` so the frontend "
+        "can grey them out. When booking, send back the same `date`/`time`/"
+        "`timezone` from the chosen slot as-is."
     ),
 )
 async def get_available_slots(
@@ -108,6 +117,12 @@ async def get_available_slots(
         default=None,
         description="Filter by consultation type (video / in_person).",
     ),
+    viewer_timezone: Optional[str] = Query(
+        default=None,
+        alias="timezone",
+        max_length=50,
+        description="IANA name to convert slot times into (e.g. \"Asia/Dubai\"). Omit to get slots in the doctor's own timezone.",
+    ),
 ):
     service = AppointmentService(db)
     try:
@@ -115,6 +130,7 @@ async def get_available_slots(
             doctor_id=doctor_id,
             requested_date=appointment_date,
             consultation_type=consultation_type,
+            viewer_timezone=viewer_timezone,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -178,6 +194,7 @@ async def reschedule_appointment(
             new_time=body.scheduled_time,
             rescheduled_by=current_user.id,
             reason=body.reason,
+            new_timezone=body.timezone,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))

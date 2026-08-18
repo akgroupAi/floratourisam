@@ -8,7 +8,7 @@ Responsibilities:
 """
 
 from datetime import date, datetime, time, timedelta, timezone
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -42,7 +42,22 @@ from app.utils.notifications import notify
 from app.utils.helpers import generate_reference_id
 from app.utils.pricing import price_with_platform_fee
 
+if TYPE_CHECKING:
+    # Deferred to avoid a circular import — app.api.v1.appointments imports
+    # AppointmentService from this module.
+    from app.api.v1.appointments import DoctorAvailabilityCreate, DoctorAvailabilityUpdate
+
 logger = get_logger(__name__)
+
+
+def _resolve_timezone(name: str) -> ZoneInfo:
+    """ZoneInfo(name), but a bad IANA name raises ValueError (-> clean 400)
+    instead of an unhandled ZoneInfoNotFoundError (-> 500)."""
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        raise ValueError(f"Unknown timezone: {name!r}")
+
 
 # Statuses that count as "occupying" a slot
 _ACTIVE_STATUSES = {
@@ -66,8 +81,20 @@ class AppointmentService:
         doctor_id: UUID,
         requested_date: date,
         consultation_type: Optional[ConsultationType] = None,
+        viewer_timezone: Optional[str] = None,
     ) -> AvailableSlotsResponse:
-        """Return available time slots for a doctor on a given date."""
+        """Return available time slots for a doctor on a given date.
+
+        DoctorAvailability windows are configured in the platform default
+        timezone (settings.DEFAULT_TIMEZONE — doctors are India-based
+        today; there's no per-doctor timezone column yet). Pass
+        viewer_timezone to get slots converted for a patient browsing from
+        elsewhere; omit it to get slots as-is in the doctor's own zone.
+        """
+        doctor_tz_name = settings.DEFAULT_TIMEZONE
+        display_tz_name = viewer_timezone or doctor_tz_name
+        doctor_tz = _resolve_timezone(doctor_tz_name)
+        display_tz = _resolve_timezone(display_tz_name)
 
         # Fetch doctor with availability
         doctor_result = await self.db.execute(
@@ -95,6 +122,7 @@ class AppointmentService:
             return AvailableSlotsResponse(
                 doctor_id=doctor_id,
                 date=requested_date,
+                timezone=display_tz_name,
                 consultation_type=consultation_type.value if consultation_type else None,
                 slot_duration_minutes=doctor.consultation_duration_minutes,
                 slots=[],
@@ -102,7 +130,7 @@ class AppointmentService:
 
         slot_duration = availability.slot_duration_minutes or doctor.consultation_duration_minutes
 
-        # Generate all theoretical slots for the day
+        # Generate all theoretical slots for the day, in the doctor's local zone
         all_slots = _generate_slots(
             start=availability.start_time,
             end=availability.end_time,
@@ -111,9 +139,11 @@ class AppointmentService:
             break_end=availability.break_end_time,
         )
 
-        # Fetch already-booked consultations on this date
-        day_start = datetime.combine(requested_date, time.min).replace(tzinfo=timezone.utc)
-        day_end = datetime.combine(requested_date, time.max).replace(tzinfo=timezone.utc)
+        # Fetch already-booked consultations on this date. The window is
+        # the doctor's local calendar day, not the UTC calendar day — those
+        # only coincide when the doctor's zone happens to be UTC.
+        day_start = datetime.combine(requested_date, time.min).replace(tzinfo=doctor_tz).astimezone(timezone.utc)
+        day_end = datetime.combine(requested_date, time.max).replace(tzinfo=doctor_tz).astimezone(timezone.utc)
 
         booked_result = await self.db.execute(
             select(Consultation.scheduled_at, Consultation.duration_minutes).where(
@@ -128,10 +158,14 @@ class AppointmentService:
         )
         booked_rows = booked_result.all()
 
-        # Build a set of occupied slot times (accounting for consultation duration)
+        # Build a set of occupied slot times (accounting for consultation
+        # duration), comparing in the doctor's local zone — the same zone
+        # all_slots is already in. Comparing against the raw UTC time-of-day
+        # here would silently mismatch by the zone's offset and show
+        # already-booked slots as available.
         occupied: set[time] = set()
         for row in booked_rows:
-            booked_start = row.scheduled_at.astimezone(timezone.utc).time().replace(second=0, microsecond=0)
+            booked_start = row.scheduled_at.astimezone(doctor_tz).time().replace(second=0, microsecond=0)
             booked_duration = row.duration_minutes or slot_duration
             booked_start_dt = datetime.combine(requested_date, booked_start)
             booked_end_dt = booked_start_dt + timedelta(minutes=booked_duration)
@@ -145,18 +179,22 @@ class AppointmentService:
         max_appts = availability.max_appointments
         all_unavailable = max_appts is not None and len(booked_rows) >= max_appts
 
-        slots: List[TimeSlot] = [
-            TimeSlot(
-                time=slot,
-                formatted=_format_time(slot),
-                is_available=False if all_unavailable else slot not in occupied,
+        slots: List[TimeSlot] = []
+        for slot in all_slots:
+            slot_dt = datetime.combine(requested_date, slot).replace(tzinfo=doctor_tz).astimezone(display_tz)
+            slots.append(
+                TimeSlot(
+                    date=slot_dt.date(),
+                    time=slot_dt.time(),
+                    formatted=_format_time(slot_dt.time()),
+                    is_available=False if all_unavailable else slot not in occupied,
+                )
             )
-            for slot in all_slots
-        ]
 
         return AvailableSlotsResponse(
             doctor_id=doctor_id,
             date=requested_date,
+            timezone=display_tz_name,
             consultation_type=consultation_type.value if consultation_type else None,
             slot_duration_minutes=slot_duration,
             slots=slots,
@@ -196,9 +234,13 @@ class AppointmentService:
         if data.consultation_type == ConsultationType.IN_PERSON and not doctor.in_person_enabled:
             raise ValueError("This doctor does not offer in-person consultations")
 
-        # Build scheduled_at as timezone-aware UTC datetime
-        tz = ZoneInfo(data.timezone) if data.timezone and data.timezone != "UTC" else timezone.utc
-        local_dt = datetime.combine(data.scheduled_date, data.scheduled_time).replace(tzinfo=tz)
+        # Build scheduled_at as timezone-aware UTC datetime. A request that
+        # omits timezone falls back to the platform default (IST) rather
+        # than UTC — silently assuming UTC shifted appointments by 5:30
+        # whenever a caller didn't set this field.
+        effective_timezone = data.timezone or settings.DEFAULT_TIMEZONE
+        effective_tz = _resolve_timezone(effective_timezone)
+        local_dt = datetime.combine(data.scheduled_date, data.scheduled_time).replace(tzinfo=effective_tz)
         scheduled_at = local_dt.astimezone(timezone.utc)
 
         # Confirm slot is not already taken
@@ -211,8 +253,10 @@ class AppointmentService:
             None,
         )
         if avail and avail.max_appointments is not None:
-            day_start = datetime.combine(data.scheduled_date, time.min).replace(tzinfo=timezone.utc)
-            day_end = datetime.combine(data.scheduled_date, time.max).replace(tzinfo=timezone.utc)
+            # Day window in the appointment's own local calendar day, not
+            # the UTC day — those only coincide when effective_timezone is UTC.
+            day_start = datetime.combine(data.scheduled_date, time.min).replace(tzinfo=effective_tz).astimezone(timezone.utc)
+            day_end = datetime.combine(data.scheduled_date, time.max).replace(tzinfo=effective_tz).astimezone(timezone.utc)
             count_result = await self.db.execute(
                 select(func.count()).where(
                     and_(
@@ -310,7 +354,7 @@ class AppointmentService:
                 end_dt=end_dt,
                 organizer_email=organizer_email,
                 attendee_emails=attendee_emails,
-                timezone=settings.GOOGLE_CALENDAR_TIMEZONE,
+                timezone=effective_timezone,
             )
             meet_link = meet_result.get("meet_link")
             google_event_id = meet_result.get("google_event_id")
@@ -319,7 +363,7 @@ class AppointmentService:
             consultation.session_id = google_event_id or consultation.reference_number
             consultation.session_data = {
                 "meet_link": meet_link,
-                "google_event_id": google_event_id,
+                "google_event_id": google_event_id, 
                 "platform": meet_result.get("platform", "google_meet"),
                 "room": meet_result.get("room"),
             }
@@ -341,7 +385,7 @@ class AppointmentService:
                 event_type="consultation",
                 start_time=scheduled_at,
                 end_time=end_dt,
-                timezone=data.timezone,
+                timezone=effective_timezone,
                 location_type="online" if data.consultation_type == ConsultationType.VIDEO else "in_person",
                 meeting_url=meet_link,
                 entity_type="consultation",
@@ -369,7 +413,7 @@ class AppointmentService:
                 event_type="consultation",
                 start_time=scheduled_at,
                 end_time=end_dt,
-                timezone=data.timezone,
+                timezone=effective_timezone,
                 location_type="online" if data.consultation_type == ConsultationType.VIDEO else "in_person",
                 meeting_url=meet_link,
                 entity_type="consultation",
@@ -463,6 +507,7 @@ class AppointmentService:
                     reference_number=consultation.reference_number,
                     meet_link=meet_link,
                     fee=consultation.fee,
+                    timezone=effective_timezone,
                 )
                 await send_email(
                     db=self.db,
@@ -487,6 +532,7 @@ class AppointmentService:
                     reference_number=consultation.reference_number,
                     meet_link=meet_link,
                     reason=data.reason,
+                    timezone=effective_timezone,
                 )
                 await send_email(
                     db=self.db,
@@ -693,6 +739,7 @@ class AppointmentService:
         new_time: "time",
         rescheduled_by: UUID,
         reason: Optional[str] = None,
+        new_timezone: Optional[str] = None,
     ) -> Consultation:
         """Move a scheduled consultation to a new date/time slot."""
         result = await self.db.execute(
@@ -711,8 +758,14 @@ class AppointmentService:
         }:
             raise ValueError(f"Cannot reschedule a {consultation.status} appointment")
 
-        # Build new datetime as timezone-aware UTC
-        new_dt = datetime.combine(new_date, new_time).replace(tzinfo=timezone.utc)
+        # Build new datetime as timezone-aware UTC. Omitting timezone falls
+        # back to the platform default (IST) rather than UTC, matching
+        # schedule_appointment — the reschedule path used to always assume
+        # UTC regardless of what zone the caller meant.
+        effective_timezone = new_timezone or settings.DEFAULT_TIMEZONE
+        new_dt = datetime.combine(new_date, new_time).replace(
+            tzinfo=_resolve_timezone(effective_timezone)
+        ).astimezone(timezone.utc)
 
         # Validate the new slot isn't in the past
         if new_dt < datetime.now(timezone.utc):
@@ -855,6 +908,7 @@ class AppointmentService:
                         reference_number=consultation.reference_number,
                         meet_link=(consultation.session_data or {}).get("meet_link"),
                         fee=consultation.fee,
+                        timezone=effective_timezone,
                     )
                     await send_email(
                         db=self.db,

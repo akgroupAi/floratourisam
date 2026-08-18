@@ -127,6 +127,12 @@ class Settings(BaseSettings):
     # Frontend URL (used to build verification / reset links in emails)
     FRONTEND_URL: str = "https://floramedcare.com"
 
+    # Default timezone used whenever a booking/reschedule request doesn't
+    # specify one. This platform's primary market is India — treating a
+    # missing timezone as UTC (rather than IST) silently shifted stored
+    # appointment times and confirmation emails by 5:30.
+    DEFAULT_TIMEZONE: str = "Asia/Kolkata"
+
     # Google Calendar / Meet
     GOOGLE_CALENDAR_ENABLED: bool = False
     GOOGLE_SERVICE_ACCOUNT_JSON: Optional[str] = None  # Path to service account JSON file

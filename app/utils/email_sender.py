@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +32,17 @@ from app.core.logging import get_logger
 from app.models.system import EmailLog
 
 logger = get_logger(__name__)
+
+
+def _format_in_timezone(dt: datetime, tz_name: Optional[str]) -> str:
+    """Format a UTC-stored datetime in the timezone the appointment was
+    actually booked in, with a real zone abbreviation (e.g. "IST") instead
+    of a hardcoded "UTC" label that misrepresented the true local time."""
+    try:
+        local_dt = dt.astimezone(ZoneInfo(tz_name or settings.DEFAULT_TIMEZONE))
+    except Exception:
+        local_dt = dt.astimezone(timezone.utc)
+    return f"{local_dt.strftime('%B %d, %Y at %I:%M %p')} {local_dt.strftime('%Z')}"
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +157,7 @@ def render_appointment_confirmation_html(
     reference_number: str,
     meet_link: Optional[str],
     fee: float,
+    timezone: Optional[str] = None,
 ) -> str:
     meet_section = (
         f"""
@@ -180,7 +193,7 @@ def render_appointment_confirmation_html(
             <tr><td style="padding:8px 0;color:#555;font-size:14px;"><strong>Type:</strong></td>
                 <td style="padding:8px 0;font-size:14px;">{consultation_type.replace('_',' ').title()}</td></tr>
             <tr><td style="padding:8px 0;color:#555;font-size:14px;"><strong>Date &amp; Time:</strong></td>
-                <td style="padding:8px 0;font-size:14px;">{scheduled_at.strftime('%B %d, %Y at %I:%M %p')} UTC</td></tr>
+                <td style="padding:8px 0;font-size:14px;">{_format_in_timezone(scheduled_at, timezone)}</td></tr>
             <tr><td style="padding:8px 0;color:#555;font-size:14px;"><strong>Duration:</strong></td>
                 <td style="padding:8px 0;font-size:14px;">{duration_minutes} minutes</td></tr>
             <tr><td style="padding:8px 0;color:#555;font-size:14px;"><strong>Fee:</strong></td>
@@ -366,6 +379,7 @@ def render_doctor_appointment_html(
     reference_number: str,
     meet_link: Optional[str],
     reason: Optional[str],
+    timezone: Optional[str] = None,
 ) -> str:
     meet_section = (
         f'<p><strong>Meeting Link:</strong> <a href="{meet_link}">{meet_link}</a></p>'
@@ -393,7 +407,7 @@ def render_doctor_appointment_html(
           <p><strong>Reference:</strong> {reference_number}</p>
           <p><strong>Patient:</strong> {patient_name}</p>
           <p><strong>Type:</strong> {consultation_type.replace('_',' ').title()}</p>
-          <p><strong>Date &amp; Time:</strong> {scheduled_at.strftime('%B %d, %Y at %I:%M %p')} UTC</p>
+          <p><strong>Date &amp; Time:</strong> {_format_in_timezone(scheduled_at, timezone)}</p>
           <p><strong>Duration:</strong> {duration_minutes} minutes</p>
           {reason_section}
           {meet_section}
