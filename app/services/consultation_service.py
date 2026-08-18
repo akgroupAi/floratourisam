@@ -365,9 +365,45 @@ class ConsultationService:
         if consultation.status == ConsultationStatus.COMPLETED.value:
             raise ValueError("This consultation has already been completed")
 
-        meet_link = None
-        if consultation.session_data and isinstance(consultation.session_data, dict):
-            meet_link = consultation.session_data.get("meet_link")
+        session_data = consultation.session_data if isinstance(consultation.session_data, dict) else {}
+        meet_link = session_data.get("meet_link")
+        platform = session_data.get("platform")
+
+        if platform in ("jaas", "daily", "jitsi_selfhosted") and session_data.get("room"):
+            user_result = await self.db.execute(select(User).where(User.id == user_id))
+            joining_user = user_result.scalar_one_or_none()
+            joining_name = joining_user.full_name if joining_user else "Guest"
+
+            # Both patient and doctor join as moderator/owner — neither
+            # should see a "waiting for the host" screen.
+            if platform == "jaas":
+                from app.utils.google_meet import generate_jaas_join_link
+
+                meet_link = generate_jaas_join_link(
+                    room=session_data["room"],
+                    user_id=str(user_id),
+                    name=joining_name,
+                    email=joining_user.email if joining_user else "",
+                )
+            elif platform == "jitsi_selfhosted":
+                from app.utils.google_meet import generate_selfhosted_jitsi_join_link
+
+                meet_link = generate_selfhosted_jitsi_join_link(
+                    room=session_data["room"],
+                    user_id=str(user_id),
+                    name=joining_name,
+                    email=joining_user.email if joining_user else "",
+                )
+            else:
+                from app.utils.daily_co import generate_daily_join_link
+
+                meet_link = await generate_daily_join_link(
+                    room=session_data["room"],
+                    name=joining_name,
+                )
+
+            if not meet_link:
+                raise ValueError("Video call is temporarily unavailable. Please try again shortly.")
 
         return {
             "consultation_id": consultation.id,
@@ -375,7 +411,7 @@ class ConsultationService:
             "status": consultation.status,
             "meet_link": meet_link,
             "session_id": consultation.session_id,
-            "platform": (consultation.session_data or {}).get("platform"),
+            "platform": platform,
             "scheduled_at": consultation.scheduled_at,
             "duration_minutes": consultation.duration_minutes,
         }

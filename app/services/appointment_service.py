@@ -321,6 +321,7 @@ class AppointmentService:
                 "meet_link": meet_link,
                 "google_event_id": google_event_id,
                 "platform": meet_result.get("platform", "google_meet"),
+                "room": meet_result.get("room"),
             }
 
         await self.db.flush()

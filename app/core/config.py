@@ -132,6 +132,38 @@ class Settings(BaseSettings):
     GOOGLE_SERVICE_ACCOUNT_JSON: Optional[str] = None  # Path to service account JSON file
     GOOGLE_CALENDAR_TIMEZONE: str = "UTC"
 
+    # JaaS (Jitsi as a Service, 8x8.vc) — hosted Jitsi with JWT auth.
+    # Both patient and doctor are signed in as moderator, so neither one
+    # hits the "waiting for the host" screen that public meet.jit.si shows
+    # to anonymous joiners. Used as the fallback when Google Calendar is
+    # disabled; takes priority over the plain meet.jit.si fallback below.
+    JAAS_ENABLED: bool = False
+    JAAS_APP_ID: Optional[str] = None
+    JAAS_API_KEY_ID: Optional[str] = None  # "kid" from the JaaS API key
+    JAAS_PRIVATE_KEY_PATH: Optional[str] = None  # path to the downloaded .pk / .pem file
+    JAAS_DOMAIN: str = "8x8.vc"
+
+    # Daily.co — hosted WebRTC rooms via REST API. Rooms are private
+    # (token-gated) with knocking disabled, and both patient and doctor get
+    # an owner-level meeting token, so whoever joins first just starts the
+    # call — no shared email domain or per-doctor account needed. Checked
+    # before Google Calendar / JaaS when picking a video provider.
+    DAILY_ENABLED: bool = False
+    DAILY_API_KEY: Optional[str] = None
+    DAILY_DOMAIN: Optional[str] = None  # your Daily subdomain, e.g. "floramedcare" -> floramedcare.daily.co
+    DAILY_API_BASE_URL: str = "https://api.daily.co/v1"
+
+    # Self-hosted Jitsi Meet (open source, e.g. docker-jitsi-meet) with JWT
+    # auth. Same moderator-JWT trick as JaaS, but pointed at a Jitsi server
+    # you deploy and control — no per-minute SaaS cost, but you own the
+    # hosting, TURN/STUN, and TLS. JITSI_SELFHOSTED_APP_ID/APP_SECRET must
+    # match the JWT_APP_ID / JWT_APP_SECRET configured on that server.
+    JITSI_SELFHOSTED_ENABLED: bool = False
+    JITSI_SELFHOSTED_DOMAIN: Optional[str] = None  # host (and :port if non-standard), e.g. "meet.floramedcare.com" or "147.93.104.58:18443"
+    JITSI_SELFHOSTED_BASE_PATH: Optional[str] = None  # subdir prefix for multi-tenant deployments, e.g. "DistantRepresentationsMarkForth" — omit if your instance serves from "/"
+    JITSI_SELFHOSTED_APP_ID: str = "floramedcare"
+    JITSI_SELFHOSTED_APP_SECRET: Optional[str] = None
+
     @property
     def async_database_url(self) -> str:
         """Return async database URL."""
