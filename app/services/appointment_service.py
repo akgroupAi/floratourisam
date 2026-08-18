@@ -179,15 +179,18 @@ class AppointmentService:
         max_appts = availability.max_appointments
         all_unavailable = max_appts is not None and len(booked_rows) >= max_appts
 
+        now_utc = datetime.now(timezone.utc)
         slots: List[TimeSlot] = []
         for slot in all_slots:
-            slot_dt = datetime.combine(requested_date, slot).replace(tzinfo=doctor_tz).astimezone(display_tz)
+            slot_local_dt = datetime.combine(requested_date, slot).replace(tzinfo=doctor_tz)
+            is_past = slot_local_dt < now_utc
+            slot_dt = slot_local_dt.astimezone(display_tz)
             slots.append(
                 TimeSlot(
                     date=slot_dt.date(),
                     time=slot_dt.time(),
                     formatted=_format_time(slot_dt.time()),
-                    is_available=False if all_unavailable else slot not in occupied,
+                    is_available=False if (all_unavailable or is_past) else slot not in occupied,
                 )
             )
 
@@ -242,6 +245,9 @@ class AppointmentService:
         effective_tz = _resolve_timezone(effective_timezone)
         local_dt = datetime.combine(data.scheduled_date, data.scheduled_time).replace(tzinfo=effective_tz)
         scheduled_at = local_dt.astimezone(timezone.utc)
+
+        if scheduled_at < datetime.now(timezone.utc):
+            raise ValueError("Cannot book a slot in the past")
 
         # Confirm slot is not already taken
         await self._assert_slot_available(doctor.id, scheduled_at, data.duration_minutes)
